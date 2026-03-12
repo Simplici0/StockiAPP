@@ -743,8 +743,15 @@
           <td>
             <div class="actions">
               <input type="number" min="1" max="${Math.max(product.available, 1)}" value="1" data-qty="${product.id}" />
+              {{if .CanSell}}
               <button class="primary" data-action="sell" data-product="${product.id}">Vender</button>
+              {{end}}
+              {{if .CanSwap}}
               <button class="secondary" data-action="swap" data-product="${product.id}">Cambio</button>
+              {{end}}
+              {{if .CanRetoma}}
+              <button class="ghost" data-action="retoma" data-product="${product.id}">Retoma</button>
+              {{end}}
             </div>
           </td>
           <td>
@@ -753,6 +760,9 @@
               <div class="menu-panel" id="menu-${product.id}">
                 <button type="button" data-menu-action="reserve" data-product="${product.id}">Reservar unidades</button>
                 <button type="button" data-menu-action="damage" data-product="${product.id}">Registrar daño</button>
+                {{if .CanRetoma}}
+                <button type="button" data-menu-action="retoma" data-product="${product.id}">Preparar retoma</button>
+                {{end}}
                 {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "empleado"))}}
                 <button type="button" data-menu-action="stock" data-product="${product.id}">Ajustar stock</button>
                 {{end}}
@@ -1442,6 +1452,15 @@
           });
           return;
         }
+        if (action === "retoma") {
+          const qty = Math.max(1, defaultQty);
+          const params = new URLSearchParams({
+            producto_id: productId,
+            cantidad: String(qty)
+          });
+          window.location.href = `/retoma/new?${params.toString()}`;
+          return;
+        }
         if (action === "stock") {
           const currentStock = Number.isFinite(maxQty) ? Math.max(0, maxQty) : 0;
           openActionModal({
@@ -1494,6 +1513,15 @@
             cantidad: String(quantity)
           });
           window.location.href = `/cambio/new?${params.toString()}`;
+          return;
+        }
+
+        if (action === "retoma") {
+          const params = new URLSearchParams({
+            producto_id: productId,
+            cantidad: String(quantity)
+          });
+          window.location.href = `/retoma/new?${params.toString()}`;
           return;
         }
       }

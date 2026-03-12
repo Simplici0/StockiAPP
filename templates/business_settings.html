@@ -406,6 +406,49 @@
         </div>
       {{end}}
     </section>
+
+    <section class="card line-card">
+      <div>
+        <h2>Tipos de movimiento</h2>
+        <p>Controla qué operaciones nuevas están visibles y disponibles en la app. Desactivar una opción no afecta el historial existente.</p>
+      </div>
+
+      {{if .MovementSettings}}
+        <div class="stack">
+          {{range .MovementSettings}}
+            <form class="line-row" method="POST" action="/configuracion/movimientos/update">
+              <input type="hidden" name="movement_type" value="{{.MovementType}}" />
+              <div class="line-meta">
+                <strong>{{.MovementType}}</strong>
+                <p>Actualizado: {{.UpdatedAt}}</p>
+              </div>
+              <div>
+                <span class="line-status {{if not .Enabled}}inactive{{end}}">
+                  {{if .Enabled}}Habilitado{{else}}Deshabilitado{{end}}
+                </span>
+              </div>
+              <div class="stack">
+                <label class="checkline">
+                  <input type="checkbox" name="enabled" {{if .Enabled}}checked{{end}} />
+                  Disponible para nuevas operaciones
+                </label>
+                <div class="actions">
+                  <button class="secondary" type="submit">Guardar</button>
+                </div>
+              </div>
+            </form>
+          {{end}}
+        </div>
+        <div class="settings-note">
+          <p>Retoma queda habilitable desde aquí. Si la activas, la UI mostrará la opción, pero el flujo operativo detallado sigue pendiente para una tarea posterior.</p>
+        </div>
+      {{else}}
+        <div class="empty-state">
+          <h2>Sin tipos de movimiento</h2>
+          <p>No se encontraron configuraciones de movimientos. La app usará venta, cambio y retoma por defecto al reiniciar.</p>
+        </div>
+      {{end}}
+    </section>
   </main>
 
   <script>

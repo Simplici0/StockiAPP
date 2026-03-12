@@ -34,6 +34,9 @@ type inventoryPageData struct {
 	Flash       string
 	MetodoPagos []string
 	Products    []inventoryProduct
+	CanSell     bool
+	CanSwap     bool
+	CanRetoma   bool
 	CurrentUser *User
 }
 
@@ -112,6 +115,13 @@ type PaymentMethod struct {
 	SortOrder int
 	CreatedAt string
 	UpdatedAt string
+}
+
+type MovementSetting struct {
+	ID           int
+	MovementType string
+	Enabled      bool
+	UpdatedAt    string
 }
 
 var (
@@ -995,6 +1005,10 @@ func defaultPaymentMethodNames() []string {
 	return []string{"Efectivo", "Transferencia", "Nequi", "Daviplata"}
 }
 
+func defaultMovementTypes() []string {
+	return []string{"venta", "cambio", "retoma"}
+}
+
 func loadPaymentMethods(db *sql.DB, activeOnly bool) ([]PaymentMethod, error) {
 	query := `
 		SELECT id, name, active, sort_order, created_at, updated_at
@@ -1058,6 +1072,67 @@ func seedPaymentMethodsIfMissing(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func seedMovementSettingsIfMissing(db *sql.DB) error {
+	now := time.Now().Format(time.RFC3339)
+	for _, movementType := range defaultMovementTypes() {
+		if _, err := db.Exec(`
+			INSERT OR IGNORE INTO movement_settings (movement_type, enabled, updated_at)
+			VALUES (?, 1, ?)
+		`, movementType, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadMovementSettings(db *sql.DB) ([]MovementSetting, map[string]bool, error) {
+	rows, err := db.Query(`
+		SELECT id, movement_type, enabled, updated_at
+		FROM movement_settings
+		ORDER BY CASE movement_type
+			WHEN 'venta' THEN 1
+			WHEN 'cambio' THEN 2
+			WHEN 'retoma' THEN 3
+			ELSE 99
+		END, id
+	`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	settings := make([]MovementSetting, 0)
+	enabledMap := make(map[string]bool)
+	for rows.Next() {
+		var item MovementSetting
+		var enabled int
+		if err := rows.Scan(&item.ID, &item.MovementType, &enabled, &item.UpdatedAt); err != nil {
+			return nil, nil, err
+		}
+		item.Enabled = enabled == 1
+		item.UpdatedAt = formatDateWithSettings(item.UpdatedAt)
+		settings = append(settings, item)
+		enabledMap[item.MovementType] = item.Enabled
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	for _, movementType := range defaultMovementTypes() {
+		if _, ok := enabledMap[movementType]; !ok {
+			enabledMap[movementType] = true
+		}
+	}
+	return settings, enabledMap, nil
+}
+
+func movementEnabled(enabledMap map[string]bool, movementType string) bool {
+	enabled, ok := enabledMap[movementType]
+	if !ok {
+		return true
+	}
+	return enabled
 }
 
 func ensureUploadDirs() error {
@@ -1497,6 +1572,13 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE TABLE IF NOT EXISTS movement_settings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		movement_type TEXT NOT NULL UNIQUE,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -1591,6 +1673,9 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		return nil, err
 	}
 	if err := seedPaymentMethodsIfMissing(db); err != nil {
+		return nil, err
+	}
+	if err := seedMovementSettingsIfMissing(db); err != nil {
 		return nil, err
 	}
 
@@ -1897,6 +1982,7 @@ func main() {
 		Settings          BusinessSettings
 		Lines             []BusinessLine
 		PaymentMethods    []PaymentMethod
+		MovementSettings  []MovementSetting
 		NewPaymentMethod  string
 		NewLineName       string
 		EditingLineID     int
@@ -2118,6 +2204,11 @@ func main() {
 				http.Error(w, "Error al cargar canales de pago", http.StatusInternalServerError)
 				return
 			}
+			movementSettings, _, err := loadMovementSettings(db)
+			if err != nil {
+				http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+				return
+			}
 			editingID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("edit_line")))
 			editingName := ""
 			for _, line := range lines {
@@ -2134,6 +2225,7 @@ func main() {
 				Settings:          currentBusinessSettings(),
 				Lines:             lines,
 				PaymentMethods:    paymentMethodsCfg,
+				MovementSettings:  movementSettings,
 				NewPaymentMethod:  strings.TrimSpace(r.URL.Query().Get("new_payment_method")),
 				NewLineName:       strings.TrimSpace(r.URL.Query().Get("new_line")),
 				EditingLineID:     editingID,
@@ -2334,6 +2426,42 @@ func main() {
 			return
 		}
 		redirectWithMessage(w, r, "/configuracion", "Canal de pago actualizado.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/movimientos/update", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		movementType := strings.TrimSpace(strings.ToLower(r.FormValue("movement_type")))
+		allowed := false
+		for _, item := range defaultMovementTypes() {
+			if movementType == item {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			redirectWithMessage(w, r, "/configuracion", "", "Tipo de movimiento inválido.")
+			return
+		}
+		enabled := 0
+		if r.FormValue("enabled") != "" {
+			enabled = 1
+		}
+		if _, err := db.Exec(`
+			UPDATE movement_settings
+			SET enabled = ?, updated_at = ?
+			WHERE movement_type = ?
+		`, enabled, time.Now().Format(time.RFC3339), movementType); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar el tipo de movimiento.")
+			return
+		}
+		redirectWithMessage(w, r, "/configuracion", "Tipos de movimiento actualizados.", "")
 	}))
 
 	mux.HandleFunc("/admin/users/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -3172,6 +3300,11 @@ func main() {
 				SalePrice:         product.SalePrice,
 			})
 		}
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+			return
+		}
 		data := inventoryPageData{
 			Title:       "Seguimiento de existencias",
 			Subtitle:    "",
@@ -3179,6 +3312,9 @@ func main() {
 			Flash:       flash,
 			MetodoPagos: paymentMethodNames(activePaymentMethods),
 			Products:    inventoryProducts,
+			CanSell:     movementEnabled(movementEnabledMap, "venta"),
+			CanSwap:     movementEnabled(movementEnabledMap, "cambio"),
+			CanRetoma:   movementEnabled(movementEnabledMap, "retoma"),
 			CurrentUser: currentUser,
 		}
 		if err := tmpl.ExecuteTemplate(w, "inventario.html", data); err != nil {
@@ -3710,6 +3846,15 @@ func main() {
 
 	mux.HandleFunc("/venta/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "venta") {
+			redirectWithMessage(w, r, "/inventario", "", "La venta está deshabilitada en Configuración.")
+			return
+		}
 		activePaymentMethods, err := loadPaymentMethods(db, true)
 		if err != nil {
 			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
@@ -3772,6 +3917,15 @@ func main() {
 
 	mux.HandleFunc("/cambio/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "cambio") {
+			redirectWithMessage(w, r, "/inventario", "", "El cambio está deshabilitado en Configuración.")
+			return
+		}
 		productsMu.RLock()
 		productsSnapshot := make([]productOption, len(products))
 		copy(productsSnapshot, products)
@@ -3823,9 +3977,37 @@ func main() {
 		}
 	})
 
+	mux.HandleFunc("/retoma/new", func(w http.ResponseWriter, r *http.Request) {
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "retoma") {
+			redirectWithMessage(w, r, "/inventario", "", "La retoma está deshabilitada en Configuración.")
+			return
+		}
+		redirectWithMessage(w, r, "/inventario", "Retoma habilitada. El flujo detallado queda pendiente para una tarea posterior.", "")
+	})
+
 	mux.HandleFunc("/venta", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
 		wantsJSON := strings.Contains(r.Header.Get("Accept"), "application/json") || r.Header.Get("X-Requested-With") == "XMLHttpRequest"
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "venta") {
+			if wantsJSON {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "La venta está deshabilitada en Configuración."})
+				return
+			}
+			redirectWithMessage(w, r, "/inventario", "", "La venta está deshabilitada en Configuración.")
+			return
+		}
 		activePaymentMethods, err := loadPaymentMethods(db, true)
 		if err != nil {
 			if wantsJSON {
@@ -4099,6 +4281,15 @@ func main() {
 
 	mux.HandleFunc("/cambio", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "cambio") {
+			redirectWithMessage(w, r, "/inventario", "", "El cambio está deshabilitado en Configuración.")
+			return
+		}
 		productsMu.RLock()
 		productsSnapshot := make([]productOption, len(products))
 		copy(productsSnapshot, products)
