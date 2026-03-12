@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.Title}}</title>
+  <style>
+    .settings-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.95fr);
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .preview-card {
+      display: grid;
+      gap: 18px;
+    }
+
+    .logo-preview {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 18px;
+      border-radius: 16px;
+      border: 1px dashed var(--border-strong);
+      background: linear-gradient(180deg, var(--bg-card-muted) 0%, #ffffff 100%);
+    }
+
+    .logo-frame {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: var(--shadow-xs);
+      flex: 0 0 auto;
+    }
+
+    .logo-frame img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .preview-meta {
+      display: grid;
+      gap: 6px;
+    }
+
+    .preview-meta strong {
+      font-size: 1rem;
+      color: var(--secondary);
+    }
+
+    .color-row {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 74px minmax(0, 1fr);
+      align-items: center;
+    }
+
+    .color-row input[type="color"] {
+      min-height: 48px;
+      padding: 4px;
+      cursor: pointer;
+    }
+
+    .settings-note {
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: var(--bg-card-muted);
+      border: 1px solid var(--border);
+    }
+
+    .flash.error {
+      color: #9f2445;
+      background: rgba(217, 75, 99, 0.08);
+      border-color: rgba(217, 75, 99, 0.18);
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .line-card {
+      margin-top: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .line-row {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, #ffffff 0%, var(--bg-card-muted) 100%);
+    }
+
+    .line-meta {
+      display: grid;
+      gap: 4px;
+    }
+
+    .line-meta strong {
+      color: var(--secondary);
+      font-size: 15px;
+    }
+
+    .line-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .line-status.inactive {
+      color: var(--danger);
+      border-color: rgba(217, 75, 99, 0.18);
+      background: rgba(217, 75, 99, 0.08);
+    }
+
+    .line-form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .line-form-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+    }
+
+    .checkline {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+    }
+
+    .checkline input {
+      width: 18px;
+      min-width: 18px;
+      height: 18px;
+      min-height: 18px;
+      margin: 0;
+      padding: 0;
+      flex: 0 0 auto;
+      accent-color: var(--primary);
+    }
+
+    .empty-state {
+      padding: 22px;
+      border-radius: 18px;
+      border: 1px dashed var(--border-strong);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, var(--bg-card-muted) 100%);
+    }
+
+    .pill-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .order-field {
+      width: 96px;
+    }
+
+    @media (max-width: 900px) {
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .line-row,
+      .line-form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+  {{template "app_styles" .}}
+</head>
+<body>
+  {{template "header" .}}
+
+  <main class="page-content">
+    {{if .Flash}}
+      <div class="flash">{{.Flash}}</div>
+    {{end}}
+    {{if .Error}}
+      <div class="flash error">{{.Error}}</div>
+    {{end}}
+
+    <section class="settings-grid">
+      <form class="card stack" method="POST" action="/configuracion" enctype="multipart/form-data">
+        <div>
+          <h2>Identidad del negocio</h2>
+          <p>Define el branding base para reutilizar Stocki App en distintos negocios sin tocar código.</p>
+        </div>
+
+        <div>
+          <label for="business_name">Nombre del negocio</label>
+          <input id="business_name" name="business_name" type="text" value="{{.Settings.BusinessName}}" required />
+        </div>
+
+        <div>
+          <label for="logo">Logo del negocio</label>
+          <input id="logo" name="logo" type="file" accept=".png,.jpg,.jpeg,.svg,.webp" />
+          <p>Si no subes uno nuevo, se conserva el actual.</p>
+        </div>
+
+        <div>
+          <label for="primary_color">Color principal</label>
+          <div class="color-row">
+            <input id="primary_color" name="primary_color" type="color" value="{{.Settings.PrimaryColor}}" />
+            <input id="primary_color_text" type="text" value="{{.Settings.PrimaryColor}}" readonly />
+          </div>
+        </div>
+
+        <div class="stack">
+          <div>
+            <label for="currency">Moneda</label>
+            <select id="currency" name="currency">
+              {{range .CurrencyOptions}}
+                <option value="{{.}}" {{if eq $.Settings.Currency .}}selected{{end}}>{{.}}</option>
+              {{end}}
+            </select>
+          </div>
+
+          <div>
+            <label for="date_format">Formato de fecha</label>
+            <select id="date_format" name="date_format">
+              {{range .DateFormatOptions}}
+                <option value="{{.}}" {{if eq $.Settings.DateFormat .}}selected{{end}}>{{.}}</option>
+              {{end}}
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="primary" type="submit">Guardar configuración</button>
+          <a class="button secondary" href="/dashboard">Volver al dashboard</a>
+        </div>
+      </form>
+
+      <aside class="preview-card">
+        <section class="card stack">
+          <div>
+            <h2>Vista previa</h2>
+            <p>Así se verá el branding base del sistema al cargar la app.</p>
+          </div>
+
+          <div class="logo-preview">
+            <div class="logo-frame">
+              <img id="logo_preview" src="{{.Settings.LogoPath}}" alt="Logo actual" />
+            </div>
+            <div class="preview-meta">
+              <strong id="business_name_preview">{{.Settings.BusinessName}}</strong>
+              <p>Moneda: <span id="currency_preview">{{.Settings.Currency}}</span></p>
+              <p>Fecha: <span id="date_preview">{{.Settings.DateFormat}}</span></p>
+            </div>
+          </div>
+
+          <div class="settings-note">
+            <p>El color principal actual controla botones, focos, enlaces activos y acentos del layout.</p>
+          </div>
+        </section>
+      </aside>
+    </section>
+
+    <section class="card line-card">
+      <div>
+        <h2>Líneas de negocio</h2>
+        <p>Administra las categorías operativas disponibles al crear productos. Desactivar una línea no afecta productos históricos.</p>
+      </div>
+
+      <form class="line-form" method="POST" action="/configuracion/lineas/create">
+        <div class="line-form-grid">
+          <div>
+            <label for="new_line_name">Nueva línea</label>
+            <input id="new_line_name" name="name" type="text" value="{{.NewLineName}}" placeholder="Ej. Farmacia" />
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">Crear línea</button>
+          </div>
+        </div>
+      </form>
+
+      {{if .Lines}}
+        <div class="stack">
+          {{range .Lines}}
+            <form class="line-row" method="POST" action="/configuracion/lineas/update">
+              <input type="hidden" name="id" value="{{.ID}}" />
+              <div class="line-meta">
+                <label for="line_{{.ID}}">Nombre</label>
+                <input id="line_{{.ID}}" name="name" type="text" value="{{.Name}}" />
+                <p>Creada: {{.CreatedAt}} · Actualizada: {{.UpdatedAt}}</p>
+              </div>
+              <div>
+                <span class="line-status {{if not .Active}}inactive{{end}}">
+                  {{if .Active}}Activa{{else}}Inactiva{{end}}
+                </span>
+              </div>
+              <div class="stack">
+                <label class="checkline">
+                  <input type="checkbox" name="active" {{if .Active}}checked{{end}} />
+                  Activa para nuevos productos
+                </label>
+                <div class="actions">
+                  <button class="secondary" type="submit">Guardar</button>
+                </div>
+              </div>
+            </form>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty-state">
+          <h2>Sin líneas configuradas</h2>
+          <p>Todavía no hay líneas de negocio. Crea la primera para habilitar el selector de línea en productos.</p>
+        </div>
+      {{end}}
+    </section>
+
+    <section class="card line-card">
+      <div>
+        <h2>Canales de pago</h2>
+        <p>Define qué métodos aparecen al registrar ventas y en qué orden visual se muestran.</p>
+      </div>
+
+      <form class="line-form" method="POST" action="/configuracion/pagos/create">
+        <div class="line-form-grid">
+          <div>
+            <label for="new_payment_method">Nuevo canal de pago</label>
+            <input id="new_payment_method" name="name" type="text" value="{{.NewPaymentMethod}}" placeholder="Ej. QR" />
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">Crear canal</button>
+          </div>
+        </div>
+      </form>
+
+      {{if .PaymentMethods}}
+        <div class="stack">
+          {{range .PaymentMethods}}
+            <form class="line-row" method="POST" action="/configuracion/pagos/update">
+              <input type="hidden" name="id" value="{{.ID}}" />
+              <div class="line-meta">
+                <label for="payment_{{.ID}}">Nombre</label>
+                <input id="payment_{{.ID}}" name="name" type="text" value="{{.Name}}" />
+                <p>Creado: {{.CreatedAt}} · Actualizado: {{.UpdatedAt}}</p>
+              </div>
+              <div class="stack">
+                <div class="pill-row">
+                  <span class="line-status {{if not .Active}}inactive{{end}}">
+                    {{if .Active}}Activo{{else}}Inactivo{{end}}
+                  </span>
+                </div>
+                <div>
+                  <label for="payment_order_{{.ID}}">Orden</label>
+                  <input class="order-field" id="payment_order_{{.ID}}" name="sort_order" type="number" min="1" step="1" value="{{.SortOrder}}" />
+                </div>
+              </div>
+              <div class="stack">
+                <label class="checkline">
+                  <input type="checkbox" name="active" {{if .Active}}checked{{end}} />
+                  Mostrar en nuevas ventas
+                </label>
+                <div class="actions">
+                  <button class="secondary" type="submit">Guardar</button>
+                </div>
+              </div>
+            </form>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty-state">
+          <h2>Sin canales configurados</h2>
+          <p>No hay métodos de pago cargados todavía. Crea el primero y se mostrará en el formulario de ventas.</p>
+        </div>
+      {{end}}
+    </section>
+  </main>
+
+  <script>
+    const businessNameInput = document.getElementById("business_name");
+    const businessNamePreview = document.getElementById("business_name_preview");
+    const colorInput = document.getElementById("primary_color");
+    const colorText = document.getElementById("primary_color_text");
+    const currencyInput = document.getElementById("currency");
+    const currencyPreview = document.getElementById("currency_preview");
+    const dateInput = document.getElementById("date_format");
+    const datePreview = document.getElementById("date_preview");
+    const logoInput = document.getElementById("logo");
+    const logoPreview = document.getElementById("logo_preview");
+
+    if (businessNameInput && businessNamePreview) {
+      businessNameInput.addEventListener("input", () => {
+        businessNamePreview.textContent = businessNameInput.value.trim() || "Stocki App";
+      });
+    }
+
+    if (colorInput && colorText) {
+      const syncColor = () => {
+        colorText.value = colorInput.value;
+      };
+      colorInput.addEventListener("input", syncColor);
+      syncColor();
+    }
+
+    if (currencyInput && currencyPreview) {
+      currencyInput.addEventListener("change", () => {
+        currencyPreview.textContent = currencyInput.value;
+      });
+    }
+
+    if (dateInput && datePreview) {
+      dateInput.addEventListener("change", () => {
+        datePreview.textContent = dateInput.value;
+      });
+    }
+
+    if (logoInput && logoPreview) {
+      logoInput.addEventListener("change", () => {
+        const file = logoInput.files && logoInput.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        logoPreview.src = url;
+      });
+    }
+  </script>
+</body>
+</html>

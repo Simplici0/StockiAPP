@@ -5,249 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{.Title}}</title>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7f5f2;
-      --card: #ffffff;
-      --text: #26221f;
-      --muted: #6f6a65;
-      --primary: #e85d3c;
-      --primary-strong: #cf4528;
-      --primary-soft: #fff1e6;
-      --danger: #d64545;
-      --border: #e6dfd8;
-      --info: #1f6feb;
-      --shadow-soft: 0 8px 18px rgba(18, 23, 38, 0.08);
-    }
-
-    * {
-      box-sizing: border-box;
-      font-family: "Inter", "Segoe UI", sans-serif;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      animation: fadeIn 0.4s ease-out;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    .global-banner {
-      background: #f47a24;
-      padding: 10px 32px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .banner-logos {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .logo-placeholder {
-      height: 26px;
-      min-width: 76px;
-      padding: 0 10px;
-      border-radius: 999px;
-      border: 1px dashed rgba(255, 255, 255, 0.7);
-      color: #ffffff;
-      font-size: 11px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      background: rgba(255, 255, 255, 0.2);
-    }
-
-    .page-header {
-      padding: 18px 32px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      background: var(--card);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .page-header h1 {
-      margin: 0;
-      font-size: 24px;
-    }
-
-    .page-header p {
-      margin: 0;
-      color: var(--muted);
-    }
-
-    .page-content {
-      padding: 24px 32px 40px;
-      max-width: 1100px;
-      margin: 0 auto;
-    }
-
-    /* Nuevo diseño de botones de navegación */
-    .nav-buttons {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      padding: 8px;
-      border-radius: 16px;
-      border: 1px solid var(--border);
-      background: var(--card);
-      box-shadow: var(--shadow-soft);
-      width: fit-content;
-    }
-
-    .nav-button {
-      display: inline-flex;
-      padding: 8px 14px;
-      border-radius: 999px;
-      text-decoration: none;
-      font-size: 13px;
-      font-weight: 600;
-      transition: all 0.2s ease;
-      border: 1px solid transparent;
-      background: var(--primary-soft);
-      color: var(--primary);
-      cursor: pointer;
-    }
-
-    .nav-button:hover {
-      background: var(--primary);
-      color: #ffffff;
-    }
-
-    .nav-button.active {
-      background: var(--primary);
-      color: #ffffff;
-    }
-
+    /* ── Cambio nuevo: estilos locales ── */
     .card {
-      max-width: 900px;
+      max-width: 820px;
       margin: 0 auto;
-      background: var(--card);
-      border-radius: 18px;
-      border: 1px solid var(--border);
-      padding: 24px;
-      box-shadow: var(--shadow-soft);
-      animation: slideUp 0.5s ease-out;
     }
 
-    @keyframes slideUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+    .card h1 {
+      margin-bottom: 4px;
     }
 
-    h1 {
-      margin: 0 0 8px;
-      font-size: 24px;
-    }
-
-    p {
-      margin: 0 0 16px;
-      color: var(--muted);
+    .card > p {
+      margin-bottom: 14px;
     }
 
     .alert {
-      padding: 12px 16px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #e8f1ff 0%, #f0f7ff 100%);
-      border: 1px solid #c6dcff;
-      color: #1f3c88;
-      font-size: 14px;
-      margin-bottom: 16px;
-      box-shadow: 0 2px 6px rgba(31, 60, 136, 0.08);
+      padding: 11px 14px;
+      border-radius: 8px;
+      background: #eff6ff;
+      border: 1px solid rgba(29, 78, 216, 0.18);
+      color: #1e3a8a;
+      font-size: 13.5px;
+      font-weight: 600;
+      margin-bottom: 14px;
     }
 
     form {
       display: grid;
-      gap: 18px;
-    }
-
-    label {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      display: block;
-      margin-bottom: 6px;
-    }
-
-    input,
-    select,
-    textarea {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      font-size: 14px;
-      background: #ffffff;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    input:hover,
-    select:hover,
-    textarea:hover {
-      border-color: rgba(232, 93, 60, 0.3);
-    }
-
-    input:focus,
-    select:focus,
-    textarea:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(232, 93, 60, 0.16);
-      transform: translateY(-1px);
-    }
-
-    textarea {
-      min-height: 110px;
-      resize: vertical;
+      gap: 14px;
     }
 
     .row {
       display: grid;
-      gap: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     }
 
     .section {
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 16px;
+      border: 1px solid rgba(15, 40, 80, 0.1);
+      border-radius: 10px;
+      padding: 14px;
       display: grid;
       gap: 12px;
-      background: #fbfaf8;
-      transition: box-shadow 0.2s ease;
-    }
-
-    .section:hover {
-      box-shadow: 0 2px 8px rgba(18, 23, 38, 0.06);
+      background: #f8fafc;
     }
 
     .section h2 {
       margin: 0;
-      font-size: 16px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #0d2b55;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
     }
 
     .multi-select {
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      border: 1px solid rgba(15, 40, 80, 0.1);
+      border-radius: 8px;
       background: #ffffff;
       padding: 8px 12px;
     }
@@ -258,8 +72,9 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 14px;
-      color: var(--text);
+      font-size: 13.5px;
+      color: #0f1d2e;
+      min-height: 34px;
     }
 
     .multi-select summary::-webkit-details-marker {
@@ -268,14 +83,14 @@
 
     .multi-select .summary-meta {
       font-size: 12px;
-      color: var(--muted);
+      color: #7a93ae;
     }
 
     .multi-select .options {
-      margin-top: 10px;
+      margin-top: 8px;
       display: grid;
-      gap: 8px;
-      max-height: 200px;
+      gap: 7px;
+      max-height: 180px;
       overflow-y: auto;
       padding-right: 4px;
     }
@@ -283,9 +98,9 @@
     .multi-select .option {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       font-size: 13px;
-      color: var(--text);
+      color: #0f1d2e;
     }
 
     .multi-select input[type="checkbox"] {
@@ -293,17 +108,17 @@
     }
 
     .selection-count {
-      font-weight: 600;
-      color: var(--info);
+      font-weight: 700;
+      color: #0ea5c9;
     }
 
     .hint {
       font-size: 12px;
-      color: var(--muted);
+      color: #7a93ae;
     }
 
     .error {
-      color: var(--danger);
+      color: #dc2626;
       font-size: 12px;
     }
 
@@ -313,67 +128,19 @@
 
     .actions {
       display: flex;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: wrap;
       align-items: center;
-    }
-
-    button,
-    a.button {
-      border: 1px solid var(--border);
-      padding: 10px 16px;
-      border-radius: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      background: var(--card);
-      color: var(--text);
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    button:hover,
-    a.button:hover {
-      transform: translateY(-1px);
-    }
-
-    button:active,
-    a.button:active {
-      transform: translateY(0);
-    }
-
-    button.primary {
-      background: linear-gradient(135deg, var(--primary) 0%, #d85038 100%);
-      border-color: var(--primary);
-      color: #ffffff;
-      box-shadow: 0 2px 8px rgba(232, 93, 60, 0.25);
-    }
-
-    button.primary:hover {
-      box-shadow: 0 4px 14px rgba(232, 93, 60, 0.35);
-      transform: translateY(-2px);
-    }
-
-    .secondary {
-      background: var(--primary-soft);
-      color: var(--primary);
-      border-color: #f2c6a8;
-    }
-
-    .secondary:hover {
-      background: #ffe4d1;
-      border-color: var(--primary);
+      padding-top: 4px;
     }
 
     .note {
       font-size: 12px;
-      color: var(--info);
+      color: #0369a1;
       font-weight: 600;
     }
   </style>
+  {{template "app_styles" .}}
 </head>
 <body>
   {{template "header" .}}

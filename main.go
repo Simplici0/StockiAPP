@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -86,7 +87,50 @@ type inventoryProduct struct {
 	SalePrice         float64
 }
 
-var errInsufficientStock = fmt.Errorf("stock insuficiente")
+type BusinessSettings struct {
+	ID           int
+	BusinessName string
+	LogoPath     string
+	PrimaryColor string
+	Currency     string
+	DateFormat   string
+	UpdatedAt    string
+}
+
+type BusinessLine struct {
+	ID        int
+	Name      string
+	Active    bool
+	CreatedAt string
+	UpdatedAt string
+}
+
+type PaymentMethod struct {
+	ID        int
+	Name      string
+	Active    bool
+	SortOrder int
+	CreatedAt string
+	UpdatedAt string
+}
+
+var (
+	errInsufficientStock = fmt.Errorf("stock insuficiente")
+
+	businessSettingsMu sync.RWMutex
+	businessSettings   = defaultBusinessSettings()
+)
+
+func defaultBusinessSettings() BusinessSettings {
+	return BusinessSettings{
+		ID:           1,
+		BusinessName: "Stocki App",
+		LogoPath:     "/static/img/logo1.svg",
+		PrimaryColor: "#0ea5c9",
+		Currency:     "COP",
+		DateFormat:   "2006-01-02",
+	}
+}
 
 type sqlExecer interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -513,7 +557,7 @@ func buildDashboardSalesData(db *sql.DB, startStr, endStr string, startDate, end
 		}
 		sales = append(sales, dashboardSaleDetail{
 			ID:         id,
-			Fecha:      fecha,
+			Fecha:      formatDateWithSettings(fecha),
 			Producto:   producto,
 			Cantidad:   cantidad,
 			Total:      formatCurrency(precioUnit * float64(cantidad)),
@@ -730,9 +774,331 @@ func availableCountsByProduct(db *sql.DB) (map[string]int, error) {
 	return out, nil
 }
 
+func currentBusinessSettings() BusinessSettings {
+	businessSettingsMu.RLock()
+	defer businessSettingsMu.RUnlock()
+	return businessSettings
+}
+
+func setCurrentBusinessSettings(settings BusinessSettings) {
+	businessSettingsMu.Lock()
+	businessSettings = normalizeBusinessSettings(settings)
+	businessSettingsMu.Unlock()
+}
+
+func normalizeBusinessSettings(settings BusinessSettings) BusinessSettings {
+	defaults := defaultBusinessSettings()
+	settings.BusinessName = strings.TrimSpace(settings.BusinessName)
+	if settings.BusinessName == "" {
+		settings.BusinessName = defaults.BusinessName
+	}
+	settings.LogoPath = strings.TrimSpace(settings.LogoPath)
+	if settings.LogoPath == "" {
+		settings.LogoPath = defaults.LogoPath
+	}
+	settings.PrimaryColor = normalizeHexColor(settings.PrimaryColor, defaults.PrimaryColor)
+	settings.Currency = normalizeCurrency(settings.Currency)
+	settings.DateFormat = normalizeDateFormat(settings.DateFormat)
+	return settings
+}
+
+func normalizeCurrency(raw string) string {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case "USD", "EUR", "COP":
+		return strings.ToUpper(strings.TrimSpace(raw))
+	default:
+		return defaultBusinessSettings().Currency
+	}
+}
+
+func normalizeDateFormat(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "2006-01-02", "02/01/2006", "01/02/2006", "02-01-2006":
+		return strings.TrimSpace(raw)
+	default:
+		return defaultBusinessSettings().DateFormat
+	}
+}
+
+func normalizeHexColor(raw, fallback string) string {
+	value := strings.TrimSpace(strings.TrimPrefix(raw, "#"))
+	if len(value) != 6 {
+		return fallback
+	}
+	for _, ch := range value {
+		switch {
+		case ch >= '0' && ch <= '9':
+		case ch >= 'a' && ch <= 'f':
+		case ch >= 'A' && ch <= 'F':
+		default:
+			return fallback
+		}
+	}
+	return "#" + strings.ToLower(value)
+}
+
+func shadeHexColor(hex string, delta int) string {
+	hex = normalizeHexColor(hex, defaultBusinessSettings().PrimaryColor)
+	parse := func(part string) int {
+		v, err := strconv.ParseInt(part, 16, 0)
+		if err != nil {
+			return 0
+		}
+		return int(v)
+	}
+	clamp := func(v int) int {
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return v
+	}
+	r := clamp(parse(hex[1:3]) + delta)
+	g := clamp(parse(hex[3:5]) + delta)
+	b := clamp(parse(hex[5:7]) + delta)
+	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
+}
+
+func parseDateFlexible(raw string) (time.Time, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05-07:00",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func formatDateWithSettings(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	settings := currentBusinessSettings()
+	if t, ok := parseDateFlexible(raw); ok {
+		return t.Format(settings.DateFormat)
+	}
+	return raw
+}
+
+func loadBusinessSettings(db *sql.DB) (BusinessSettings, error) {
+	settings := defaultBusinessSettings()
+	row := db.QueryRow(`
+		SELECT id, business_name, logo_path, primary_color, currency, date_format, updated_at
+		FROM business_settings
+		ORDER BY id ASC
+		LIMIT 1
+	`)
+	var updatedAt sql.NullString
+	err := row.Scan(&settings.ID, &settings.BusinessName, &settings.LogoPath, &settings.PrimaryColor, &settings.Currency, &settings.DateFormat, &updatedAt)
+	if err == sql.ErrNoRows {
+		return normalizeBusinessSettings(settings), nil
+	}
+	if err != nil {
+		return BusinessSettings{}, err
+	}
+	settings.UpdatedAt = updatedAt.String
+	return normalizeBusinessSettings(settings), nil
+}
+
+func saveBusinessSettings(db *sql.DB, settings BusinessSettings) (BusinessSettings, error) {
+	settings = normalizeBusinessSettings(settings)
+	settings.ID = 1
+	settings.UpdatedAt = time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO business_settings (id, business_name, logo_path, primary_color, currency, date_format, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			business_name = excluded.business_name,
+			logo_path = excluded.logo_path,
+			primary_color = excluded.primary_color,
+			currency = excluded.currency,
+			date_format = excluded.date_format,
+			updated_at = excluded.updated_at
+	`, settings.ID, settings.BusinessName, settings.LogoPath, settings.PrimaryColor, settings.Currency, settings.DateFormat, settings.UpdatedAt); err != nil {
+		return BusinessSettings{}, err
+	}
+	setCurrentBusinessSettings(settings)
+	return settings, nil
+}
+
+func loadBusinessLines(db *sql.DB, activeOnly bool) ([]BusinessLine, error) {
+	query := `
+		SELECT id, name, active, created_at, updated_at
+		FROM business_lines
+	`
+	args := []any{}
+	if activeOnly {
+		query += ` WHERE active = 1`
+	}
+	query += ` ORDER BY LOWER(name), id`
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	lines := make([]BusinessLine, 0)
+	for rows.Next() {
+		var line BusinessLine
+		var active int
+		if err := rows.Scan(&line.ID, &line.Name, &active, &line.CreatedAt, &line.UpdatedAt); err != nil {
+			return nil, err
+		}
+		line.Active = active == 1
+		line.CreatedAt = formatDateWithSettings(line.CreatedAt)
+		line.UpdatedAt = formatDateWithSettings(line.UpdatedAt)
+		lines = append(lines, line)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func businessLineNames(lines []BusinessLine) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		name := strings.TrimSpace(line.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func ensureLineOption(options []string, current string) []string {
+	current = strings.TrimSpace(current)
+	if current == "" {
+		return options
+	}
+	for _, option := range options {
+		if strings.EqualFold(strings.TrimSpace(option), current) {
+			return options
+		}
+	}
+	return append(options, current)
+}
+
+func defaultPaymentMethodNames() []string {
+	return []string{"Efectivo", "Transferencia", "Nequi", "Daviplata"}
+}
+
+func loadPaymentMethods(db *sql.DB, activeOnly bool) ([]PaymentMethod, error) {
+	query := `
+		SELECT id, name, active, sort_order, created_at, updated_at
+		FROM payment_methods
+	`
+	if activeOnly {
+		query += ` WHERE active = 1`
+	}
+	query += ` ORDER BY sort_order ASC, LOWER(name) ASC, id ASC`
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	methods := make([]PaymentMethod, 0)
+	for rows.Next() {
+		var method PaymentMethod
+		var active int
+		if err := rows.Scan(&method.ID, &method.Name, &active, &method.SortOrder, &method.CreatedAt, &method.UpdatedAt); err != nil {
+			return nil, err
+		}
+		method.Active = active == 1
+		method.CreatedAt = formatDateWithSettings(method.CreatedAt)
+		method.UpdatedAt = formatDateWithSettings(method.UpdatedAt)
+		methods = append(methods, method)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return methods, nil
+}
+
+func paymentMethodNames(methods []PaymentMethod) []string {
+	out := make([]string, 0, len(methods))
+	for _, method := range methods {
+		name := strings.TrimSpace(method.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func seedPaymentMethodsIfMissing(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM payment_methods`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	now := time.Now().Format(time.RFC3339)
+	for idx, name := range defaultPaymentMethodNames() {
+		if _, err := db.Exec(`
+			INSERT INTO payment_methods (name, active, sort_order, created_at, updated_at)
+			VALUES (?, 1, ?, ?, ?)
+		`, name, idx+1, now, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureUploadDirs() error {
+	return os.MkdirAll(filepath.Join("static", "uploads", "branding"), 0o755)
+}
+
+func saveBusinessLogo(file io.Reader, originalName string) (string, error) {
+	if err := ensureUploadDirs(); err != nil {
+		return "", err
+	}
+	ext := strings.ToLower(filepath.Ext(originalName))
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".svg", ".webp":
+	default:
+		return "", fmt.Errorf("formato de logo no soportado")
+	}
+	fileName := fmt.Sprintf("logo-%d%s", time.Now().UnixNano(), ext)
+	relPath := filepath.Join("uploads", "branding", fileName)
+	fullPath := filepath.Join("static", relPath)
+	dst, err := os.Create(fullPath)
+	if err != nil {
+		return "", err
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, file); err != nil {
+		return "", err
+	}
+	return "/static/" + filepath.ToSlash(relPath), nil
+}
+
 func formatCurrency(value float64) string {
 	rounded := int64(math.Round(value))
-	return "$" + formatIntDots(rounded)
+	settings := currentBusinessSettings()
+	switch settings.Currency {
+	case "USD":
+		return "USD " + formatIntDots(rounded)
+	case "EUR":
+		return "EUR " + formatIntDots(rounded)
+	default:
+		return "$" + formatIntDots(rounded)
+	}
 }
 
 // formatIntDots formats an integer with '.' as thousands separator (e.g. 1234567 -> "1.234.567").
@@ -1104,6 +1470,33 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		expires_at TEXT NOT NULL,
 		FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 	);
+
+	CREATE TABLE IF NOT EXISTS business_settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		business_name TEXT NOT NULL,
+		logo_path TEXT NOT NULL DEFAULT '',
+		primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
+		currency TEXT NOT NULL DEFAULT 'COP',
+		date_format TEXT NOT NULL DEFAULT '2006-01-02',
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS business_lines (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS payment_methods (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		active INTEGER NOT NULL DEFAULT 1,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -1194,7 +1587,10 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		}
 	}
 
-	if err := seedAdminUser(db); err != nil {
+	if err := seedAdminUser(db, path); err != nil {
+		return nil, err
+	}
+	if err := seedPaymentMethodsIfMissing(db); err != nil {
 		return nil, err
 	}
 
@@ -1273,12 +1669,27 @@ func seedUnidades(db *sql.DB) error {
 	return tx.Commit()
 }
 
-func seedAdminUser(db *sql.DB) error {
+const (
+	localBootstrapAdminUser = "admin"
+	localBootstrapAdminPass = "SuperSecreto123"
+)
+
+func seedAdminUser(db *sql.DB, dbPath string) error {
 	adminUser := os.Getenv("ADMIN_USER")
 	adminPass := os.Getenv("ADMIN_PASS")
 	if adminUser == "" || adminPass == "" {
-		log.Print("ADMIN_USER/ADMIN_PASS no configurados, omitiendo creación automática de admin.")
-		return nil
+		var totalUsers int
+		if err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers); err != nil {
+			return err
+		}
+		if totalUsers == 0 && dbPath == "data.db" {
+			adminUser = localBootstrapAdminUser
+			adminPass = localBootstrapAdminPass
+			log.Printf("ADMIN_USER/ADMIN_PASS no configurados; creando admin local por defecto user=%q", adminUser)
+		} else {
+			log.Print("ADMIN_USER/ADMIN_PASS no configurados, omitiendo creación automática de admin.")
+			return nil
+		}
 	}
 
 	var existingID int
@@ -1311,8 +1722,26 @@ func main() {
 		dbPath = "data.db"
 	}
 
-	tmpl := template.Must(template.ParseFiles(
+	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
+		"businessName": func() string {
+			return currentBusinessSettings().BusinessName
+		},
+		"businessLogoPath": func() string {
+			return currentBusinessSettings().LogoPath
+		},
+		"businessPrimaryColor": func() string {
+			return currentBusinessSettings().PrimaryColor
+		},
+		"businessPrimaryStrong": func() string {
+			return shadeHexColor(currentBusinessSettings().PrimaryColor, -24)
+		},
+		"businessPrimarySoft": func() string {
+			return shadeHexColor(currentBusinessSettings().PrimaryColor, 208)
+		},
+	}).ParseFiles(
+		"templates/partials/app_styles.html",
 		"templates/admin_users.html",
+		"templates/business_settings.html",
 		"templates/dashboard.html",
 		"templates/inventario.html",
 		"templates/login.html",
@@ -1326,13 +1755,26 @@ func main() {
 		"templates/partials/header.html",
 	))
 
-	paymentMethods := []string{"Efectivo", "Transferencia", "Tarjeta", "Nequi", "Daviplata", "Bre-B"}
+	paymentMethods := defaultPaymentMethodNames()
 
 	db, err := initDB(dbPath, paymentMethods)
 	if err != nil {
 		log.Fatalf("Error al abrir SQLite: %v", err)
 	}
 	defer db.Close()
+	if err := ensureUploadDirs(); err != nil {
+		log.Fatalf("Error al preparar uploads: %v", err)
+	}
+	settings, err := loadBusinessSettings(db)
+	if err != nil {
+		log.Fatalf("Error al cargar configuración del negocio: %v", err)
+	}
+	setCurrentBusinessSettings(settings)
+	activePaymentMethods, err := loadPaymentMethods(db, true)
+	if err != nil {
+		log.Fatalf("Error al cargar métodos de pago: %v", err)
+	}
+	paymentMethods = paymentMethodNames(activePaymentMethods)
 
 	// Diagnostics to confirm which DB is being used at runtime (helps debug login issues).
 	if wd, err := os.Getwd(); err == nil {
@@ -1387,6 +1829,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error al leer esquema de users: %v", err)
 	}
+
+	currencyOptions := []string{"COP", "USD", "EUR"}
+	dateFormatOptions := []string{"2006-01-02", "02/01/2006", "01/02/2006", "02-01-2006"}
 
 	type ventaFormData struct {
 		Title           string
@@ -1444,6 +1889,23 @@ func main() {
 		CurrentUser *User
 	}
 
+	type businessSettingsPageData struct {
+		Title             string
+		Subtitle          string
+		Flash             string
+		Error             string
+		Settings          BusinessSettings
+		Lines             []BusinessLine
+		PaymentMethods    []PaymentMethod
+		NewPaymentMethod  string
+		NewLineName       string
+		EditingLineID     int
+		EditingLineName   string
+		CurrencyOptions   []string
+		DateFormatOptions []string
+		CurrentUser       *User
+	}
+
 	type productNewData struct {
 		Title       string
 		Subtitle    string
@@ -1452,6 +1914,7 @@ func main() {
 		Linea       string
 		PrecioVenta string
 		Lineas      []string
+		HasLineas   bool
 		Cantidad    int
 		AplicaCad   bool
 		Caducidad   string
@@ -1621,6 +2084,7 @@ func main() {
 			user.Username = username.String
 			user.Name = name.String
 			user.Email = email.String
+			user.CreatedAt = formatDateWithSettings(user.CreatedAt)
 			user.IsActive = isActive == 1
 			users = append(users, user)
 		}
@@ -1640,6 +2104,236 @@ func main() {
 		if err := tmpl.ExecuteTemplate(w, "admin_users.html", data); err != nil {
 			http.Error(w, "Error al renderizar usuarios", http.StatusInternalServerError)
 		}
+	}))
+
+	mux.HandleFunc("/configuracion", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			lines, err := loadBusinessLines(db, false)
+			if err != nil {
+				http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
+				return
+			}
+			paymentMethodsCfg, err := loadPaymentMethods(db, false)
+			if err != nil {
+				http.Error(w, "Error al cargar canales de pago", http.StatusInternalServerError)
+				return
+			}
+			editingID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("edit_line")))
+			editingName := ""
+			for _, line := range lines {
+				if line.ID == editingID {
+					editingName = line.Name
+					break
+				}
+			}
+			data := businessSettingsPageData{
+				Title:             "Configuración",
+				Subtitle:          "Personaliza la identidad visual y parámetros base del negocio.",
+				Flash:             r.URL.Query().Get("mensaje"),
+				Error:             r.URL.Query().Get("error"),
+				Settings:          currentBusinessSettings(),
+				Lines:             lines,
+				PaymentMethods:    paymentMethodsCfg,
+				NewPaymentMethod:  strings.TrimSpace(r.URL.Query().Get("new_payment_method")),
+				NewLineName:       strings.TrimSpace(r.URL.Query().Get("new_line")),
+				EditingLineID:     editingID,
+				EditingLineName:   editingName,
+				CurrencyOptions:   currencyOptions,
+				DateFormatOptions: dateFormatOptions,
+				CurrentUser:       userFromContext(r),
+			}
+			if err := tmpl.ExecuteTemplate(w, "business_settings.html", data); err != nil {
+				http.Error(w, "Error al renderizar configuración", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+
+		settings := currentBusinessSettings()
+		settings.BusinessName = strings.TrimSpace(r.FormValue("business_name"))
+		settings.PrimaryColor = normalizeHexColor(r.FormValue("primary_color"), settings.PrimaryColor)
+		settings.Currency = normalizeCurrency(r.FormValue("currency"))
+		settings.DateFormat = normalizeDateFormat(r.FormValue("date_format"))
+
+		if settings.BusinessName == "" {
+			redirectWithMessage(w, r, "/configuracion", "", "El nombre del negocio es obligatorio.")
+			return
+		}
+
+		file, header, err := r.FormFile("logo")
+		if err != nil && err != http.ErrMissingFile {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el logo.")
+			return
+		}
+		if err == nil {
+			defer file.Close()
+			logoPath, saveErr := saveBusinessLogo(file, header.Filename)
+			if saveErr != nil {
+				redirectWithMessage(w, r, "/configuracion", "", "No se pudo guardar el logo. Usa PNG, JPG, WEBP o SVG.")
+				return
+			}
+			settings.LogoPath = logoPath
+		}
+
+		if _, err := saveBusinessSettings(db, settings); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo guardar la configuración.")
+			return
+		}
+
+		redirectWithMessage(w, r, "/configuracion", "Configuración actualizada.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/lineas/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			redirectWithMessage(w, r, "/configuracion", "", "El nombre de la línea es obligatorio.")
+			return
+		}
+		now := time.Now().Format(time.RFC3339)
+		if _, err := db.Exec(`
+			INSERT INTO business_lines (name, active, created_at, updated_at)
+			VALUES (?, 1, ?, ?)
+		`, name, now, now); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una línea con ese nombre.")
+				return
+			}
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo crear la línea.")
+			return
+		}
+		redirectWithMessage(w, r, "/configuracion", "Línea creada.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/lineas/update", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		lineID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("id")))
+		if err != nil || lineID <= 0 {
+			redirectWithMessage(w, r, "/configuracion", "", "ID de línea inválido.")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			redirectWithMessage(w, r, "/configuracion", "", "El nombre de la línea es obligatorio.")
+			return
+		}
+		active := 0
+		if r.FormValue("active") != "" {
+			active = 1
+		}
+		if _, err := db.Exec(`
+			UPDATE business_lines
+			SET name = ?, active = ?, updated_at = ?
+			WHERE id = ?
+		`, name, active, time.Now().Format(time.RFC3339), lineID); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una línea con ese nombre.")
+				return
+			}
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar la línea.")
+			return
+		}
+		redirectWithMessage(w, r, "/configuracion", "Línea actualizada.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/pagos/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			redirectWithMessage(w, r, "/configuracion", "", "El nombre del canal de pago es obligatorio.")
+			return
+		}
+		var nextOrder int
+		if err := db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM payment_methods`).Scan(&nextOrder); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo calcular el orden del canal.")
+			return
+		}
+		now := time.Now().Format(time.RFC3339)
+		if _, err := db.Exec(`
+			INSERT INTO payment_methods (name, active, sort_order, created_at, updated_at)
+			VALUES (?, 1, ?, ?, ?)
+		`, name, nextOrder, now, now); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				redirectWithMessage(w, r, "/configuracion", "", "Ya existe un canal de pago con ese nombre.")
+				return
+			}
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo crear el canal de pago.")
+			return
+		}
+		redirectWithMessage(w, r, "/configuracion", "Canal de pago creado.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/pagos/update", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		methodID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("id")))
+		if err != nil || methodID <= 0 {
+			redirectWithMessage(w, r, "/configuracion", "", "ID de canal inválido.")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			redirectWithMessage(w, r, "/configuracion", "", "El nombre del canal de pago es obligatorio.")
+			return
+		}
+		sortOrder, err := strconv.Atoi(strings.TrimSpace(r.FormValue("sort_order")))
+		if err != nil || sortOrder <= 0 {
+			redirectWithMessage(w, r, "/configuracion", "", "El orden debe ser mayor a 0.")
+			return
+		}
+		active := 0
+		if r.FormValue("active") != "" {
+			active = 1
+		}
+		if _, err := db.Exec(`
+			UPDATE payment_methods
+			SET name = ?, active = ?, sort_order = ?, updated_at = ?
+			WHERE id = ?
+		`, name, active, sortOrder, time.Now().Format(time.RFC3339), methodID); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				redirectWithMessage(w, r, "/configuracion", "", "Ya existe un canal de pago con ese nombre.")
+				return
+			}
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar el canal de pago.")
+			return
+		}
+		redirectWithMessage(w, r, "/configuracion", "Canal de pago actualizado.", "")
 	}))
 
 	mux.HandleFunc("/admin/users/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -1947,6 +2641,11 @@ func main() {
 		productsSnapshot := make([]productOption, len(products))
 		copy(productsSnapshot, products)
 		productsMu.RUnlock()
+		activeLines, err := loadBusinessLines(db, true)
+		if err != nil {
+			http.Error(w, "No se pudieron cargar las líneas de negocio", http.StatusInternalServerError)
+			return
+		}
 		nextSKU, err := generateNextProductSKU(db)
 		if err != nil {
 			http.Error(w, "No se pudo generar el SKU", http.StatusInternalServerError)
@@ -1957,7 +2656,8 @@ func main() {
 			Subtitle:    "Acción reservada para administradores.",
 			SKU:         nextSKU,
 			Cantidad:    1,
-			Lineas:      buildLineSuggestions(productsSnapshot, ""),
+			Lineas:      businessLineNames(activeLines),
+			HasLineas:   len(activeLines) > 0,
 			CurrentUser: userFromContext(r),
 		}
 		if err := tmpl.ExecuteTemplate(w, "product_new.html", data); err != nil {
@@ -1968,6 +2668,12 @@ func main() {
 	mux.HandleFunc("/productos", adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Redirect(w, r, "/productos/new", http.StatusSeeOther)
+			return
+		}
+
+		activeLines, err := loadBusinessLines(db, true)
+		if err != nil {
+			http.Error(w, "No se pudieron cargar las líneas de negocio", http.StatusInternalServerError)
 			return
 		}
 
@@ -1988,7 +2694,11 @@ func main() {
 			errors["nombre"] = "Nombre obligatorio."
 		}
 		if linea == "" {
-			errors["linea"] = "Línea obligatoria."
+			if len(activeLines) == 0 {
+				errors["linea"] = "Primero crea una línea de negocio en Configuración."
+			} else {
+				errors["linea"] = "Línea obligatoria."
+			}
 		}
 		precioVenta := 0
 		if precioVentaRaw != "" {
@@ -2034,7 +2744,8 @@ func main() {
 				Nombre:      nombre,
 				Linea:       linea,
 				PrecioVenta: precioVentaRaw,
-				Lineas:      buildLineSuggestions(productsSnapshot, linea),
+				Lineas:      ensureLineOption(businessLineNames(activeLines), linea),
+				HasLineas:   len(activeLines) > 0,
 				Cantidad:    cantidad,
 				AplicaCad:   aplicaCad,
 				Caducidad:   caducidad,
@@ -2339,6 +3050,11 @@ func main() {
 	mux.HandleFunc("/inventario", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
 		flash := r.URL.Query().Get("mensaje")
+		activePaymentMethods, err := loadPaymentMethods(db, true)
+		if err != nil {
+			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
+			return
+		}
 		productsSnapshot, err := loadProductos(db)
 		if err != nil {
 			productsMu.RLock()
@@ -2394,8 +3110,8 @@ func main() {
 					ID:          id,
 					Estado:      estado,
 					EstadoClass: estadoClass(estado),
-					CreadoEn:    creadoEn,
-					Caducidad:   caducidad.String,
+					CreadoEn:    formatDateWithSettings(creadoEn),
+					Caducidad:   formatDateWithSettings(caducidad.String),
 					FIFO:        fifo,
 				})
 			}
@@ -2450,7 +3166,7 @@ func main() {
 				Disponible:        availableCount,
 				Unidades:          units,
 				DisabledSale:      availableCount == 0,
-				FechaIngreso:      fechaIngresoISO,
+				FechaIngreso:      formatDateWithSettings(fechaIngresoISO),
 				MesesEnStock:      mesesEnStock,
 				AlertaPermanencia: alertaPermanencia,
 				SalePrice:         product.SalePrice,
@@ -2461,7 +3177,7 @@ func main() {
 			Subtitle:    "",
 			RoutePrefix: "",
 			Flash:       flash,
-			MetodoPagos: paymentMethods,
+			MetodoPagos: paymentMethodNames(activePaymentMethods),
 			Products:    inventoryProducts,
 			CurrentUser: currentUser,
 		}
@@ -2955,6 +3671,7 @@ func main() {
 				http.Error(w, "Error al leer historial", http.StatusInternalServerError)
 				return
 			}
+			m.Fecha = formatDateWithSettings(m.Fecha)
 			movs = append(movs, m)
 		}
 		if err := rows.Err(); err != nil {
@@ -2993,6 +3710,12 @@ func main() {
 
 	mux.HandleFunc("/venta/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
+		activePaymentMethods, err := loadPaymentMethods(db, true)
+		if err != nil {
+			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
+			return
+		}
+		paymentMethodNamesActive := paymentMethodNames(activePaymentMethods)
 
 		productsMu.RLock()
 		productsSnapshot := make([]productOption, len(products))
@@ -3025,6 +3748,11 @@ func main() {
 			cantidad = available
 		}
 
+		defaultMethod := ""
+		if len(paymentMethodNamesActive) > 0 {
+			defaultMethod = paymentMethodNamesActive[0]
+		}
+
 		data := ventaFormData{
 			Title:       "Registrar venta",
 			ProductoID:  productID,
@@ -3032,8 +3760,8 @@ func main() {
 			Productos:   productsSnapshot,
 			StockByProd: stockByProd,
 			Cantidad:    cantidad,
-			MetodoPago:  paymentMethods[0],
-			MetodoPagos: paymentMethods,
+			MetodoPago:  defaultMethod,
+			MetodoPagos: paymentMethodNamesActive,
 			CurrentUser: currentUser,
 		}
 
@@ -3098,6 +3826,18 @@ func main() {
 	mux.HandleFunc("/venta", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
 		wantsJSON := strings.Contains(r.Header.Get("Accept"), "application/json") || r.Header.Get("X-Requested-With") == "XMLHttpRequest"
+		activePaymentMethods, err := loadPaymentMethods(db, true)
+		if err != nil {
+			if wantsJSON {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "No se pudieron cargar los métodos de pago."})
+				return
+			}
+			http.Error(w, "No se pudieron cargar los métodos de pago", http.StatusInternalServerError)
+			return
+		}
+		paymentMethodOptions := paymentMethodNames(activePaymentMethods)
 
 		writeJSONError := func(status int, message string, fields map[string]string) {
 			w.Header().Set("Content-Type", "application/json")
@@ -3187,7 +3927,7 @@ func main() {
 		}
 
 		validMethod := false
-		for _, method := range paymentMethods {
+		for _, method := range paymentMethodOptions {
 			if metodoPago == method {
 				validMethod = true
 				break
@@ -3228,7 +3968,7 @@ func main() {
 				MetodoPago:      metodoPago,
 				Notas:           notas,
 				Errors:          errors,
-				MetodoPagos:     paymentMethods,
+				MetodoPagos:     paymentMethodOptions,
 				CurrentUser:     currentUser,
 			}
 			w.WriteHeader(http.StatusBadRequest)
@@ -3276,7 +4016,7 @@ func main() {
 					MetodoPago:      metodoPago,
 					Notas:           notas,
 					Errors:          errors,
-					MetodoPagos:     paymentMethods,
+					MetodoPagos:     paymentMethodOptions,
 				}
 				w.WriteHeader(http.StatusBadRequest)
 				if err := tmpl.ExecuteTemplate(w, "venta_new.html", data); err != nil {

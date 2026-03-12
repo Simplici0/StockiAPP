@@ -210,6 +210,7 @@
       border-color: var(--primary-strong);
     }
   </style>
+  {{template "app_styles" .}}
 </head>
 <body>
   {{template "header" .}}
@@ -235,12 +236,15 @@
         {{with .Errors}}{{with index . "nombre"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
 
         <label for="linea">Línea</label>
-        <input id="linea" name="linea" type="text" placeholder="Línea o categoría" value="{{.Linea}}" list="lineas" />
-        <datalist id="lineas">
+        <select id="linea" name="linea" {{if not .HasLineas}}disabled{{end}}>
+          <option value="">{{if .HasLineas}}Selecciona una línea{{else}}Sin líneas activas{{end}}</option>
           {{range .Lineas}}
-            <option value="{{.}}"></option>
+            <option value="{{.}}" {{if eq $.Linea .}}selected{{end}}>{{.}}</option>
           {{end}}
-        </datalist>
+        </select>
+        {{if not .HasLineas}}
+          <div class="note">No hay líneas activas. Crea la primera desde <a href="/configuracion">Configuración</a>.</div>
+        {{end}}
         {{with .Errors}}{{with index . "linea"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
 
         <label for="precio_venta">Precio de venta (opcional)</label>

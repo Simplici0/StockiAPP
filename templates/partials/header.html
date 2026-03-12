@@ -1,124 +1,271 @@
 {{define "header"}}
   <style>
-    /* Banner logo overrides: the per-page templates define .logo-placeholder as a pill.
-       Here we override it so SVG logos render cleanly. */
-    .global-banner .logo-placeholder {
-      height: 26px;
-      min-width: 0;
-      padding: 0;
-      border: 0;
-      background: transparent;
+    /* ── Topbar ── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg-nav);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      box-shadow: 0 2px 12px rgba(8,18,40,0.2);
     }
 
-    .global-banner .logo-placeholder img {
-      height: 26px;
+    .topbar-inner {
+      width: min(1280px, calc(100% - 32px));
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      height: 52px;
+    }
+
+    /* Marca */
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      flex-shrink: 0;
+      padding-right: 20px;
+      margin-right: 4px;
+      border-right: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .topbar-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.96);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .topbar-logo img {
+      height: 18px;
       width: auto;
       display: block;
     }
 
-    .header-top {
+    .topbar-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+
+    /* Navegación */
+    .topbar-nav {
       display: flex;
+      align-items: center;
+      gap: 2px;
+      flex: 1;
+      padding: 0 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .topbar-nav::-webkit-scrollbar {
+      display: none;
+    }
+
+    .topbar-link {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 12px;
+      height: 32px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.62);
+      text-decoration: none;
+      white-space: nowrap;
+      transition: color 0.15s ease, background 0.15s ease;
+      border: 1px solid transparent;
+    }
+
+    .topbar-link:hover {
+      color: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.07);
+    }
+
+    .topbar-link.active {
+      color: #ffffff;
+      background: rgba(14, 165, 201, 0.16);
+      border-color: rgba(14, 165, 201, 0.2);
+    }
+
+    /* Separador de sección admin */
+    .topbar-sep {
+      width: 1px;
+      height: 20px;
+      background: rgba(255,255,255,0.1);
+      margin: 0 6px;
+      flex-shrink: 0;
+    }
+
+    /* User bar */
+    .topbar-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      padding-left: 16px;
+      border-left: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .topbar-username {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.75);
+      white-space: nowrap;
+    }
+
+    .topbar-role {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: {{businessPrimaryColor}};
+      white-space: nowrap;
+    }
+
+    .topbar-logout {
+      min-height: 30px;
+      padding: 0 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.75);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      transition: background 0.15s ease, color 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .topbar-logout:hover {
+      background: rgba(255,255,255,0.1);
+      color: #ffffff;
+    }
+
+    .topbar-logout-form {
+      margin: 0;
+    }
+
+    /* ── Page header (debajo del topbar) ── */
+    .page-header {
+      width: min(1280px, calc(100% - 32px));
+      margin: 20px auto 0;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: #ffffff;
+      border: 1px solid rgba(15, 40, 80, 0.1);
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(10, 25, 55, 0.06);
+    }
+
+    .page-header-top {
+      display: flex;
+      align-items: center;
       justify-content: space-between;
-      align-items: flex-start;
       gap: 16px;
       flex-wrap: wrap;
     }
 
-    .user-bar {
+    .page-header-title {
       display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 13px;
-      color: rgba(255, 255, 255, 0.95);
-      font-weight: 600;
+      flex-direction: column;
+      gap: 3px;
     }
 
-    .role-pill {
-      background: rgba(255, 255, 255, 0.2);
-      border: 1px dashed rgba(255, 255, 255, 0.7);
-      color: #ffffff;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 700;
-      backdrop-filter: blur(4px);
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-
-    .logout-button {
-      border: 1px solid rgba(255, 255, 255, 0.8);
-      background: rgba(255, 255, 255, 0.08);
-      color: #ffffff;
-      padding: 6px 12px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .logout-button:hover {
-      background: rgba(255, 255, 255, 0.25);
-      transform: translateY(-1px);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    }
-
-    .logout-button:active {
-      transform: translateY(0);
-    }
-
-    .logout-form {
+    .page-header-title h1 {
       margin: 0;
     }
 
-    /* Center the main navigation group within the page header. */
-    .page-header .nav-buttons {
-      margin-left: auto;
-      margin-right: auto;
-      justify-content: center;
+    .page-header-title p {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    @media (max-width: 1024px) {
+      .topbar-inner,
+      .page-header {
+        width: min(100%, calc(100% - 24px));
+      }
+    }
+
+    @media (max-width: 768px) {
+      .topbar-inner {
+        width: min(100%, calc(100% - 16px));
+        height: 48px;
+      }
+
+      .topbar-name {
+        display: none;
+      }
+
+      .topbar-username {
+        display: none;
+      }
+
+      .page-header {
+        width: min(100%, calc(100% - 16px));
+        margin-top: 12px;
+        padding: 12px 14px;
+      }
     }
   </style>
 
-  <div class="global-banner">
-    <div class="banner-logos">
-      <div class="logo-placeholder">
-        <a href="/inventario" aria-label="Inicio">
-          <img src="/static/img/logo1.svg" alt="Logo 1" />
-        </a>
-      </div>
-    </div>
-    {{if .CurrentUser}}
-    <div class="user-bar">
-      <span>{{.CurrentUser.Username}}</span>
-      <span class="role-pill">{{.CurrentUser.Role}}</span>
-      <form class="logout-form" method="POST" action="/logout">
-        <button class="logout-button" type="submit">Cerrar sesión</button>
-      </form>
-    </div>
-    {{end}}
-  </div>
-  <header class="page-header">
-    <div class="header-top">
-      <div class="header-text">
-        <h1>{{.Title}}</h1>
-        {{if .Subtitle}}
-          <p>{{.Subtitle}}</p>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="topbar-brand" href="/inventario" aria-label="Inicio Stocki App">
+        <div class="topbar-logo">
+          <img src="{{businessLogoPath}}" alt="Logo" />
+        </div>
+        <span class="topbar-name">{{businessName}}</span>
+      </a>
+
+      <nav class="topbar-nav" aria-label="Navegación principal">
+        <a href="/dashboard" class="topbar-link">Dashboard</a>
+        <a href="/inventario" class="topbar-link">Inventario</a>
+        {{if .CurrentUser}}
+          {{if eq .CurrentUser.Role "admin"}}
+            <span class="topbar-sep" aria-hidden="true"></span>
+            <a href="/productos/new" class="topbar-link">Nuevo producto</a>
+            <a href="/admin/users" class="topbar-link">Usuarios</a>
+            <a href="/configuracion" class="topbar-link">Configuración</a>
+            <a href="/csv/template" class="topbar-link" target="_blank">Importar</a>
+            <a href="/csv/export" class="topbar-link" target="_blank">Exportar</a>
+          {{end}}
         {{end}}
+      </nav>
+
+      {{if .CurrentUser}}
+      <div class="topbar-user">
+        <span class="topbar-username">{{.CurrentUser.Username}}</span>
+        <span class="topbar-role">{{.CurrentUser.Role}}</span>
+        <form class="topbar-logout-form" method="POST" action="/logout">
+          <button class="topbar-logout" type="submit">Salir</button>
+        </form>
       </div>
-    </div>
-	    <nav class="nav-buttons">
-	      <a href="/dashboard" class="nav-button">Dashboard</a>
-	      <a href="/inventario" class="nav-button">Inventario</a>
-	      {{if .CurrentUser}}
-	        {{if eq .CurrentUser.Role "admin"}}
-	          <a href="/productos/new" class="nav-button">Nuevo producto</a>
-	          <a href="/admin/users" class="nav-button">Usuarios</a>
-          <a href="/csv/template" class="nav-button" target="_blank">Agregar productos</a>
-          <a href="/csv/export" class="nav-button" target="_blank">Exportaciones CSV</a>
-        {{end}}
       {{end}}
-    </nav>
+    </div>
   </header>
+
+  <div class="page-header">
+    <div class="page-header-top">
+      <div class="page-header-title">
+        <h1>{{.Title}}</h1>
+        {{if .Subtitle}}<p>{{.Subtitle}}</p>{{end}}
+      </div>
+    </div>
+  </div>
 {{end}}
