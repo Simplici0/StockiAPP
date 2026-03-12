@@ -1,4 +1,4 @@
-# GranEmpresaINV - Deploy en Hetzner
+# StockiAPP - Deploy en Hetzner
 
 Esta guía cubre el despliegue en un VPS de Hetzner con Linux (Ubuntu/Debian), usando:
 - Binario Go (linux/amd64)
