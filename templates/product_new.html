@@ -223,9 +223,10 @@
       <form method="POST" action="/productos">
         <div class="row">
           <div>
-            <label for="sku">SKU</label>
-            <input id="sku" name="sku" type="text" value="{{.SKU}}" readonly />
-            <div class="hint">Se genera automáticamente al guardar.</div>
+            <label for="sku">ID</label>
+            <input id="sku" name="id" type="text" value="{{.SKU}}" />
+            <div class="hint">Se propone automáticamente, pero puedes editarlo antes de guardar.</div>
+            {{with .Errors}}{{with index . "sku"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
           </div>
           <div>
             <label for="cantidad">Cantidad</label>
@@ -264,6 +265,18 @@
         <input id="precio_venta" name="precio_venta" type="text" inputmode="numeric" placeholder="0" value="{{.PrecioVenta}}" />
         {{with .Errors}}{{with index . "precio_venta"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
 
+        <label class="toggle" for="retoma_enabled">
+          <input id="retoma_enabled" name="retoma_enabled" type="checkbox" {{if .RetomaEnabled}}checked{{end}} />
+          <span>Permitir retoma</span>
+        </label>
+
+        <div id="retoma_price_wrap">
+          <label for="retoma_price">Valor de retoma</label>
+          <input id="retoma_price" name="retoma_price" type="text" inputmode="numeric" placeholder="0" value="{{.RetomaPrice}}" />
+          <div class="note">Opcional solo si retoma está deshabilitada. Si la habilitas, este valor será requerido.</div>
+          {{with .Errors}}{{with index . "retoma_price"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+        </div>
+
         <label class="toggle" for="aplica_caducidad">
           <input id="aplica_caducidad" name="aplica_caducidad" type="checkbox" {{if .AplicaCad}}checked{{end}} />
           <span>Aplica caducidad</span>
@@ -284,6 +297,9 @@
     const aplica = document.getElementById("aplica_caducidad");
     const fecha = document.getElementById("fecha_caducidad");
     const precioVenta = document.getElementById("precio_venta");
+    const retomaEnabled = document.getElementById("retoma_enabled");
+    const retomaPriceWrap = document.getElementById("retoma_price_wrap");
+    const retomaPrice = document.getElementById("retoma_price");
 
     const parseCOP = (raw) => {
       const digits = String(raw || "").replace(/[^\d]/g, "");
@@ -301,6 +317,13 @@
       if (!aplica.checked) fecha.value = "";
     };
 
+    const syncRetoma = () => {
+      if (!retomaEnabled || !retomaPriceWrap || !retomaPrice) return;
+      retomaPriceWrap.style.display = retomaEnabled.checked ? "block" : "none";
+      retomaPrice.disabled = !retomaEnabled.checked;
+      if (!retomaEnabled.checked) retomaPrice.value = "";
+    };
+
     if (precioVenta) {
       const initial = parseCOP(precioVenta.value);
       if (!Number.isNaN(initial) && initial > 0) {
@@ -316,8 +339,25 @@
       });
     }
 
+    if (retomaPrice) {
+      const initial = parseCOP(retomaPrice.value);
+      if (!Number.isNaN(initial) && initial > 0) {
+        retomaPrice.value = formatCOP(initial);
+      }
+      retomaPrice.addEventListener("input", () => {
+        const n = parseCOP(retomaPrice.value);
+        if (Number.isNaN(n)) {
+          retomaPrice.value = "";
+          return;
+        }
+        retomaPrice.value = formatCOP(n);
+      });
+    }
+
     if (aplica) aplica.addEventListener("change", sync);
+    if (retomaEnabled) retomaEnabled.addEventListener("change", syncRetoma);
     sync();
+    syncRetoma();
   </script>
 </body>
 </html>

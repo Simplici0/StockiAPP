@@ -403,7 +403,7 @@
     </div>
     <div class="filter-group">
       <label for="searchFilter">Búsqueda</label>
-      <input id="searchFilter" type="search" placeholder="Nombre o SKU" />
+      <input id="searchFilter" type="search" placeholder="Nombre o ID" />
     </div>
     <div class="filter-group">
       <label>Caducidad</label>
@@ -476,6 +476,7 @@
       <div class="modal-body">
         <form id="action-form" class="modal-grid">
           <div id="action-error" class="modal-error" hidden></div>
+          <input type="hidden" name="retoma_config_present" value="1" />
           <div class="modal-row">
             <div>
               <label for="action-qty">Cantidad</label>
@@ -494,6 +495,17 @@
             <label for="action-price">Precio de venta (opcional)</label>
             <input id="action-price" name="precio_venta" type="text" inputmode="numeric" placeholder="0" />
             <div class="modal-hint">Solo aplica para ajuste manual de stock.</div>
+          </div>
+          <div id="action-retoma-wrap" hidden>
+            <label class="checkline">
+              <input id="action-retoma-enabled" name="retoma_enabled" type="checkbox" />
+              Permitir retoma
+            </label>
+            <div style="margin-top:10px;">
+              <label for="action-retoma-price">Valor de retoma</label>
+              <input id="action-retoma-price" name="retoma_price" type="text" inputmode="numeric" placeholder="0" />
+              <div class="modal-hint">Si habilitas retoma, este valor será requerido.</div>
+            </div>
           </div>
           <div class="modal-actions">
             {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
@@ -566,6 +578,142 @@
     </div>
   </div>
 
+  <div id="retoma-modal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="retoma-title">
+      <div class="modal-header">
+        <div>
+          <h3 id="retoma-title">Registrar retoma</h3>
+          <div id="retoma-subtitle" class="modal-subtitle"></div>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="retoma-form" class="modal-grid">
+          <div id="retoma-error" class="modal-error" hidden></div>
+
+          <div class="modal-row">
+            <div>
+              <label for="retoma-product">Producto</label>
+              <input id="retoma-product" type="text" value="-" disabled />
+            </div>
+            <div>
+              <label for="retoma-qty">Cantidad</label>
+              <input id="retoma-qty" name="cantidad" type="number" min="1" step="1" value="1" />
+            </div>
+          </div>
+
+          <div class="modal-row">
+            <div>
+              <label for="retoma-value">Valor recibido</label>
+              <input id="retoma-value" name="valor_recibido" type="text" inputmode="numeric" placeholder="0" />
+            </div>
+            <div>
+              <label for="retoma-status">Estado recibido</label>
+              <select id="retoma-status" name="estado_recibido">
+                <option value="Nuevo">Nuevo</option>
+                <option value="Usado">Usado</option>
+                <option value="Dañado">Dañado</option>
+                <option value="Para repuestos">Para repuestos</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label for="retoma-notes">Notas</label>
+            <textarea id="retoma-notes" name="nota" placeholder="Observaciones de la retoma"></textarea>
+          </div>
+
+          <div id="retoma-stock-wrap">
+            <label class="checkline">
+              <input id="retoma-publish" name="publicar_stock" type="checkbox" checked />
+              Publicar al stock ahora
+            </label>
+            <div class="modal-hint">Si lo desactivas, la retoma quedará registrada pero no sumará unidades disponibles todavía.</div>
+          </div>
+
+          <div id="retoma-sale-price-wrap">
+            <label for="retoma-sale-price">Precio final de venta (opcional)</label>
+            <input id="retoma-sale-price" name="precio_publicado" type="text" inputmode="numeric" placeholder="0" />
+            <div class="modal-hint">Si lo llenas, actualiza el valor de venta del producto al publicar la retoma en stock.</div>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="secondary" data-modal-close>Cancelar</button>
+            <button id="retoma-submit" type="submit" class="primary">Confirmar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="edit-modal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+      <div class="modal-header">
+        <div>
+          <h3 id="edit-title">Editar producto</h3>
+          <div id="edit-subtitle" class="modal-subtitle"></div>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="edit-form" class="modal-grid">
+          <div id="edit-error" class="modal-error" hidden></div>
+
+          <div class="modal-row">
+            <div>
+              <label for="edit-sku">ID</label>
+              <input id="edit-sku" name="id" type="text" />
+            </div>
+            <div>
+              <label for="edit-price">Precio de venta</label>
+              <input id="edit-price" name="precio_venta" type="text" inputmode="numeric" placeholder="0" />
+            </div>
+          </div>
+
+          <div class="modal-row">
+            <div>
+              <label for="edit-name">Nombre del producto</label>
+              <input id="edit-name" name="nombre" type="text" />
+            </div>
+            <div>
+              <label for="edit-line">Línea</label>
+              <select id="edit-line" name="linea"></select>
+            </div>
+          </div>
+
+          <div class="modal-row">
+            <div>
+              <label class="checkline">
+                <input id="edit-retoma-enabled" name="retoma_enabled" type="checkbox" />
+                Permitir retoma
+              </label>
+            </div>
+            <div id="edit-retoma-price-wrap">
+              <label for="edit-retoma-price">Valor de retoma</label>
+              <input id="edit-retoma-price" name="retoma_price" type="text" inputmode="numeric" placeholder="0" />
+            </div>
+          </div>
+
+          <div>
+            <label for="edit-owner">Usuario asignado</label>
+            <select id="edit-owner" name="owner_user_id"></select>
+          </div>
+
+          <div>
+            <label for="edit-notes">Notas u observaciones</label>
+            <textarea id="edit-notes" name="notas" placeholder="Observaciones internas del producto"></textarea>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="secondary" data-modal-close>Cancelar</button>
+            <button id="edit-submit" type="submit" class="primary">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <script>
     const products = [
       {{- range .Products }}
@@ -573,10 +721,15 @@
         id: "{{js .ID}}",
         name: "{{js .Name}}",
         line: "{{js .Line}}",
+        notes: "{{js .Notes}}",
         ingreso: "{{js .FechaIngreso}}",
         ageMonths: {{.MesesEnStock}},
         ageAlert: {{if .AlertaPermanencia}}true{{else}}false{{end}},
         salePrice: {{printf "%.0f" .SalePrice}},
+        retomaEnabled: {{if .RetomaEnabled}}true{{else}}false{{end}},
+        retomaPrice: {{if .HasRetomaPrice}}{{printf "%.0f" .RetomaPrice}}{{else}}0{{end}},
+        hasOwner: {{if .HasOwner}}true{{else}}false{{end}},
+        ownerUserId: {{if .HasOwner}}{{.OwnerUserID}}{{else}}0{{end}},
         statusClass: "{{js .EstadoClass}}",
         statusLabel: "{{js .EstadoLabel}}",
         available: {{.Disponible}},
@@ -595,6 +748,17 @@
       },
       {{- end }}
     ];
+    const editableLines = [
+      {{- range .EditableLines }}
+      "{{js .}}",
+      {{- end }}
+    ];
+    const assignableUsers = [
+      {{- range .AssignableUsers }}
+      { id: {{.ID}}, username: "{{js .Username}}" },
+      {{- end }}
+    ];
+    const currentUserRole = "{{if .CurrentUser}}{{.CurrentUser.Role}}{{end}}";
 
     const statusFilter = document.getElementById("statusFilter");
     const lineFilter = document.getElementById("lineFilter");
@@ -735,7 +899,7 @@
               ${product.name}
               ${product.ageAlert ? `<span class="age-pill" title="En stock ${product.ageMonths} meses (fecha ingreso: ${product.ingreso || '-'})">+6 meses</span>` : ``}
             </div>
-            <div class="fifo-note">SKU ${product.id} · ${product.available} disponibles</div>
+            <div class="fifo-note">ID ${product.id} · ${product.available} disponibles</div>
           </td>
           <td>${normalizeLine(product.line)}</td>
           <td><span class="status ${product.statusClass}">${statusLabel(product.statusLabel)}</span></td>
@@ -750,7 +914,7 @@
               <button class="secondary" data-action="swap" data-product="${product.id}">Cambio</button>
               {{end}}
               {{if .CanRetoma}}
-              <button class="ghost" data-action="retoma" data-product="${product.id}">Retoma</button>
+              ${product.retomaEnabled ? `<button class="ghost" data-action="retoma" data-product="${product.id}">Retoma</button>` : ``}
               {{end}}
             </div>
           </td>
@@ -760,8 +924,9 @@
               <div class="menu-panel" id="menu-${product.id}">
                 <button type="button" data-menu-action="reserve" data-product="${product.id}">Reservar unidades</button>
                 <button type="button" data-menu-action="damage" data-product="${product.id}">Registrar daño</button>
+                <button type="button" data-menu-action="edit" data-product="${product.id}">Editar producto</button>
                 {{if .CanRetoma}}
-                <button type="button" data-menu-action="retoma" data-product="${product.id}">Preparar retoma</button>
+                ${product.retomaEnabled ? `<button type="button" data-menu-action="retoma" data-product="${product.id}">Preparar retoma</button>` : ``}
                 {{end}}
                 {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "empleado"))}}
                 <button type="button" data-menu-action="stock" data-product="${product.id}">Ajustar stock</button>
@@ -850,6 +1015,9 @@
     const actionNoteLabel = document.getElementById("action-note-label");
     const actionPriceWrap = document.getElementById("action-price-wrap");
     const actionPrice = document.getElementById("action-price");
+    const actionRetomaWrap = document.getElementById("action-retoma-wrap");
+    const actionRetomaEnabled = document.getElementById("action-retoma-enabled");
+    const actionRetomaPrice = document.getElementById("action-retoma-price");
     const actionSubmit = document.getElementById("action-submit");
     const actionDeleteProduct = document.getElementById("action-delete-product");
 
@@ -874,6 +1042,33 @@
     const saleNotes = document.getElementById("sale-notes");
     const saleError = document.getElementById("sale-error");
     const saleSubmit = document.getElementById("sale-submit");
+    const retomaModal = document.getElementById("retoma-modal");
+    const retomaSubtitle = document.getElementById("retoma-subtitle");
+    const retomaForm = document.getElementById("retoma-form");
+    const retomaProduct = document.getElementById("retoma-product");
+    const retomaQty = document.getElementById("retoma-qty");
+    const retomaValue = document.getElementById("retoma-value");
+    const retomaStatus = document.getElementById("retoma-status");
+    const retomaNotes = document.getElementById("retoma-notes");
+    const retomaPublish = document.getElementById("retoma-publish");
+    const retomaSalePriceWrap = document.getElementById("retoma-sale-price-wrap");
+    const retomaSalePrice = document.getElementById("retoma-sale-price");
+    const retomaError = document.getElementById("retoma-error");
+    const retomaSubmit = document.getElementById("retoma-submit");
+    const editModal = document.getElementById("edit-modal");
+    const editSubtitle = document.getElementById("edit-subtitle");
+    const editForm = document.getElementById("edit-form");
+    const editError = document.getElementById("edit-error");
+    const editSKU = document.getElementById("edit-sku");
+    const editPrice = document.getElementById("edit-price");
+    const editName = document.getElementById("edit-name");
+    const editLine = document.getElementById("edit-line");
+    const editRetomaEnabled = document.getElementById("edit-retoma-enabled");
+    const editRetomaPriceWrap = document.getElementById("edit-retoma-price-wrap");
+    const editRetomaPrice = document.getElementById("edit-retoma-price");
+    const editOwner = document.getElementById("edit-owner");
+    const editNotes = document.getElementById("edit-notes");
+    const editSubmit = document.getElementById("edit-submit");
     if (salePrice) {
       salePrice.addEventListener("input", () => {
         salePrice.dataset.autofilled = "0";
@@ -895,6 +1090,46 @@
         saleFinal.value = formatCOP(n);
       });
     }
+    if (retomaValue) {
+      retomaValue.addEventListener("input", () => {
+        const n = parseCOP(retomaValue.value);
+        if (Number.isNaN(n)) {
+          retomaValue.value = "";
+          return;
+        }
+        retomaValue.value = formatCOP(n);
+      });
+    }
+    if (retomaSalePrice) {
+      retomaSalePrice.addEventListener("input", () => {
+        const n = parseCOP(retomaSalePrice.value);
+        if (Number.isNaN(n)) {
+          retomaSalePrice.value = "";
+          return;
+        }
+        retomaSalePrice.value = formatCOP(n);
+      });
+    }
+    if (editPrice) {
+      editPrice.addEventListener("input", () => {
+        const n = parseCOP(editPrice.value);
+        if (Number.isNaN(n)) {
+          editPrice.value = "";
+          return;
+        }
+        editPrice.value = formatCOP(n);
+      });
+    }
+    if (editRetomaPrice) {
+      editRetomaPrice.addEventListener("input", () => {
+        const n = parseCOP(editRetomaPrice.value);
+        if (Number.isNaN(n)) {
+          editRetomaPrice.value = "";
+          return;
+        }
+        editRetomaPrice.value = formatCOP(n);
+      });
+    }
     if (actionPrice) {
       actionPrice.addEventListener("input", () => {
         const n = parseCOP(actionPrice.value);
@@ -905,6 +1140,22 @@
         actionPrice.value = formatCOP(n);
       });
     }
+    if (actionRetomaPrice) {
+      actionRetomaPrice.addEventListener("input", () => {
+        const n = parseCOP(actionRetomaPrice.value);
+        if (Number.isNaN(n)) {
+          actionRetomaPrice.value = "";
+          return;
+        }
+        actionRetomaPrice.value = formatCOP(n);
+      });
+    }
+    const syncActionRetoma = () => {
+      if (!actionRetomaEnabled || !actionRetomaPrice) return;
+      actionRetomaPrice.disabled = !actionRetomaEnabled.checked;
+      if (!actionRetomaEnabled.checked) actionRetomaPrice.value = "";
+    };
+    if (actionRetomaEnabled) actionRetomaEnabled.addEventListener("change", syncActionRetoma);
 
     const openModal = (backdrop, subtitleText) => {
       if (!backdrop) return;
@@ -913,6 +1164,8 @@
       if (subtitleText && backdrop === historyModal && historySubtitle) historySubtitle.textContent = subtitleText;
       if (subtitleText && backdrop === actionModal && actionSubtitle) actionSubtitle.textContent = subtitleText;
       if (subtitleText && backdrop === saleModal && saleSubtitle) saleSubtitle.textContent = subtitleText;
+      if (subtitleText && backdrop === retomaModal && retomaSubtitle) retomaSubtitle.textContent = subtitleText;
+      if (subtitleText && backdrop === editModal && editSubtitle) editSubtitle.textContent = subtitleText;
       document.body.style.overflow = "hidden";
     };
 
@@ -920,6 +1173,12 @@
       if (!backdrop) return;
       backdrop.classList.remove("open");
       backdrop.setAttribute("aria-hidden", "true");
+      if (backdrop === retomaModal) {
+        retomaContext = null;
+      }
+      if (backdrop === editModal) {
+        editContext = null;
+      }
       if (!document.querySelector(".modal-backdrop.open")) {
         document.body.style.overflow = "";
       }
@@ -938,6 +1197,8 @@
 
     let actionContext = null;
     let saleContext = null;
+    let retomaContext = null;
+    let editContext = null;
     let openMenuContext = null;
     const actionSubtitleHint = "Doble clic para editar nombre del producto.";
 
@@ -989,7 +1250,9 @@
       minQty,
       allowGreaterThanMax,
       allowPriceEdit,
-      defaultPrice
+      defaultPrice,
+      retomaEnabled,
+      retomaPrice
     }) => {
       actionContext = {
         endpoint,
@@ -1000,7 +1263,9 @@
         mode: mode || "units",
         minQty: Number.isFinite(minQty) ? minQty : 1,
         allowGreaterThanMax: !!allowGreaterThanMax,
-        allowPriceEdit: !!allowPriceEdit
+        allowPriceEdit: !!allowPriceEdit,
+        retomaEnabled: !!retomaEnabled,
+        retomaPrice: Number(retomaPrice || 0)
       };
       if (actionTitle) actionTitle.textContent = title;
       if (actionNoteLabel) actionNoteLabel.textContent = noteLabel || "Nota";
@@ -1011,6 +1276,14 @@
       if (actionPrice) {
         actionPrice.value = actionContext.allowPriceEdit && Number.isFinite(defaultPrice) ? formatCOP(defaultPrice) : "";
       }
+      if (actionRetomaWrap) actionRetomaWrap.hidden = !actionContext.allowPriceEdit;
+      if (actionRetomaEnabled) actionRetomaEnabled.checked = !!actionContext.retomaEnabled;
+      if (actionRetomaPrice) {
+        actionRetomaPrice.value = actionContext.retomaEnabled && Number.isFinite(actionContext.retomaPrice)
+          ? formatCOP(actionContext.retomaPrice)
+          : "";
+      }
+      syncActionRetoma();
       if (actionMax) actionMax.value = maxQty >= 0 ? String(maxQty) : "-";
       if (actionQty) {
         const min = actionContext.minQty;
@@ -1050,7 +1323,7 @@
         }
         actionContext.editedProductName = updated;
         if (actionSubtitle) {
-          actionSubtitle.textContent = `${updated} · SKU ${actionContext.productId}`;
+          actionSubtitle.textContent = `${updated} · ID ${actionContext.productId}`;
         }
       });
     }
@@ -1064,6 +1337,94 @@
       }
       saleError.hidden = false;
       saleError.textContent = msg;
+    };
+
+    const setRetomaError = (msg) => {
+      if (!retomaError) return;
+      if (!msg) {
+        retomaError.hidden = true;
+        retomaError.textContent = "";
+        return;
+      }
+      retomaError.hidden = false;
+      retomaError.textContent = msg;
+    };
+
+    const setEditError = (msg) => {
+      if (!editError) return;
+      if (!msg) {
+        editError.hidden = true;
+        editError.textContent = "";
+        return;
+      }
+      editError.hidden = false;
+      editError.textContent = msg;
+    };
+
+    const syncRetomaPublish = () => {
+      if (!retomaPublish || !retomaSalePriceWrap || !retomaSalePrice) return;
+      retomaSalePriceWrap.hidden = !retomaPublish.checked;
+      retomaSalePrice.disabled = !retomaPublish.checked;
+      if (!retomaPublish.checked) retomaSalePrice.value = "";
+    };
+    if (retomaPublish) retomaPublish.addEventListener("change", syncRetomaPublish);
+
+    const syncEditRetoma = () => {
+      if (!editRetomaEnabled || !editRetomaPriceWrap || !editRetomaPrice) return;
+      editRetomaPriceWrap.hidden = !editRetomaEnabled.checked;
+      editRetomaPrice.disabled = !editRetomaEnabled.checked;
+      if (!editRetomaEnabled.checked) editRetomaPrice.value = "";
+    };
+    if (editRetomaEnabled) editRetomaEnabled.addEventListener("change", syncEditRetoma);
+
+    const openEditModal = (product) => {
+      if (!product) return;
+      const isAdmin = currentUserRole === "admin";
+      editContext = { productId: product.id, isAdmin };
+      setEditError("");
+
+      if (editSKU) editSKU.value = product.id || "";
+      if (editPrice) editPrice.value = Number(product.salePrice || 0) > 0 ? formatCOP(product.salePrice) : "0";
+      if (editName) {
+        editName.value = product.name || "";
+        editName.disabled = !isAdmin;
+      }
+      if (editLine) {
+        editLine.innerHTML = "";
+        editableLines.forEach((line) => {
+          const option = document.createElement("option");
+          option.value = line;
+          option.textContent = line;
+          option.selected = line === product.line;
+          editLine.appendChild(option);
+        });
+        if (!editableLines.includes(product.line || "")) {
+          const option = document.createElement("option");
+          option.value = product.line || "";
+          option.textContent = product.line || "Sin línea";
+          option.selected = true;
+          editLine.appendChild(option);
+        }
+        editLine.disabled = !isAdmin;
+      }
+      if (editOwner) {
+        editOwner.innerHTML = '<option value="">Sin asignar</option>';
+        assignableUsers.forEach((user) => {
+          const option = document.createElement("option");
+          option.value = String(user.id);
+          option.textContent = user.username;
+          option.selected = !!product.hasOwner && Number(product.ownerUserId || 0) === Number(user.id);
+          editOwner.appendChild(option);
+        });
+        editOwner.disabled = !isAdmin;
+      }
+      if (editRetomaEnabled) editRetomaEnabled.checked = !!product.retomaEnabled;
+      if (editRetomaPrice) editRetomaPrice.value = product.retomaEnabled && Number(product.retomaPrice || 0) > 0 ? formatCOP(product.retomaPrice) : "";
+      if (editNotes) editNotes.value = product.notes || "";
+      if (editSubmit) editSubmit.disabled = false;
+      syncEditRetoma();
+      openModal(editModal, `${product.name} · ID ${product.id}`);
+      if (editSKU) editSKU.focus();
     };
 
     const openSaleModal = ({ product, productId, maxQty, defaultQty }) => {
@@ -1084,7 +1445,7 @@
       if (maxQty < 1) {
         setSaleError("No hay stock disponible para vender.");
       }
-      openModal(saleModal, product ? `${product.name} · SKU ${productId}` : `SKU ${productId}`);
+      openModal(saleModal, product ? `${product.name} · ID ${productId}` : `ID ${productId}`);
       if (saleQty && maxQty >= 1) saleQty.focus();
 
       const localSalePrice = Number(product?.salePrice || 0);
@@ -1098,7 +1459,7 @@
         if (!salePrice.dataset.autofilled) {
           salePrice.dataset.autofilled = "1";
         }
-        fetch(`/api/productos/precio?${new URLSearchParams({ sku: productId }).toString()}`, {
+        fetch(`/api/productos/precio?${new URLSearchParams({ id: productId }).toString()}`, {
           headers: { "Accept": "application/json" },
           credentials: "same-origin"
         })
@@ -1118,9 +1479,32 @@
       }
     };
 
+    const openRetomaModal = ({ product, productId, defaultQty }) => {
+      if (!product?.retomaEnabled) return;
+      setRetomaError("");
+      if (retomaProduct) retomaProduct.value = `${product.name} · ID ${productId}`;
+      if (retomaQty) retomaQty.value = String(Math.max(1, defaultQty || 1));
+      if (retomaValue) {
+        const initialRetoma = Number(product.retomaPrice || 0);
+        retomaValue.value = initialRetoma > 0 ? formatCOP(initialRetoma) : "";
+      }
+      if (retomaStatus) retomaStatus.value = "Usado";
+      if (retomaNotes) retomaNotes.value = "";
+      if (retomaPublish) retomaPublish.checked = true;
+      if (retomaSalePrice) {
+        const initialSale = Number(product.salePrice || 0);
+        retomaSalePrice.value = initialSale > 0 ? formatCOP(initialSale) : "";
+      }
+      syncRetomaPublish();
+      if (retomaSubmit) retomaSubmit.disabled = false;
+      retomaContext = { productId, productName: product?.name || "" };
+      openModal(retomaModal, `${product.name} · ID ${productId}`);
+      if (retomaQty) retomaQty.focus();
+    };
+
     const showHistory = async (product) => {
       if (!product) return;
-      openModal(historyModal, `${product.name} · SKU ${product.id}`);
+      openModal(historyModal, `${product.name} · ID ${product.id}`);
 
       if (historyLoading) historyLoading.hidden = false;
       if (historyEmpty) {
@@ -1158,6 +1542,8 @@
           const tipo = String(m.tipo || "movimiento");
           const labels = {
             venta: "Venta",
+            retoma: "Retoma",
+            retoma_stock: "Retoma a stock",
             reservar: "Reserva",
             dano: "Daño",
             cambio_salida: "Cambio",
@@ -1206,8 +1592,14 @@
         const priceText = String(actionPrice?.value || "").trim();
         const shouldSendPrice = actionContext.allowPriceEdit && priceText !== "";
         const parsedPrice = shouldSendPrice ? parseCOP(priceText) : NaN;
+        const retomaPriceText = String(actionRetomaPrice?.value || "").trim();
+        const parsedRetomaPrice = retomaPriceText ? parseCOP(retomaPriceText) : NaN;
         if (shouldSendPrice && (Number.isNaN(parsedPrice) || parsedPrice < 0)) {
           setActionError("Precio de venta inválido.");
+          return;
+        }
+        if (actionContext.allowPriceEdit && actionRetomaEnabled?.checked && (!retomaPriceText || Number.isNaN(parsedRetomaPrice) || parsedRetomaPrice < 0)) {
+          setActionError("Valor de retoma inválido.");
           return;
         }
         if (Number.isNaN(qty) || qty < actionContext.minQty) {
@@ -1234,6 +1626,15 @@
           }
           if (shouldSendPrice) {
             body.set("precio_venta", String(parsedPrice));
+          }
+          if (actionContext.allowPriceEdit) {
+            body.set("retoma_config_present", "1");
+            if (actionRetomaEnabled?.checked) {
+              body.set("retoma_enabled", "1");
+              body.set("retoma_price", String(parsedRetomaPrice));
+            } else {
+              body.set("retoma_price", "");
+            }
           }
           const resp = await fetch(actionContext.endpoint, {
             method: "POST",
@@ -1349,6 +1750,141 @@
       });
     }
 
+    if (retomaForm) {
+      retomaForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!retomaContext) return;
+
+        const qty = parseInt(retomaQty?.value || "0", 10);
+        const valueText = String(retomaValue?.value || "").trim();
+        const publishToStock = !!retomaPublish?.checked;
+        const salePriceText = String(retomaSalePrice?.value || "").trim();
+        const status = String(retomaStatus?.value || "").trim();
+        const notes = String(retomaNotes?.value || "").trim();
+        const parsedValue = parseCOP(valueText);
+        const parsedSalePrice = salePriceText ? parseCOP(salePriceText) : NaN;
+
+        if (Number.isNaN(qty) || qty < 1) {
+          setRetomaError("Cantidad inválida.");
+          return;
+        }
+        if (!valueText || !Number.isFinite(parsedValue) || parsedValue < 0) {
+          setRetomaError("Ingresa un valor recibido válido.");
+          return;
+        }
+        if (!status) {
+          setRetomaError("Selecciona el estado recibido.");
+          return;
+        }
+        if (publishToStock && salePriceText && (!Number.isFinite(parsedSalePrice) || parsedSalePrice < 0)) {
+          setRetomaError("Ingresa un precio final de venta válido.");
+          return;
+        }
+
+        if (retomaSubmit) retomaSubmit.disabled = true;
+        setRetomaError("");
+
+        try {
+          const body = new URLSearchParams({
+            producto_id: retomaContext.productId,
+            cantidad: String(qty),
+            valor_recibido: String(parsedValue),
+            estado_recibido: status,
+            nota: notes
+          });
+          if (publishToStock) {
+            body.set("publicar_stock", "1");
+            if (salePriceText && Number.isFinite(parsedSalePrice)) {
+              body.set("precio_publicado", String(parsedSalePrice));
+            }
+          }
+          const resp = await fetch("/inventario/retoma", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "application/json",
+              "X-Requested-With": "XMLHttpRequest"
+            },
+            body
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            throw new Error(data.error || "No se pudo registrar la retoma.");
+          }
+          closeModal(retomaModal);
+          window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Retoma registrada correctamente.")}`;
+        } catch (err) {
+          setRetomaError(err?.message || "No se pudo registrar la retoma.");
+          if (retomaSubmit) retomaSubmit.disabled = false;
+        }
+      });
+    }
+
+    if (editForm) {
+      editForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!editContext) return;
+
+        const sku = String(editSKU?.value || "").trim();
+        const priceText = String(editPrice?.value || "").trim();
+        const parsedPrice = parseCOP(priceText);
+        const retomaPriceText = String(editRetomaPrice?.value || "").trim();
+        const parsedRetomaPrice = retomaPriceText ? parseCOP(retomaPriceText) : NaN;
+
+        if (!sku) {
+          setEditError("El ID es obligatorio.");
+          return;
+        }
+        if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+          setEditError("Precio de venta inválido.");
+          return;
+        }
+        if (editRetomaEnabled?.checked && (!retomaPriceText || !Number.isFinite(parsedRetomaPrice) || parsedRetomaPrice < 0)) {
+          setEditError("Valor de retoma inválido.");
+          return;
+        }
+
+        if (editSubmit) editSubmit.disabled = true;
+        setEditError("");
+        try {
+          const body = new URLSearchParams({
+            producto_id: editContext.productId,
+            sku,
+            precio_venta: String(parsedPrice),
+            notas: String(editNotes?.value || "").trim()
+          });
+          if (editRetomaEnabled?.checked) {
+            body.set("retoma_enabled", "1");
+            body.set("retoma_price", String(parsedRetomaPrice));
+          }
+          if (editContext.isAdmin) {
+            body.set("nombre", String(editName?.value || "").trim());
+            body.set("linea", String(editLine?.value || "").trim());
+            body.set("owner_user_id", String(editOwner?.value || "").trim());
+          }
+
+          const resp = await fetch("/inventario/producto/editar", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "application/json",
+              "X-Requested-With": "XMLHttpRequest"
+            },
+            body
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            throw new Error(data.error || "No se pudo actualizar el producto.");
+          }
+          closeModal(editModal);
+          window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Producto actualizado correctamente.")}`;
+        } catch (err) {
+          setEditError(err?.message || "No se pudo actualizar el producto.");
+          if (editSubmit) editSubmit.disabled = false;
+        }
+      });
+    }
+
     document.addEventListener("click", (event) => {
       const closeButton = event.target.closest("[data-modal-close]");
       if (closeButton) {
@@ -1398,7 +1934,7 @@
           if (!product || !Number.isFinite(maxQty) || maxQty < 1) {
             openActionModal({
               title: "Reservar unidades",
-              subtitle: product ? `${product.name} · SKU ${productId}` : `SKU ${productId}`,
+              subtitle: product ? `${product.name} · ID ${productId}` : `ID ${productId}`,
               endpoint: "/inventario/reservar",
               productId,
               maxQty: 0,
@@ -1412,7 +1948,7 @@
           }
           openActionModal({
             title: "Reservar unidades",
-            subtitle: `${product.name} · SKU ${productId}`,
+            subtitle: `${product.name} · ID ${productId}`,
             endpoint: "/inventario/reservar",
             productId,
             productName: product.name,
@@ -1427,7 +1963,7 @@
           if (!product || !Number.isFinite(maxQty) || maxQty < 1) {
             openActionModal({
               title: "Registrar daño",
-              subtitle: product ? `${product.name} · SKU ${productId}` : `SKU ${productId}`,
+              subtitle: product ? `${product.name} · ID ${productId}` : `ID ${productId}`,
               endpoint: "/inventario/dano",
               productId,
               maxQty: 0,
@@ -1441,7 +1977,7 @@
           }
           openActionModal({
             title: "Registrar daño",
-            subtitle: `${product.name} · SKU ${productId}`,
+            subtitle: `${product.name} · ID ${productId}`,
             endpoint: "/inventario/dano",
             productId,
             productName: product.name,
@@ -1453,19 +1989,19 @@
           return;
         }
         if (action === "retoma") {
-          const qty = Math.max(1, defaultQty);
-          const params = new URLSearchParams({
-            producto_id: productId,
-            cantidad: String(qty)
-          });
-          window.location.href = `/retoma/new?${params.toString()}`;
+          if (!product?.retomaEnabled) return;
+          openRetomaModal({ product, productId, defaultQty: Math.max(1, defaultQty) });
+          return;
+        }
+        if (action === "edit") {
+          openEditModal(product);
           return;
         }
         if (action === "stock") {
           const currentStock = Number.isFinite(maxQty) ? Math.max(0, maxQty) : 0;
           openActionModal({
             title: "Ajustar stock",
-            subtitle: product ? `${product.name} · SKU ${productId}` : `SKU ${productId}`,
+            subtitle: product ? `${product.name} · ID ${productId}` : `ID ${productId}`,
             endpoint: "/inventario/stock",
             productId,
             productName: product?.name || "",
@@ -1477,6 +2013,8 @@
             allowGreaterThanMax: true,
             allowPriceEdit: true,
             defaultPrice: Number(product?.salePrice || 0),
+            retomaEnabled: !!product?.retomaEnabled,
+            retomaPrice: Number(product?.retomaPrice || 0),
             noteLabel: "Nota del ajuste (opcional)",
             notePlaceholder: "Ej: conteo físico de inventario."
           });
@@ -1507,6 +2045,13 @@
           return;
         }
 
+        if (action === "edit") {
+          const product = products.find((p) => p.id === productId);
+          closeOpenMenuPanels();
+          openEditModal(product);
+          return;
+        }
+
         if (action === "swap") {
           const params = new URLSearchParams({
             producto_id: productId,
@@ -1517,11 +2062,9 @@
         }
 
         if (action === "retoma") {
-          const params = new URLSearchParams({
-            producto_id: productId,
-            cantidad: String(quantity)
-          });
-          window.location.href = `/retoma/new?${params.toString()}`;
+          const product = products.find((p) => p.id === productId);
+          if (!product?.retomaEnabled) return;
+          openRetomaModal({ product, productId, defaultQty: quantity });
           return;
         }
       }

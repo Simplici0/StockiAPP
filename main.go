@@ -30,16 +30,18 @@ import (
 )
 
 type inventoryPageData struct {
-	Title       string
-	Subtitle    string
-	RoutePrefix string
-	Flash       string
-	MetodoPagos []string
-	Products    []inventoryProduct
-	CanSell     bool
-	CanSwap     bool
-	CanRetoma   bool
-	CurrentUser *User
+	Title           string
+	Subtitle        string
+	RoutePrefix     string
+	Flash           string
+	MetodoPagos     []string
+	Products        []inventoryProduct
+	EditableLines   []string
+	AssignableUsers []assignableUser
+	CanSell         bool
+	CanSwap         bool
+	CanRetoma       bool
+	CurrentUser     *User
 }
 
 type unitOption struct {
@@ -47,14 +49,18 @@ type unitOption struct {
 }
 
 type productOption struct {
-	ID           string
-	Name         string
-	Line         string
-	FechaIngreso string
-	SalePrice    float64
-	OwnerUserID  int
-	HasOwner     bool
-	Units        []unitOption
+	ID             string
+	Name           string
+	Line           string
+	Notes          string
+	FechaIngreso   string
+	SalePrice      float64
+	RetomaEnabled  bool
+	RetomaPrice    float64
+	HasRetomaPrice bool
+	OwnerUserID    int
+	HasOwner       bool
+	Units          []unitOption
 }
 
 type csvFailedRow struct {
@@ -83,6 +89,7 @@ type inventoryProduct struct {
 	ID                string
 	Name              string
 	Line              string
+	Notes             string
 	EstadoLabel       string
 	EstadoClass       string
 	Disponible        int
@@ -92,6 +99,11 @@ type inventoryProduct struct {
 	MesesEnStock      int
 	AlertaPermanencia bool
 	SalePrice         float64
+	RetomaEnabled     bool
+	RetomaPrice       float64
+	HasRetomaPrice    bool
+	OwnerUserID       int
+	HasOwner          bool
 }
 
 type BusinessSettings struct {
@@ -214,7 +226,7 @@ func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 
 func loadProductos(db *sql.DB) ([]productOption, error) {
 	rows, err := db.Query(`
-		SELECT sku, nombre, linea, COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), owner_user_id
+		SELECT sku, nombre, linea, COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
 		FROM productos
 		ORDER BY sku
 	`)
@@ -226,9 +238,16 @@ func loadProductos(db *sql.DB) ([]productOption, error) {
 	products := []productOption{}
 	for rows.Next() {
 		var p productOption
+		var retomaEnabled int
+		var retomaPrice sql.NullFloat64
 		var ownerUserID sql.NullInt64
-		if err := rows.Scan(&p.ID, &p.Name, &p.Line, &p.FechaIngreso, &p.SalePrice, &ownerUserID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Line, &p.Notes, &p.FechaIngreso, &p.SalePrice, &retomaEnabled, &retomaPrice, &ownerUserID); err != nil {
 			return nil, err
+		}
+		p.RetomaEnabled = retomaEnabled == 1
+		p.HasRetomaPrice = retomaPrice.Valid
+		if retomaPrice.Valid {
+			p.RetomaPrice = retomaPrice.Float64
 		}
 		p.HasOwner = ownerUserID.Valid
 		if ownerUserID.Valid {
@@ -815,11 +834,18 @@ func logMovimientos(tx *sql.Tx, productoID string, unidadIDs []string, tipo, not
 
 func normalizeAuditSource(source string) string {
 	switch strings.TrimSpace(strings.ToLower(source)) {
-	case "api", "n8n", "agent":
+	case "api", "n8n", "agent", "web":
 		return strings.TrimSpace(strings.ToLower(source))
 	default:
 		return "manual"
 	}
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func logAuditEvent(exec sqlExecer, user *User, eventType, entityType, entityID, source string, payload map[string]any) error {
@@ -1813,6 +1839,8 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		owner_user_id INTEGER,
 		precio_base REAL NOT NULL DEFAULT 0,
 		precio_venta REAL NOT NULL DEFAULT 0,
+		retoma_enabled INTEGER NOT NULL DEFAULT 0,
+		retoma_price REAL,
 		precio_consultora REAL NOT NULL DEFAULT 0,
 		descuento REAL NOT NULL DEFAULT 0,
 		anotaciones TEXT NOT NULL DEFAULT '',
@@ -1832,6 +1860,20 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 	);
 	CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas (fecha);
 	CREATE INDEX IF NOT EXISTS idx_ventas_metodo ON ventas (metodo_pago);
+
+	CREATE TABLE IF NOT EXISTS retomas (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		producto_id TEXT NOT NULL,
+		cantidad INTEGER NOT NULL,
+		valor_recibido REAL NOT NULL,
+		estado_recibido TEXT NOT NULL,
+		publicado_stock INTEGER NOT NULL DEFAULT 0,
+		precio_publicado REAL,
+		notas TEXT NOT NULL DEFAULT '',
+		fecha TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_retomas_fecha ON retomas (fecha);
+	CREATE INDEX IF NOT EXISTS idx_retomas_producto ON retomas (producto_id);
 
 	CREATE TABLE IF NOT EXISTS unidades (
 		id TEXT PRIMARY KEY,
@@ -1953,6 +1995,42 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 	}
 	if productosHasFecha == 0 {
 		if _, err := db.Exec("ALTER TABLE productos ADD COLUMN fecha_ingreso TEXT"); err != nil {
+			return nil, err
+		}
+	}
+	var productosHasRetomaEnabled int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('productos') WHERE name = 'retoma_enabled'").Scan(&productosHasRetomaEnabled); err != nil {
+		return nil, err
+	}
+	if productosHasRetomaEnabled == 0 {
+		if _, err := db.Exec("ALTER TABLE productos ADD COLUMN retoma_enabled INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return nil, err
+		}
+	}
+	var productosHasRetomaPrice int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('productos') WHERE name = 'retoma_price'").Scan(&productosHasRetomaPrice); err != nil {
+		return nil, err
+	}
+	if productosHasRetomaPrice == 0 {
+		if _, err := db.Exec("ALTER TABLE productos ADD COLUMN retoma_price REAL"); err != nil {
+			return nil, err
+		}
+	}
+	var retomasHasPublicadoStock int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('retomas') WHERE name = 'publicado_stock'").Scan(&retomasHasPublicadoStock); err != nil {
+		return nil, err
+	}
+	if retomasHasPublicadoStock == 0 {
+		if _, err := db.Exec("ALTER TABLE retomas ADD COLUMN publicado_stock INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return nil, err
+		}
+	}
+	var retomasHasPrecioPublicado int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('retomas') WHERE name = 'precio_publicado'").Scan(&retomasHasPrecioPublicado); err != nil {
+		return nil, err
+	}
+	if retomasHasPrecioPublicado == 0 {
+		if _, err := db.Exec("ALTER TABLE retomas ADD COLUMN precio_publicado REAL"); err != nil {
 			return nil, err
 		}
 	}
@@ -2368,6 +2446,8 @@ func main() {
 		Linea           string
 		OwnerUserID     string
 		PrecioVenta     string
+		RetomaEnabled   bool
+		RetomaPrice     string
 		Lineas          []string
 		HasLineas       bool
 		AssignableUsers []assignableUser
@@ -3370,7 +3450,7 @@ func main() {
 		}
 		nextSKU, err := generateNextProductSKU(db)
 		if err != nil {
-			http.Error(w, "No se pudo generar el SKU", http.StatusInternalServerError)
+			http.Error(w, "No se pudo generar el ID", http.StatusInternalServerError)
 			return
 		}
 		assignableUsers, err := loadAssignableUsers(db)
@@ -3411,10 +3491,16 @@ func main() {
 		}
 
 		nombre := strings.TrimSpace(r.FormValue("nombre"))
+		customSKU := strings.TrimSpace(r.FormValue("id"))
+		if customSKU == "" {
+			customSKU = strings.TrimSpace(r.FormValue("sku"))
+		}
 		linea := strings.TrimSpace(r.FormValue("linea"))
 		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		cantidadRaw := strings.TrimSpace(r.FormValue("cantidad"))
 		precioVentaRaw := strings.TrimSpace(r.FormValue("precio_venta"))
+		retomaEnabled := r.FormValue("retoma_enabled") != ""
+		retomaPriceRaw := strings.TrimSpace(r.FormValue("retoma_price"))
 		aplicaCad := r.FormValue("aplica_caducidad") != ""
 		caducidad := strings.TrimSpace(r.FormValue("fecha_caducidad"))
 		assignableUsers, err := loadAssignableUsers(db)
@@ -3431,6 +3517,16 @@ func main() {
 		if nombre == "" {
 			errors["nombre"] = "Nombre obligatorio."
 		}
+		if customSKU != "" {
+			var existingCount int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE sku = ?`, customSKU).Scan(&existingCount); err != nil {
+				http.Error(w, "No se pudo validar el ID", http.StatusInternalServerError)
+				return
+			}
+			if existingCount > 0 {
+				errors["sku"] = "Ya existe un producto con ese ID."
+			}
+		}
 		if linea == "" {
 			if len(activeLines) == 0 {
 				errors["linea"] = "Primero crea una línea de negocio en Configuración."
@@ -3445,6 +3541,24 @@ func main() {
 				errors["precio_venta"] = "Precio de venta inválido."
 			} else {
 				precioVenta = parsedPrice
+			}
+		}
+		var retomaPrice sql.NullFloat64
+		if retomaEnabled {
+			if retomaPriceRaw == "" {
+				errors["retoma_price"] = "Valor de retoma obligatorio si habilitas retoma."
+			} else if parsedRetoma, parseErr := parseCOPInteger(retomaPriceRaw); parseErr != nil || parsedRetoma < 0 {
+				errors["retoma_price"] = "Valor de retoma inválido."
+			} else {
+				if precioVenta > 0 && parsedRetoma > precioVenta {
+					errors["retoma_price"] = "El valor de retoma no debe superar el valor de venta."
+				} else {
+					retomaPrice = sql.NullFloat64{Float64: float64(parsedRetoma), Valid: true}
+				}
+			}
+		} else if retomaPriceRaw != "" {
+			if _, parseErr := parseCOPInteger(retomaPriceRaw); parseErr != nil {
+				errors["retoma_price"] = "Valor de retoma inválido."
 			}
 		}
 		cantidad, err := strconv.Atoi(cantidadRaw)
@@ -3475,10 +3589,14 @@ func main() {
 		}
 
 		if len(errors) > 0 {
-			nextSKU, skuErr := generateNextProductSKU(db)
-			if skuErr != nil {
-				http.Error(w, "No se pudo generar el SKU", http.StatusInternalServerError)
-				return
+			nextSKU := customSKU
+			if nextSKU == "" {
+				var skuErr error
+				nextSKU, skuErr = generateNextProductSKU(db)
+				if skuErr != nil {
+					http.Error(w, "No se pudo generar el ID", http.StatusInternalServerError)
+					return
+				}
 			}
 			w.WriteHeader(http.StatusBadRequest)
 			data := productNewData{
@@ -3489,6 +3607,8 @@ func main() {
 				Linea:           linea,
 				OwnerUserID:     ownerUserIDRaw,
 				PrecioVenta:     precioVentaRaw,
+				RetomaEnabled:   retomaEnabled,
+				RetomaPrice:     retomaPriceRaw,
 				Lineas:          ensureLineOption(businessLineNames(activeLines), linea),
 				HasLineas:       len(activeLines) > 0,
 				AssignableUsers: assignableUsers,
@@ -3511,17 +3631,20 @@ func main() {
 		}
 		defer tx.Rollback()
 
-		sku, err := generateNextProductSKU(db)
-		if err != nil {
-			http.Error(w, "No se pudo generar el SKU", http.StatusInternalServerError)
-			return
+		sku := customSKU
+		if sku == "" {
+			sku, err = generateNextProductSKU(db)
+			if err != nil {
+				http.Error(w, "No se pudo generar el ID", http.StatusInternalServerError)
+				return
+			}
 		}
 		now := time.Now().Format(time.RFC3339)
 		if err := upsertProducto(tx, sku, nombre, linea, now); err != nil {
 			http.Error(w, "No se pudo guardar el producto", http.StatusInternalServerError)
 			return
 		}
-		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE sku = ?`, float64(precioVenta), sku); err != nil {
+		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ?, retoma_enabled = ?, retoma_price = ? WHERE sku = ?`, float64(precioVenta), boolToInt(retomaEnabled), retomaPrice, sku); err != nil {
 			http.Error(w, "No se pudo guardar el precio del producto", http.StatusInternalServerError)
 			return
 		}
@@ -3530,11 +3653,13 @@ func main() {
 			return
 		}
 		if err := logAuditEvent(tx, userFromContext(r), "product_created", "product", sku, "manual", map[string]any{
-			"sku":           sku,
-			"name":          nombre,
-			"line":          linea,
-			"owner_user_id": ownerUserID,
-			"cantidad":      cantidad,
+			"sku":            sku,
+			"name":           nombre,
+			"line":           linea,
+			"retoma_enabled": retomaEnabled,
+			"retoma_price":   retomaPrice,
+			"owner_user_id":  ownerUserID,
+			"cantidad":       cantidad,
 		}); err != nil {
 			http.Error(w, "No se pudo registrar la auditoría del producto", http.StatusInternalServerError)
 			return
@@ -3579,6 +3704,13 @@ func main() {
 				products[idx].Name = nombre
 				products[idx].Line = linea
 				products[idx].SalePrice = float64(precioVenta)
+				products[idx].RetomaEnabled = retomaEnabled
+				products[idx].HasRetomaPrice = retomaPrice.Valid
+				if retomaPrice.Valid {
+					products[idx].RetomaPrice = retomaPrice.Float64
+				} else {
+					products[idx].RetomaPrice = 0
+				}
 				products[idx].HasOwner = ownerUserID.Valid
 				if ownerUserID.Valid {
 					products[idx].OwnerUserID = int(ownerUserID.Int64)
@@ -3591,11 +3723,16 @@ func main() {
 		}
 		if !found {
 			createdProduct := productOption{
-				ID:           sku,
-				Name:         nombre,
-				Line:         linea,
-				FechaIngreso: time.Now().Format("2006-01-02"),
-				SalePrice:    float64(precioVenta),
+				ID:            sku,
+				Name:          nombre,
+				Line:          linea,
+				FechaIngreso:  time.Now().Format("2006-01-02"),
+				SalePrice:     float64(precioVenta),
+				RetomaEnabled: retomaEnabled,
+			}
+			if retomaPrice.Valid {
+				createdProduct.HasRetomaPrice = true
+				createdProduct.RetomaPrice = retomaPrice.Float64
 			}
 			if ownerUserID.Valid {
 				createdProduct.HasOwner = true
@@ -3622,13 +3759,19 @@ func main() {
 				if product.HasOwner {
 					owner = product.OwnerUserID
 				}
+				var retomaPrice any = nil
+				if product.HasRetomaPrice {
+					retomaPrice = product.RetomaPrice
+				}
 				items = append(items, map[string]any{
-					"id":            product.ID,
-					"name":          product.Name,
-					"line":          product.Line,
-					"fecha_ingreso": formatDateWithSettings(product.FechaIngreso),
-					"sale_price":    product.SalePrice,
-					"owner_user_id": owner,
+					"id":             product.ID,
+					"name":           product.Name,
+					"line":           product.Line,
+					"fecha_ingreso":  formatDateWithSettings(product.FechaIngreso),
+					"sale_price":     product.SalePrice,
+					"retoma_enabled": product.RetomaEnabled,
+					"retoma_price":   retomaPrice,
+					"owner_user_id":  owner,
 				})
 			}
 			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
@@ -3649,6 +3792,8 @@ func main() {
 			OwnerUserID    *int   `json:"owner_user_id"`
 			Quantity       int    `json:"quantity"`
 			SalePrice      int    `json:"sale_price"`
+			RetomaEnabled  bool   `json:"retoma_enabled"`
+			RetomaPrice    *int   `json:"retoma_price"`
 			AplicaCad      bool   `json:"aplica_caducidad"`
 			FechaCaducidad string `json:"fecha_caducidad"`
 		}
@@ -3693,6 +3838,16 @@ func main() {
 		if payload.SalePrice < 0 {
 			fields["sale_price"] = "Precio inválido."
 		}
+		var retomaPrice sql.NullFloat64
+		if payload.RetomaEnabled {
+			if payload.RetomaPrice == nil || *payload.RetomaPrice < 0 {
+				fields["retoma_price"] = "Valor de retoma inválido."
+			} else if payload.SalePrice > 0 && *payload.RetomaPrice > payload.SalePrice {
+				fields["retoma_price"] = "El valor de retoma no debe superar el valor de venta."
+			} else {
+				retomaPrice = sql.NullFloat64{Float64: float64(*payload.RetomaPrice), Valid: true}
+			}
+		}
 		if payload.AplicaCad {
 			if payload.FechaCaducidad == "" {
 				fields["fecha_caducidad"] = "Fecha caducidad requerida si aplica."
@@ -3724,7 +3879,7 @@ func main() {
 		defer tx.Rollback()
 		sku, err := generateNextProductSKU(db)
 		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "No se pudo generar el SKU.", nil)
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo generar el ID.", nil)
 			return
 		}
 		now := time.Now().Format(time.RFC3339)
@@ -3732,7 +3887,7 @@ func main() {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo guardar el producto.", nil)
 			return
 		}
-		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ?, owner_user_id = ? WHERE sku = ?`, float64(payload.SalePrice), ownerUserID, sku); err != nil {
+		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, owner_user_id = ? WHERE sku = ?`, float64(payload.SalePrice), boolToInt(payload.RetomaEnabled), retomaPrice, ownerUserID, sku); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo guardar el producto.", nil)
 			return
 		}
@@ -3748,11 +3903,14 @@ func main() {
 			}
 		}
 		if err := logAuditEvent(tx, currentUser, "product_created", "product", sku, "api", withAPIAuditMetadata(r, map[string]any{
-			"sku":           sku,
-			"name":          payload.Name,
-			"line":          payload.Line,
-			"owner_user_id": ownerUserID,
-			"cantidad":      payload.Quantity,
+			"sku":            sku,
+			"name":           payload.Name,
+			"line":           payload.Line,
+			"sale_price":     payload.SalePrice,
+			"retoma_enabled": payload.RetomaEnabled,
+			"retoma_price":   retomaPrice,
+			"owner_user_id":  ownerUserID,
+			"cantidad":       payload.Quantity,
 		})); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la auditoría.", nil)
 			return
@@ -4023,6 +4181,21 @@ func main() {
 			productsMu.Unlock()
 		}
 		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+		editableLines := []string{}
+		assignableUsers := []assignableUser{}
+		if currentUser != nil && currentUser.Role == "admin" {
+			lines, err := loadBusinessLines(db, false)
+			if err != nil {
+				http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
+				return
+			}
+			editableLines = businessLineNames(lines)
+			assignableUsers, err = loadAssignableUsers(db)
+			if err != nil {
+				http.Error(w, "Error al cargar usuarios asignables", http.StatusInternalServerError)
+				return
+			}
+		}
 
 		inventoryProducts := make([]inventoryProduct, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
@@ -4117,6 +4290,7 @@ func main() {
 				ID:                product.ID,
 				Name:              product.Name,
 				Line:              product.Line,
+				Notes:             product.Notes,
 				EstadoLabel:       estadoLabel,
 				EstadoClass:       estadoClass,
 				Disponible:        availableCount,
@@ -4126,6 +4300,11 @@ func main() {
 				MesesEnStock:      mesesEnStock,
 				AlertaPermanencia: alertaPermanencia,
 				SalePrice:         product.SalePrice,
+				RetomaEnabled:     product.RetomaEnabled,
+				RetomaPrice:       product.RetomaPrice,
+				HasRetomaPrice:    product.HasRetomaPrice,
+				OwnerUserID:       product.OwnerUserID,
+				HasOwner:          product.HasOwner,
 			})
 		}
 		_, movementEnabledMap, err := loadMovementSettings(db)
@@ -4134,20 +4313,315 @@ func main() {
 			return
 		}
 		data := inventoryPageData{
-			Title:       "Seguimiento de existencias",
-			Subtitle:    "",
-			RoutePrefix: "",
-			Flash:       flash,
-			MetodoPagos: paymentMethodNames(activePaymentMethods),
-			Products:    inventoryProducts,
-			CanSell:     movementEnabled(movementEnabledMap, "venta"),
-			CanSwap:     movementEnabled(movementEnabledMap, "cambio"),
-			CanRetoma:   movementEnabled(movementEnabledMap, "retoma"),
-			CurrentUser: currentUser,
+			Title:           "Seguimiento de existencias",
+			Subtitle:        "",
+			RoutePrefix:     "",
+			Flash:           flash,
+			MetodoPagos:     paymentMethodNames(activePaymentMethods),
+			Products:        inventoryProducts,
+			EditableLines:   editableLines,
+			AssignableUsers: assignableUsers,
+			CanSell:         movementEnabled(movementEnabledMap, "venta"),
+			CanSwap:         movementEnabled(movementEnabledMap, "cambio"),
+			CanRetoma:       movementEnabled(movementEnabledMap, "retoma"),
+			CurrentUser:     currentUser,
 		}
 		if err := tmpl.ExecuteTemplate(w, "inventario.html", data); err != nil {
 			http.Error(w, "Error al renderizar el template", http.StatusInternalServerError)
 		}
+	})
+
+	mux.HandleFunc("/inventario/producto/editar", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError := func(status int, message string) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+		}
+
+		currentUser := userFromContext(r)
+		if currentUser == nil || (currentUser.Role != "admin" && currentUser.Role != "empleado") {
+			writeJSONError(http.StatusForbidden, "Solo personal autorizado puede editar productos.")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			writeJSONError(http.StatusBadRequest, "No se pudo leer el formulario.")
+			return
+		}
+
+		productID := strings.TrimSpace(r.FormValue("producto_id"))
+		newSKU := strings.TrimSpace(r.FormValue("id"))
+		if newSKU == "" {
+			newSKU = strings.TrimSpace(r.FormValue("sku"))
+		}
+		newName := strings.TrimSpace(r.FormValue("nombre"))
+		newLine := strings.TrimSpace(r.FormValue("linea"))
+		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
+		priceValue := strings.TrimSpace(r.FormValue("precio_venta"))
+		retomaEnabled := r.FormValue("retoma_enabled") != ""
+		retomaPriceValue := strings.TrimSpace(r.FormValue("retoma_price"))
+		notesValue := strings.TrimSpace(r.FormValue("notas"))
+
+		if productID == "" {
+			writeJSONError(http.StatusBadRequest, "Producto inválido.")
+			return
+		}
+		allowed, err := productAccessibleByID(db, currentUser, productID)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.")
+			return
+		}
+		if !allowed {
+			writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.")
+			return
+		}
+
+		var previous struct {
+			SKU           string
+			Name          string
+			Line          string
+			SalePrice     float64
+			RetomaEnabled int
+			RetomaPrice   sql.NullFloat64
+			Notes         string
+			OwnerUserID   sql.NullInt64
+		}
+		if err := db.QueryRow(`
+			SELECT sku, nombre, linea, COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, COALESCE(anotaciones, ''), owner_user_id
+			FROM productos
+			WHERE sku = ? OR id = ?
+			LIMIT 1
+		`, productID, productID).Scan(&previous.SKU, &previous.Name, &previous.Line, &previous.SalePrice, &previous.RetomaEnabled, &previous.RetomaPrice, &previous.Notes, &previous.OwnerUserID); err != nil {
+			if err == sql.ErrNoRows {
+				writeJSONError(http.StatusNotFound, "Producto no encontrado.")
+				return
+			}
+			writeJSONError(http.StatusInternalServerError, "No se pudo cargar el producto.")
+			return
+		}
+
+		if newSKU == "" {
+			writeJSONError(http.StatusBadRequest, "El ID es obligatorio.")
+			return
+		}
+		parsedPrice, err := parseCOPInteger(priceValue)
+		if err != nil || parsedPrice < 0 {
+			writeJSONError(http.StatusBadRequest, "Precio de venta inválido.")
+			return
+		}
+		var newRetomaPrice sql.NullFloat64
+		if retomaEnabled {
+			if retomaPriceValue == "" {
+				writeJSONError(http.StatusBadRequest, "Valor de retoma obligatorio cuando retoma está habilitada.")
+				return
+			}
+			parsedRetomaPrice, err := parseCOPInteger(retomaPriceValue)
+			if err != nil || parsedRetomaPrice < 0 {
+				writeJSONError(http.StatusBadRequest, "Valor de retoma inválido.")
+				return
+			}
+			newRetomaPrice = sql.NullFloat64{Float64: float64(parsedRetomaPrice), Valid: true}
+		}
+
+		finalName := previous.Name
+		finalLine := previous.Line
+		finalOwner := previous.OwnerUserID
+		if currentUser.Role == "admin" {
+			if newName == "" {
+				writeJSONError(http.StatusBadRequest, "El nombre del producto es obligatorio.")
+				return
+			}
+			finalName = newName
+			if newLine == "" {
+				writeJSONError(http.StatusBadRequest, "La línea es obligatoria.")
+				return
+			}
+			lines, err := loadBusinessLines(db, false)
+			if err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudieron cargar las líneas.")
+				return
+			}
+			validLine := false
+			for _, line := range lines {
+				if strings.EqualFold(strings.TrimSpace(line.Name), newLine) {
+					validLine = true
+					finalLine = line.Name
+					break
+				}
+			}
+			if !validLine {
+				writeJSONError(http.StatusBadRequest, "Selecciona una línea válida.")
+				return
+			}
+			finalOwner = sql.NullInt64{}
+			if ownerUserIDRaw != "" {
+				assignableUsers, err := loadAssignableUsers(db)
+				if err != nil {
+					writeJSONError(http.StatusInternalServerError, "No se pudieron cargar los usuarios.")
+					return
+				}
+				validOwner := false
+				for _, candidate := range assignableUsers {
+					if strconv.Itoa(candidate.ID) == ownerUserIDRaw {
+						finalOwner = sql.NullInt64{Int64: int64(candidate.ID), Valid: true}
+						validOwner = true
+						break
+					}
+				}
+				if !validOwner {
+					writeJSONError(http.StatusBadRequest, "Selecciona un usuario asignado válido.")
+					return
+				}
+			}
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo iniciar la transacción.")
+			return
+		}
+		defer tx.Rollback()
+
+		if newSKU != previous.SKU {
+			var count int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM productos WHERE sku = ? AND sku <> ?`, newSKU, previous.SKU).Scan(&count); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo validar el ID.")
+				return
+			}
+			if count > 0 {
+				writeJSONError(http.StatusBadRequest, "Ya existe otro producto con ese ID.")
+				return
+			}
+			if _, err := tx.Exec(`UPDATE productos SET sku = ?, id = ? WHERE sku = ?`, newSKU, newSKU, previous.SKU); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el ID del producto.")
+				return
+			}
+			if _, err := tx.Exec(`UPDATE unidades SET producto_id = ? WHERE producto_id = ?`, newSKU, previous.SKU); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el inventario asociado al ID.")
+				return
+			}
+		}
+
+		if currentUser.Role == "admin" {
+			if _, err := tx.Exec(`
+				UPDATE productos
+				SET nombre = ?, linea = ?, owner_user_id = ?, precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?
+				WHERE sku = ?
+			`, finalName, finalLine, finalOwner, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, newSKU); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el producto.")
+				return
+			}
+		} else {
+			if _, err := tx.Exec(`
+				UPDATE productos
+				SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?
+				WHERE sku = ?
+			`, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, newSKU); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el producto.")
+				return
+			}
+		}
+
+		payload := map[string]any{}
+		if previous.SKU != newSKU {
+			payload["previous_sku"] = previous.SKU
+			payload["new_sku"] = newSKU
+		}
+		if previous.SalePrice != float64(parsedPrice) {
+			payload["previous_sale_price"] = previous.SalePrice
+			payload["new_sale_price"] = float64(parsedPrice)
+		}
+		if (previous.RetomaEnabled == 1) != retomaEnabled {
+			payload["previous_retoma_enabled"] = previous.RetomaEnabled == 1
+			payload["new_retoma_enabled"] = retomaEnabled
+		}
+		prevRetoma := any(nil)
+		if previous.RetomaPrice.Valid {
+			prevRetoma = previous.RetomaPrice.Float64
+		}
+		newRetoma := any(nil)
+		if newRetomaPrice.Valid {
+			newRetoma = newRetomaPrice.Float64
+		}
+		if previous.RetomaPrice.Valid != newRetomaPrice.Valid || (previous.RetomaPrice.Valid && newRetomaPrice.Valid && previous.RetomaPrice.Float64 != newRetomaPrice.Float64) {
+			payload["previous_retoma_price"] = prevRetoma
+			payload["new_retoma_price"] = newRetoma
+		}
+		if previous.Notes != notesValue {
+			payload["previous_notes"] = previous.Notes
+			payload["new_notes"] = notesValue
+		}
+		if currentUser.Role == "admin" {
+			if previous.Name != finalName {
+				payload["previous_name"] = previous.Name
+				payload["new_name"] = finalName
+			}
+			if previous.Line != finalLine {
+				payload["previous_line"] = previous.Line
+				payload["new_line"] = finalLine
+			}
+			prevOwner := any(nil)
+			if previous.OwnerUserID.Valid {
+				prevOwner = previous.OwnerUserID.Int64
+			}
+			newOwner := any(nil)
+			if finalOwner.Valid {
+				newOwner = finalOwner.Int64
+			}
+			if previous.OwnerUserID.Valid != finalOwner.Valid || (previous.OwnerUserID.Valid && finalOwner.Valid && previous.OwnerUserID.Int64 != finalOwner.Int64) {
+				payload["previous_owner_user_id"] = prevOwner
+				payload["new_owner_user_id"] = newOwner
+			}
+		}
+		if len(payload) > 0 {
+			if err := logAuditEvent(tx, currentUser, "product_updated", "product", newSKU, "web", payload); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del producto.")
+				return
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la edición del producto.")
+			return
+		}
+
+		productsMu.Lock()
+		for idx := range products {
+			if products[idx].ID == previous.SKU {
+				products[idx].ID = newSKU
+				if currentUser.Role == "admin" {
+					products[idx].Name = finalName
+					products[idx].Line = finalLine
+					products[idx].HasOwner = finalOwner.Valid
+					if finalOwner.Valid {
+						products[idx].OwnerUserID = int(finalOwner.Int64)
+					} else {
+						products[idx].OwnerUserID = 0
+					}
+				}
+				products[idx].SalePrice = float64(parsedPrice)
+				products[idx].RetomaEnabled = retomaEnabled
+				products[idx].HasRetomaPrice = newRetomaPrice.Valid
+				products[idx].Notes = notesValue
+				if newRetomaPrice.Valid {
+					products[idx].RetomaPrice = newRetomaPrice.Float64
+				} else {
+					products[idx].RetomaPrice = 0
+				}
+				break
+			}
+		}
+		productsMu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       true,
+			"producto": newSKU,
+			"mensaje":  "Producto actualizado correctamente.",
+		})
 	})
 
 	mux.HandleFunc("/inventario/reservar", func(w http.ResponseWriter, r *http.Request) {
@@ -4278,6 +4752,210 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "producto_id": productID, "cantidad": qty})
 	})
 
+	mux.HandleFunc("/inventario/retoma", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError := func(status int, message string) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+		}
+
+		currentUser := userFromContext(r)
+		if currentUser == nil || (currentUser.Role != "admin" && currentUser.Role != "empleado") {
+			writeJSONError(http.StatusForbidden, "Solo personal autorizado puede registrar retomas.")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.")
+			return
+		}
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo cargar la configuración de movimientos.")
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "retoma") {
+			writeJSONError(http.StatusForbidden, "La retoma está deshabilitada en Configuración.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			writeJSONError(http.StatusBadRequest, "No se pudo leer el formulario.")
+			return
+		}
+
+		productID := strings.TrimSpace(r.FormValue("producto_id"))
+		qtyValue := strings.TrimSpace(r.FormValue("cantidad"))
+		valueValue := strings.TrimSpace(r.FormValue("valor_recibido"))
+		estadoRecibido := strings.TrimSpace(r.FormValue("estado_recibido"))
+		publicarStock := r.FormValue("publicar_stock") != ""
+		precioPublicadoValue := strings.TrimSpace(r.FormValue("precio_publicado"))
+		nota := strings.TrimSpace(r.FormValue("nota"))
+
+		qty, err := strconv.Atoi(qtyValue)
+		if productID == "" || err != nil || qty <= 0 {
+			writeJSONError(http.StatusBadRequest, "Cantidad inválida.")
+			return
+		}
+		allowed, err := productAccessibleByID(db, currentUser, productID)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.")
+			return
+		}
+		if !allowed {
+			writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.")
+			return
+		}
+
+		var (
+			productName    string
+			retomaEnabled  int
+			retomaPriceRaw sql.NullFloat64
+		)
+		if err := db.QueryRow(`
+			SELECT nombre, COALESCE(retoma_enabled, 0), retoma_price
+			FROM productos
+			WHERE sku = ?
+		`, productID).Scan(&productName, &retomaEnabled, &retomaPriceRaw); err != nil {
+			if err == sql.ErrNoRows {
+				writeJSONError(http.StatusNotFound, "Producto no encontrado.")
+				return
+			}
+			writeJSONError(http.StatusInternalServerError, "No se pudo cargar el producto.")
+			return
+		}
+		if retomaEnabled != 1 {
+			writeJSONError(http.StatusForbidden, "Este producto no tiene retoma habilitada.")
+			return
+		}
+
+		valueParsed, err := parseCOPInteger(valueValue)
+		if err != nil || valueParsed < 0 {
+			writeJSONError(http.StatusBadRequest, "Valor recibido inválido.")
+			return
+		}
+		validEstados := map[string]struct{}{
+			"Nuevo":          {},
+			"Usado":          {},
+			"Dañado":         {},
+			"Para repuestos": {},
+			"Otro":           {},
+		}
+		if _, ok := validEstados[estadoRecibido]; !ok {
+			writeJSONError(http.StatusBadRequest, "Selecciona un estado recibido válido.")
+			return
+		}
+		var precioPublicado sql.NullFloat64
+		if publicarStock && precioPublicadoValue != "" {
+			precioPublicadoParsed, err := parseCOPInteger(precioPublicadoValue)
+			if err != nil || precioPublicadoParsed < 0 {
+				writeJSONError(http.StatusBadRequest, "Precio final de venta inválido.")
+				return
+			}
+			precioPublicado = sql.NullFloat64{Float64: float64(precioPublicadoParsed), Valid: true}
+		} else if !publicarStock && precioPublicadoValue != "" {
+			if _, err := parseCOPInteger(precioPublicadoValue); err != nil {
+				writeJSONError(http.StatusBadRequest, "Precio final de venta inválido.")
+				return
+			}
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo iniciar la transacción.")
+			return
+		}
+		defer tx.Rollback()
+
+		now := time.Now().Format(time.RFC3339)
+		if _, err := tx.Exec(`
+			INSERT INTO retomas (producto_id, cantidad, valor_recibido, estado_recibido, publicado_stock, precio_publicado, notas, fecha)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, productID, qty, float64(valueParsed), estadoRecibido, boolToInt(publicarStock), precioPublicado, nota, now); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la retoma.")
+			return
+		}
+
+		unitIDs := make([]string, 0, qty)
+		baseID := time.Now().UnixNano()
+		for i := 0; i < qty; i++ {
+			unitIDs = append(unitIDs, fmt.Sprintf("RETOMA-%s-%d-%d", productID, baseID, i+1))
+		}
+		movementNote := fmt.Sprintf("Estado recibido: %s · Valor recibido: %s", estadoRecibido, formatCurrency(float64(valueParsed)))
+		if nota != "" {
+			movementNote += " · " + nota
+		}
+		if err := logMovimientos(tx, productID, unitIDs, "retoma", movementNote, currentUser, now); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar el movimiento de retoma.")
+			return
+		}
+		stockCreatedIDs := make([]string, 0, qty)
+		if publicarStock {
+			if precioPublicado.Valid {
+				if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE sku = ?`, precioPublicado.Float64, productID); err != nil {
+					writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el precio final del producto.")
+					return
+				}
+			}
+			baseID := time.Now().UnixNano()
+			for i := 0; i < qty; i++ {
+				unitID := fmt.Sprintf("U-%s-RET-%d-%d", productID, baseID, i+1)
+				if _, err := tx.Exec(
+					`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?)`,
+					unitID, productID, "Disponible", now, nil,
+				); err != nil {
+					writeJSONError(http.StatusInternalServerError, "No se pudo publicar la retoma al stock.")
+					return
+				}
+				stockCreatedIDs = append(stockCreatedIDs, unitID)
+			}
+			stockNote := fmt.Sprintf("Retoma publicada a stock · Estado recibido: %s", estadoRecibido)
+			if precioPublicado.Valid {
+				stockNote += " · Precio final: " + formatCurrency(precioPublicado.Float64)
+			}
+			if nota != "" {
+				stockNote += " · " + nota
+			}
+			if err := logMovimientos(tx, productID, stockCreatedIDs, "retoma_stock", stockNote, currentUser, now); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo registrar el ingreso a stock de la retoma.")
+				return
+			}
+		}
+		if err := logAuditEvent(tx, currentUser, "retoma_registered", "retoma", productID, "web", map[string]any{
+			"product_id":         productID,
+			"product_name":       productName,
+			"quantity":           qty,
+			"value_received":     valueParsed,
+			"estado_recibido":    estadoRecibido,
+			"published_to_stock": publicarStock,
+			"final_sale_price":   precioPublicado,
+			"notas":              nota,
+			"default_price":      retomaPriceRaw,
+		}); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría de la retoma.")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la retoma.")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":               true,
+			"producto_id":      productID,
+			"cantidad":         qty,
+			"valor_recibido":   valueParsed,
+			"estado":           estadoRecibido,
+			"publicado_stock":  publicarStock,
+			"unidades_creadas": len(stockCreatedIDs),
+			"mensaje": func() string {
+				if publicarStock {
+					return "Retoma registrada y publicada a stock correctamente."
+				}
+				return "Retoma registrada correctamente."
+			}(),
+		})
+	})
+
 	mux.HandleFunc("/inventario/stock", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONError := func(status int, message string) {
 			w.Header().Set("Content-Type", "application/json")
@@ -4303,6 +4981,9 @@ func main() {
 		targetValue := strings.TrimSpace(r.FormValue("cantidad"))
 		nota := strings.TrimSpace(r.FormValue("nota"))
 		priceValue := strings.TrimSpace(r.FormValue("precio_venta"))
+		retomaEnabled := r.FormValue("retoma_enabled") != ""
+		retomaConfigPresent := r.FormValue("retoma_config_present") != ""
+		retomaPriceValue := strings.TrimSpace(r.FormValue("retoma_price"))
 		nameValue := strings.TrimSpace(r.FormValue("nombre"))
 		target, err := strconv.Atoi(targetValue)
 		if productID == "" || err != nil || target < 0 {
@@ -4327,6 +5008,36 @@ func main() {
 				return
 			}
 			newPrice = float64(parsed)
+		}
+		updateRetoma := retomaConfigPresent
+		var newRetomaPrice sql.NullFloat64
+		if retomaEnabled {
+			if retomaPriceValue == "" {
+				writeJSONError(http.StatusBadRequest, "Valor de retoma obligatorio cuando retoma está habilitada.")
+				return
+			}
+			parsedRetoma, err := parseCOPInteger(retomaPriceValue)
+			if err != nil || parsedRetoma < 0 {
+				writeJSONError(http.StatusBadRequest, "Valor de retoma inválido.")
+				return
+			}
+			priceForValidation := newPrice
+			if !updatePrice {
+				if err := db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE sku = ?`, productID).Scan(&priceForValidation); err != nil {
+					writeJSONError(http.StatusInternalServerError, "No se pudo validar el valor de venta.")
+					return
+				}
+			}
+			if priceForValidation > 0 && float64(parsedRetoma) > priceForValidation {
+				writeJSONError(http.StatusBadRequest, "El valor de retoma no debe superar el valor de venta.")
+				return
+			}
+			newRetomaPrice = sql.NullFloat64{Float64: float64(parsedRetoma), Valid: true}
+		} else if retomaPriceValue != "" {
+			if _, err := parseCOPInteger(retomaPriceValue); err != nil {
+				writeJSONError(http.StatusBadRequest, "Valor de retoma inválido.")
+				return
+			}
 		}
 
 		tx, err := db.Begin()
@@ -4450,7 +5161,19 @@ func main() {
 				return
 			}
 		}
-		if updatePrice || updateName {
+		if updateRetoma {
+			res, err := tx.Exec(`UPDATE productos SET retoma_enabled = ?, retoma_price = ? WHERE sku = ?`, boolToInt(retomaEnabled), newRetomaPrice, productID)
+			if err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar la configuración de retoma.")
+				return
+			}
+			affected, err := res.RowsAffected()
+			if err != nil || affected == 0 {
+				writeJSONError(http.StatusBadRequest, "Producto inválido para actualizar retoma.")
+				return
+			}
+		}
+		if updatePrice || updateName || updateRetoma {
 			payload := map[string]any{
 				"product_id": productID,
 			}
@@ -4459,6 +5182,10 @@ func main() {
 			}
 			if updateName {
 				payload["nombre"] = nameValue
+			}
+			if updateRetoma {
+				payload["retoma_enabled"] = retomaEnabled
+				payload["retoma_price"] = newRetomaPrice
 			}
 			if err := logAuditEvent(tx, currentUser, "product_updated", "product", productID, "manual", payload); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del producto.")
@@ -4470,7 +5197,7 @@ func main() {
 			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la transacción.")
 			return
 		}
-		if updatePrice || updateName {
+		if updatePrice || updateName || updateRetoma {
 			productsMu.Lock()
 			for idx := range products {
 				if products[idx].ID == productID {
@@ -4479,6 +5206,15 @@ func main() {
 					}
 					if updateName {
 						products[idx].Name = nameValue
+					}
+					if updateRetoma {
+						products[idx].RetomaEnabled = retomaEnabled
+						products[idx].HasRetomaPrice = newRetomaPrice.Valid
+						if newRetomaPrice.Valid {
+							products[idx].RetomaPrice = newRetomaPrice.Float64
+						} else {
+							products[idx].RetomaPrice = 0
+						}
 					}
 					break
 				}
@@ -4501,6 +5237,23 @@ func main() {
 			message = "Stock y nombre del producto actualizados correctamente."
 		} else if updateName && delta != 0 && updatePrice {
 			message = "Stock, nombre y precio de venta actualizados correctamente."
+		}
+		if updateRetoma && delta == 0 && !updatePrice && !updateName {
+			message = "Configuración de retoma actualizada correctamente."
+		} else if updateRetoma && delta == 0 && updatePrice && !updateName {
+			message = "Precio de venta y retoma actualizados correctamente."
+		} else if updateRetoma && delta == 0 && updateName && !updatePrice {
+			message = "Nombre y configuración de retoma actualizados correctamente."
+		} else if updateRetoma && delta == 0 && updateName && updatePrice {
+			message = "Nombre, precio de venta y retoma actualizados correctamente."
+		} else if updateRetoma && delta != 0 && !updatePrice && !updateName {
+			message = "Stock y configuración de retoma actualizados correctamente."
+		} else if updateRetoma && delta != 0 && updatePrice && !updateName {
+			message = "Stock, precio de venta y retoma actualizados correctamente."
+		} else if updateRetoma && delta != 0 && updateName && !updatePrice {
+			message = "Stock, nombre y configuración de retoma actualizados correctamente."
+		} else if updateRetoma && delta != 0 && updateName && updatePrice {
+			message = "Stock, nombre, precio de venta y retoma actualizados correctamente."
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -4699,11 +5452,14 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/productos/precio", func(w http.ResponseWriter, r *http.Request) {
-		sku := strings.TrimSpace(r.URL.Query().Get("sku"))
+		sku := strings.TrimSpace(r.URL.Query().Get("id"))
+		if sku == "" {
+			sku = strings.TrimSpace(r.URL.Query().Get("sku"))
+		}
 		if sku == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "Falta sku."})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "Falta id."})
 			return
 		}
 		allowed, err := productAccessibleByID(db, userFromContext(r), sku)
@@ -4733,7 +5489,7 @@ func main() {
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "sku": sku, "precio_venta": precioVenta})
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": sku, "sku": sku, "precio_venta": precioVenta})
 	})
 
 	mux.HandleFunc("/api/settings/business", func(w http.ResponseWriter, r *http.Request) {
@@ -4778,13 +5534,19 @@ func main() {
 			if product.HasOwner {
 				owner = product.OwnerUserID
 			}
+			var retomaPrice any = nil
+			if product.HasRetomaPrice {
+				retomaPrice = product.RetomaPrice
+			}
 			items = append(items, map[string]any{
-				"id":            product.ID,
-				"name":          product.Name,
-				"line":          product.Line,
-				"fecha_ingreso": formatDateWithSettings(product.FechaIngreso),
-				"sale_price":    product.SalePrice,
-				"owner_user_id": owner,
+				"id":             product.ID,
+				"name":           product.Name,
+				"line":           product.Line,
+				"fecha_ingreso":  formatDateWithSettings(product.FechaIngreso),
+				"sale_price":     product.SalePrice,
+				"retoma_enabled": product.RetomaEnabled,
+				"retoma_price":   retomaPrice,
+				"owner_user_id":  owner,
 			})
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
@@ -4833,16 +5595,22 @@ func main() {
 			if product.HasOwner {
 				owner = product.OwnerUserID
 			}
+			var retomaPrice any = nil
+			if product.HasRetomaPrice {
+				retomaPrice = product.RetomaPrice
+			}
 			items = append(items, map[string]any{
-				"id":            product.ID,
-				"name":          product.Name,
-				"line":          product.Line,
-				"available":     available,
-				"reserved":      reserved,
-				"swapped":       swapped,
-				"damaged":       damaged,
-				"sale_price":    product.SalePrice,
-				"owner_user_id": owner,
+				"id":             product.ID,
+				"name":           product.Name,
+				"line":           product.Line,
+				"available":      available,
+				"reserved":       reserved,
+				"swapped":        swapped,
+				"damaged":        damaged,
+				"sale_price":     product.SalePrice,
+				"retoma_enabled": product.RetomaEnabled,
+				"retoma_price":   retomaPrice,
+				"owner_user_id":  owner,
 			})
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})

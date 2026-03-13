@@ -127,6 +127,8 @@ Respuesta:
       "line": "Farmacia",
       "fecha_ingreso": "2026-03-12",
       "sale_price": 25000,
+      "retoma_enabled": true,
+      "retoma_price": 12000,
       "owner_user_id": 2
     }
   ]
@@ -147,7 +149,7 @@ curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/products
 
 ### GET /api/products/search?q=
 
-Busca productos visibles por `sku`, nombre o línea.
+Busca productos visibles por `id`, nombre o línea.
 
 Ejemplo:
 
@@ -174,6 +176,8 @@ Payload:
   "owner_user_id": 2,
   "quantity": 5,
   "sale_price": 25000,
+  "retoma_enabled": true,
+  "retoma_price": 12000,
   "aplica_caducidad": false,
   "fecha_caducidad": ""
 }
@@ -183,6 +187,8 @@ Notas:
 - `owner_user_id` es opcional.
 - `line` debe existir y estar activa.
 - `quantity` debe ser mayor a `0`.
+- `retoma_enabled` es opcional.
+- Si `retoma_enabled=true`, `retoma_price` debe ser válido.
 - Si `aplica_caducidad=true`, `fecha_caducidad` debe ir en formato `YYYY-MM-DD`.
 
 Ejemplo:
@@ -197,6 +203,8 @@ curl -X POST http://localhost:8080/api/products \
     "owner_user_id": 2,
     "quantity": 5,
     "sale_price": 25000,
+    "retoma_enabled": true,
+    "retoma_price": 12000,
     "aplica_caducidad": false
   }'
 ```
@@ -231,6 +239,8 @@ Respuesta:
       "swapped": 0,
       "damaged": 0,
       "sale_price": 25000,
+      "retoma_enabled": true,
+      "retoma_price": 12000,
       "owner_user_id": null
     }
   ]
@@ -344,7 +354,7 @@ Registra un cambio. Respeta:
 
 Soporta dos modos de entrada:
 - `existing`: entra stock a un producto ya existente
-- `new`: crea entrada para un SKU nuevo
+- `new`: crea entrada para un ID nuevo
 
 #### Modo `existing`
 
