@@ -7,3 +7,6 @@ data/
 
 # macOS
 .DS_Store
+
+# Go build cache
+.gocache/

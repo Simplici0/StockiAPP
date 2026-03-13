@@ -297,6 +297,19 @@ func productAccessibleByID(db *sql.DB, user *User, productID string) (bool, erro
 	return int(ownerUserID.Int64) == user.ID, nil
 }
 
+func productVisibilityPredicate(alias string, user *User) (string, []any) {
+	if user != nil && user.Role == "admin" {
+		return "1=1", nil
+	}
+	if alias == "" {
+		alias = "p"
+	}
+	if user == nil {
+		return fmt.Sprintf("(%s.sku IS NULL OR %s.owner_user_id IS NULL)", alias, alias), nil
+	}
+	return fmt.Sprintf("(%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?)", alias, alias, alias), []any{user.ID}
+}
+
 func generateNextProductSKU(db *sql.DB) (string, error) {
 	rows, err := db.Query(`SELECT sku FROM productos WHERE sku LIKE 'P-%'`)
 	if err != nil {
@@ -486,32 +499,37 @@ type dashboardDataResponse struct {
 	Sales           []dashboardSaleDetail `json:"sales"`
 }
 
-func buildDashboardSalesData(db *sql.DB, startStr, endStr string, startDate, endDate time.Time) (dashboardDataResponse, error) {
+func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, startDate, endDate time.Time) (dashboardDataResponse, error) {
 	resp := dashboardDataResponse{
 		Ok:         true,
 		RangeStart: startStr,
 		RangeEnd:   endStr,
 	}
+	visibilitySQL, visibilityArgs := productVisibilityPredicate("p", user)
 
 	var rangeTotal float64
 	var rangeCount int
+	rangeArgs := append([]any{startStr, endStr}, visibilityArgs...)
 	if err := db.QueryRow(`
 		SELECT
 			COALESCE(SUM(precio_final * cantidad), 0),
 			COALESCE(COUNT(*), 0)
-		FROM ventas
-		WHERE date(fecha) BETWEEN ? AND ?`, startStr, endStr).Scan(&rangeTotal, &rangeCount); err != nil {
+		FROM ventas v
+		LEFT JOIN productos p ON p.sku = v.producto_id
+		WHERE date(v.fecha) BETWEEN ? AND ? AND `+visibilitySQL, rangeArgs...).Scan(&rangeTotal, &rangeCount); err != nil {
 		return dashboardDataResponse{}, err
 	}
 	resp.RangeTotal = formatCurrency(rangeTotal)
 	resp.RangeCount = rangeCount
 
+	metodoArgs := append([]any{startStr, endStr}, visibilityArgs...)
 	metodoRows, err := db.Query(`
 		SELECT metodo_pago, COUNT(*), SUM(precio_final * cantidad)
-		FROM ventas
-		WHERE date(fecha) BETWEEN ? AND ?
+		FROM ventas v
+		LEFT JOIN productos p ON p.sku = v.producto_id
+		WHERE date(v.fecha) BETWEEN ? AND ? AND `+visibilitySQL+`
 		GROUP BY metodo_pago
-		ORDER BY SUM(precio_final * cantidad) DESC`, startStr, endStr)
+		ORDER BY SUM(precio_final * cantidad) DESC`, metodoArgs...)
 	if err != nil {
 		return dashboardDataResponse{}, err
 	}
@@ -562,12 +580,14 @@ func buildDashboardSalesData(db *sql.DB, startStr, endStr string, startDate, end
 	}
 	resp.PieSlices = pieSlices
 
+	timeArgs := append([]any{startStr, endStr}, visibilityArgs...)
 	timeRows, err := db.Query(`
 		SELECT date(fecha) as fecha, COUNT(*), SUM(precio_final * cantidad)
-		FROM ventas
-		WHERE date(fecha) BETWEEN ? AND ?
+		FROM ventas v
+		LEFT JOIN productos p ON p.sku = v.producto_id
+		WHERE date(v.fecha) BETWEEN ? AND ? AND `+visibilitySQL+`
 		GROUP BY date(fecha)
-		ORDER BY date(fecha)`, startStr, endStr)
+		ORDER BY date(fecha)`, timeArgs...)
 	if err != nil {
 		return dashboardDataResponse{}, err
 	}
@@ -624,6 +644,7 @@ func buildDashboardSalesData(db *sql.DB, startStr, endStr string, startDate, end
 	resp.MaxTimelineText = formatCurrency(maxTimeline)
 	resp.Timeline = timeline
 
+	saleArgs := append([]any{startStr, endStr}, visibilityArgs...)
 	saleRows, err := db.Query(`
 		SELECT
 			v.id,
@@ -634,9 +655,9 @@ func buildDashboardSalesData(db *sql.DB, startStr, endStr string, startDate, end
 			v.metodo_pago
 		FROM ventas v
 		LEFT JOIN productos p ON p.sku = v.producto_id
-		WHERE date(v.fecha) BETWEEN ? AND ?
+		WHERE date(v.fecha) BETWEEN ? AND ? AND `+visibilitySQL+`
 		ORDER BY v.fecha DESC, v.id DESC
-	`, startStr, endStr)
+	`, saleArgs...)
 	if err != nil {
 		return dashboardDataResponse{}, err
 	}
@@ -3102,11 +3123,14 @@ func main() {
 
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
+		visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
 		estadoRows, err := db.Query(`
 			SELECT CASE WHEN estado = 'Vendida' THEN 'Vendido' ELSE estado END, COUNT(*)
-			FROM unidades
+			FROM unidades u
+			LEFT JOIN productos p ON p.sku = u.producto_id
+			WHERE `+visibilitySQL+`
 			GROUP BY CASE WHEN estado = 'Vendida' THEN 'Vendido' ELSE estado END
-			ORDER BY estado`)
+			ORDER BY estado`, visibilityArgs...)
 		if err != nil {
 			http.Error(w, "Error al consultar estados", http.StatusInternalServerError)
 			return
@@ -3149,7 +3173,7 @@ func main() {
 		startStr := startDate.Format("2006-01-02")
 		endStr := endDate.Format("2006-01-02")
 
-		salesData, err := buildDashboardSalesData(db, startStr, endStr, startDate, endDate)
+		salesData, err := buildDashboardSalesData(db, currentUser, startStr, endStr, startDate, endDate)
 		if err != nil {
 			http.Error(w, "Error al consultar ventas", http.StatusInternalServerError)
 			return
@@ -3180,6 +3204,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/dashboard/data", func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
 		now := time.Now()
 		endDate := parseDateOrDefault(r.URL.Query().Get("end_date"), now)
 		startDate := parseDateOrDefault(r.URL.Query().Get("start_date"), endDate.AddDate(0, 0, -6))
@@ -3191,7 +3216,7 @@ func main() {
 		startStr := startDate.Format("2006-01-02")
 		endStr := endDate.Format("2006-01-02")
 
-		data, err := buildDashboardSalesData(db, startStr, endStr, startDate, endDate)
+		data, err := buildDashboardSalesData(db, currentUser, startStr, endStr, startDate, endDate)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -3242,6 +3267,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/csv/ventas", func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
 		now := time.Now()
 		endDate := parseDateOrDefault(r.URL.Query().Get("end_date"), now)
 		startDate := parseDateOrDefault(r.URL.Query().Get("start_date"), endDate.AddDate(0, 0, -6))
@@ -3253,6 +3279,8 @@ func main() {
 		startStr := startDate.Format("2006-01-02")
 		endStr := endDate.Format("2006-01-02")
 
+		visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
+		queryArgs := append([]any{startStr, endStr}, visibilityArgs...)
 		rows, err := db.Query(`
 			SELECT
 				v.id,
@@ -3265,9 +3293,9 @@ func main() {
 				v.notas
 			FROM ventas v
 			LEFT JOIN productos p ON p.sku = v.producto_id
-			WHERE date(v.fecha) BETWEEN ? AND ?
+			WHERE date(v.fecha) BETWEEN ? AND ? AND `+visibilitySQL+`
 			ORDER BY v.fecha DESC, v.id DESC
-		`, startStr, endStr)
+		`, queryArgs...)
 		if err != nil {
 			http.Error(w, "Error al consultar ventas.", http.StatusInternalServerError)
 			return
