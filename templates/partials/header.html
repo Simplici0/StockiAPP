@@ -11,12 +11,12 @@
     }
 
     .topbar-inner {
-      width: min(1280px, calc(100% - 32px));
+      width: min(1280px, calc(100% - (var(--page-gutter) * 2)));
       margin: 0 auto;
       display: flex;
       align-items: center;
       gap: 0;
-      height: 52px;
+      height: 56px;
     }
 
     /* Marca */
@@ -160,12 +160,12 @@
 
     /* ── Page header (debajo del topbar) ── */
     .page-header {
-      width: min(1280px, calc(100% - 32px));
-      margin: 20px auto 0;
-      padding: 16px 20px;
+      width: min(1280px, calc(100% - (var(--page-gutter) * 2)));
+      margin: var(--space-5) auto 0;
+      padding: var(--surface-padding-compact) var(--surface-padding);
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: var(--space-2);
       background: #ffffff;
       border: 1px solid rgba(15, 40, 80, 0.1);
       border-radius: 12px;
@@ -195,16 +195,8 @@
       font-size: 13px;
     }
 
-    @media (max-width: 1024px) {
-      .topbar-inner,
-      .page-header {
-        width: min(100%, calc(100% - 24px));
-      }
-    }
-
-    @media (max-width: 768px) {
+    @media (max-width: 767px) {
       .topbar-inner {
-        width: min(100%, calc(100% - 16px));
         height: 48px;
       }
 
@@ -217,9 +209,7 @@
       }
 
       .page-header {
-        width: min(100%, calc(100% - 16px));
-        margin-top: 12px;
-        padding: 12px 14px;
+        margin-top: var(--space-3);
       }
     }
   </style>

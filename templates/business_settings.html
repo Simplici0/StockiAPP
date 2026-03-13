@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{.Title}}</title>
   <style>
+    .settings-shell {
+      display: grid;
+      gap: var(--section-gap);
+    }
+
     .settings-grid {
       display: grid;
       gap: 18px;
@@ -195,7 +200,6 @@
     }
 
     .settings-section {
-      margin-top: 30px;
       display: grid;
       gap: 18px;
     }
@@ -213,6 +217,98 @@
     .settings-section-head p {
       margin: 0;
       color: var(--text-muted);
+    }
+
+    .settings-accordion {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--bg-card);
+      box-shadow: var(--shadow-xs);
+      overflow: hidden;
+    }
+
+    .settings-accordion + .settings-accordion {
+      margin-top: 0;
+    }
+
+    .settings-accordion summary {
+      list-style: none;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: var(--surface-padding-compact) var(--surface-padding);
+      cursor: pointer;
+      background: linear-gradient(180deg, #ffffff 0%, var(--bg-card-muted) 100%);
+    }
+
+    .settings-accordion summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .settings-accordion summary:hover {
+      background: linear-gradient(180deg, #ffffff 0%, #f2f7fb 100%);
+    }
+
+    .settings-accordion-title {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .settings-accordion-title h2 {
+      margin: 0;
+    }
+
+    .settings-accordion-title p {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .settings-accordion-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      color: var(--secondary);
+      font-size: 16px;
+      font-weight: 700;
+      flex: 0 0 auto;
+      transition: transform 0.18s ease, background 0.18s ease;
+    }
+
+    .settings-accordion[open] .settings-accordion-icon {
+      transform: rotate(45deg);
+      background: var(--secondary-soft);
+    }
+
+    .settings-accordion-body {
+      display: grid;
+      gap: var(--section-gap);
+      padding: 0 var(--surface-padding) var(--surface-padding);
+    }
+
+    .settings-subsection {
+      display: grid;
+      gap: 14px;
+    }
+
+    .settings-subsection-head {
+      display: grid;
+      gap: 4px;
+    }
+
+    .settings-subsection-head h3 {
+      margin: 0;
+    }
+
+    .settings-subsection-head p {
+      margin: 0;
+      font-size: 13px;
     }
 
     @media (max-width: 900px) {
@@ -239,16 +335,26 @@
       <div class="flash error">{{.Error}}</div>
     {{end}}
 
+    <section class="settings-shell">
     <section class="settings-section">
       <div class="settings-section-head">
-        <h2>Configuración general</h2>
-        <p>Define el branding principal y parámetros globales del negocio. Estos valores impactan el layout, la moneda y el formato visible de fechas.</p>
+        <h2>Configuración</h2>
+        <p>La pantalla ahora se agrupa en bloques desplegables para reducir saturación visual y facilitar la búsqueda de ajustes.</p>
       </div>
 
-      <div class="settings-grid">
+      <details class="settings-accordion">
+        <summary>
+          <div class="settings-accordion-title">
+            <h2>General</h2>
+            <p>Branding principal, moneda y formato visible de fechas para toda la app.</p>
+          </div>
+          <span class="settings-accordion-icon" aria-hidden="true">+</span>
+        </summary>
+        <div class="settings-accordion-body">
+          <div class="settings-grid">
       <form class="card stack" method="POST" action="/configuracion" enctype="multipart/form-data">
-        <div>
-          <h2>Branding del negocio</h2>
+        <div class="settings-subsection-head">
+          <h3>Branding del negocio</h3>
           <p>Configura nombre, logo, color principal, moneda y formato de fecha con defaults seguros.</p>
         </div>
 
@@ -299,8 +405,8 @@
 
       <aside class="preview-card">
         <section class="card stack">
-          <div>
-            <h2>Vista previa general</h2>
+          <div class="settings-subsection-head">
+            <h3>Vista previa general</h3>
             <p>Así se verá el branding base del sistema al cargar la app.</p>
           </div>
 
@@ -320,18 +426,22 @@
           </div>
         </section>
       </aside>
-      </div>
+      </div></div>
+      </details>
     </section>
 
-    <section class="settings-section">
-      <div class="settings-section-head">
-        <h2>Configuración operativa</h2>
-        <p>Administra catálogos y reglas de operación desde el mismo panel, separados de la identidad general del negocio.</p>
-      </div>
-
+    <details class="settings-accordion">
+      <summary>
+        <div class="settings-accordion-title">
+          <h2>Inventario</h2>
+          <p>Catálogos operativos que controlan productos, líneas y formas de cobro.</p>
+        </div>
+        <span class="settings-accordion-icon" aria-hidden="true">+</span>
+      </summary>
+      <div class="settings-accordion-body">
     <section class="card line-card">
-      <div>
-        <h2>Líneas de negocio</h2>
+      <div class="settings-subsection-head">
+        <h3>Líneas de negocio</h3>
         <p>Administra las categorías operativas disponibles al crear productos. Desactivar una línea no afecta productos históricos.</p>
       </div>
 
@@ -383,8 +493,8 @@
     </section>
 
     <section class="card line-card">
-      <div>
-        <h2>Canales de pago</h2>
+      <div class="settings-subsection-head">
+        <h3>Canales de pago</h3>
         <p>Define qué métodos aparecen al registrar ventas y en qué orden visual se muestran.</p>
       </div>
 
@@ -440,10 +550,21 @@
         </div>
       {{end}}
     </section>
+      </div>
+    </details>
 
+    <details class="settings-accordion">
+      <summary>
+        <div class="settings-accordion-title">
+          <h2>Usuarios / permisos e integraciones</h2>
+          <p>Credenciales para automatizaciones y accesos técnicos sin depender de la sesión web.</p>
+        </div>
+        <span class="settings-accordion-icon" aria-hidden="true">+</span>
+      </summary>
+      <div class="settings-accordion-body">
     <section class="card line-card">
-      <div>
-        <h2>API keys</h2>
+      <div class="settings-subsection-head">
+        <h3>API keys</h3>
         <p>Crea credenciales para integraciones externas. El token solo se muestra al momento de crearlo y luego se guarda únicamente como hash.</p>
       </div>
 
@@ -500,10 +621,21 @@
         </div>
       {{end}}
     </section>
+      </div>
+    </details>
 
+    <details class="settings-accordion">
+      <summary>
+        <div class="settings-accordion-title">
+          <h2>Ajustes avanzados</h2>
+          <p>Controla qué operaciones nuevas están habilitadas sin alterar el historial existente.</p>
+        </div>
+        <span class="settings-accordion-icon" aria-hidden="true">+</span>
+      </summary>
+      <div class="settings-accordion-body">
     <section class="card line-card">
-      <div>
-        <h2>Tipos de movimiento</h2>
+      <div class="settings-subsection-head">
+        <h3>Tipos de movimiento</h3>
         <p>Controla qué operaciones nuevas están visibles y disponibles en la app. Desactivar una opción no afecta el historial existente.</p>
       </div>
 
@@ -543,6 +675,8 @@
         </div>
       {{end}}
     </section>
+      </div>
+    </details>
     </section>
   </main>
 

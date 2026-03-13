@@ -35,6 +35,18 @@
       --radius-sm:  8px;
       --radius-md:  12px;
       --radius-lg:  16px;
+
+      /* Tablet-first spacing scale */
+      --space-1: 8px;
+      --space-2: 12px;
+      --space-3: 16px;
+      --space-4: 20px;
+      --space-5: 24px;
+      --space-6: 32px;
+      --page-gutter: 24px;
+      --surface-padding: 20px;
+      --surface-padding-compact: 18px;
+      --section-gap: 16px;
     }
 
     * {
@@ -60,9 +72,9 @@
 
     /* ── Layout principal ── */
     .page-content {
-      width: min(1280px, calc(100% - 32px));
+      width: min(1280px, calc(100% - (var(--page-gutter) * 2)));
       margin: 0 auto;
-      padding: 20px 0 48px;
+      padding: var(--space-5) 0 var(--space-6);
     }
 
     /* ── Tarjetas y superficies ── */
@@ -101,12 +113,12 @@
     .import-panel,
     .export-panel,
     .export-section {
-      padding: 20px;
+      padding: var(--surface-padding);
     }
 
     .filters {
-      padding: 16px 20px;
-      gap: 14px;
+      padding: var(--surface-padding-compact) var(--surface-padding);
+      gap: var(--space-3);
       border-color: var(--border);
     }
 
@@ -412,16 +424,71 @@
     }
 
     /* ── Alertas y mensajes ── */
-    .flash,
-    .alert {
-      padding: 12px 16px;
-      margin-bottom: 16px;
+    .flash {
+      padding: var(--space-2) 40px var(--space-2) var(--space-3);
+      margin-bottom: var(--section-gap);
       border-radius: var(--radius-sm);
-      font-size: 13.5px;
+      font-size: 13px;
       font-weight: 600;
       border: 1px solid rgba(5, 150, 105, 0.2);
       background: #ecfdf5;
       color: #065f46;
+      position: relative;
+    }
+
+    .alert {
+      padding: var(--space-2) 40px var(--space-2) var(--space-3);
+      margin-bottom: var(--section-gap);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid rgba(14, 165, 201, 0.2);
+      background: #eff6ff;
+      color: #1e3a8a;
+      position: relative;
+    }
+
+    .flash[data-persistent],
+    .alert[data-persistent] {
+      padding-right: 14px;
+    }
+
+    /* Botón de cierre para mensajes */
+    .msg-close {
+      position: absolute;
+      top: 50%;
+      right: 8px;
+      transform: translateY(-50%);
+      width: 22px;
+      min-height: 22px;
+      padding: 0;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      color: currentColor;
+      opacity: 0.45;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.15s ease, background 0.15s ease;
+    }
+
+    .msg-close:hover {
+      opacity: 0.9;
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    @keyframes msg-fadeout {
+      0%   { opacity: 1; max-height: 120px; margin-bottom: 14px; padding-top: 10px; padding-bottom: 10px; }
+      100% { opacity: 0; max-height: 0;     margin-bottom: 0;    padding-top: 0;    padding-bottom: 0; }
+    }
+
+    .msg-dismissing {
+      animation: msg-fadeout 0.28s ease forwards;
+      overflow: hidden;
     }
 
     .error,
@@ -531,7 +598,7 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow-md);
-      padding: 16px;
+      padding: var(--space-3);
       z-index: 30;
     }
 
@@ -549,7 +616,7 @@
 
     .modal-header,
     .modal-body {
-      padding: 16px 20px;
+      padding: var(--surface-padding-compact) var(--surface-padding);
     }
 
     .modal-header {
@@ -591,18 +658,21 @@
       font-weight: 600;
     }
 
-    /* ── Responsive tablet-first (768–1024px) ── */
-    @media (max-width: 1024px) {
-      .page-content {
-        width: min(100%, calc(100% - 24px));
-        padding: 16px 0 40px;
+    @media (min-width: 1180px) {
+      :root {
+        --page-gutter: 32px;
+        --surface-padding: 24px;
+        --surface-padding-compact: 20px;
+        --section-gap: 20px;
       }
     }
 
-    @media (max-width: 768px) {
-      .page-content {
-        width: min(100%, calc(100% - 16px));
-        padding: 12px 0 32px;
+    @media (max-width: 767px) {
+      :root {
+        --page-gutter: 16px;
+        --surface-padding: 16px;
+        --surface-padding-compact: 14px;
+        --section-gap: 14px;
       }
 
       h1 {
@@ -623,7 +693,7 @@
       .filters,
       .card,
       .section {
-        padding: 14px;
+        padding: var(--surface-padding);
       }
 
       .actions,
@@ -647,4 +717,30 @@
       }
     }
   </style>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      function dismissMsg(el) {
+        el.classList.add('msg-dismissing');
+        el.addEventListener('animationend', function () { el.remove(); }, { once: true });
+      }
+      function addCloseBtn(el) {
+        var btn = document.createElement('button');
+        btn.className = 'msg-close';
+        btn.type = 'button';
+        btn.setAttribute('aria-label', 'Cerrar');
+        btn.innerHTML = '&times;';
+        btn.addEventListener('click', function () { dismissMsg(el); });
+        el.appendChild(btn);
+      }
+      // Flash: close button + auto-dismiss after 6s
+      document.querySelectorAll('.flash:not([data-persistent])').forEach(function (el) {
+        addCloseBtn(el);
+        setTimeout(function () { if (el.isConnected) dismissMsg(el); }, 6000);
+      });
+      // Alert (info): close button only, no auto-dismiss
+      document.querySelectorAll('.alert:not([data-persistent])').forEach(function (el) {
+        addCloseBtn(el);
+      });
+    });
+  </script>
 {{end}}
