@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.Title}}</title>
+  <style>
+    .audit-layout {
+      display: grid;
+      gap: 20px;
+    }
+
+    .audit-filters {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      align-items: end;
+    }
+
+    .audit-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .audit-table-wrap {
+      overflow-x: auto;
+    }
+
+    .audit-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .audit-table th,
+    .audit-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    .audit-table th {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .audit-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--bg-card-muted);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--secondary);
+      white-space: nowrap;
+    }
+
+    .audit-payload {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .empty-state {
+      padding: 24px;
+      border: 1px dashed var(--border-strong);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, var(--bg-card-muted) 100%);
+    }
+  </style>
+  {{template "app_styles" .}}
+</head>
+<body>
+  {{template "header" .}}
+
+  <main class="page-content audit-layout">
+    {{if .Flash}}
+      <div class="flash">{{.Flash}}</div>
+    {{end}}
+    {{if .Error}}
+      <div class="flash error">{{.Error}}</div>
+    {{end}}
+
+    <section class="card">
+      <form class="audit-filters" method="GET" action="/auditoria">
+        <div>
+          <label for="event_type">Tipo de evento</label>
+          <select id="event_type" name="event_type">
+            <option value="">Todos</option>
+            {{range .EventTypes}}
+              <option value="{{.}}" {{if eq $.EventType .}}selected{{end}}>{{.}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div>
+          <label for="date_from">Desde</label>
+          <input id="date_from" name="date_from" type="date" value="{{.DateFrom}}" />
+        </div>
+        <div>
+          <label for="date_to">Hasta</label>
+          <input id="date_to" name="date_to" type="date" value="{{.DateTo}}" />
+        </div>
+        <div class="audit-actions">
+          <button class="primary" type="submit">Filtrar</button>
+          <a class="button secondary" href="/auditoria">Limpiar</a>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="audit-table-wrap">
+        {{if .Events}}
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Evento</th>
+                <th>Entidad</th>
+                <th>Usuario</th>
+                <th>Source</th>
+                <th>Payload</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Events}}
+                <tr>
+                  <td>{{.CreatedAt}}</td>
+                  <td><span class="audit-pill">{{.EventType}}</span></td>
+                  <td>{{.EntityType}} {{if .EntityID}}· {{.EntityID}}{{end}}</td>
+                  <td>{{if .Username}}{{.Username}}{{else}}Sistema{{end}}</td>
+                  <td>{{.Source}}</td>
+                  <td><pre class="audit-payload">{{.PayloadJSON}}</pre></td>
+                </tr>
+              {{end}}
+            </tbody>
+          </table>
+        {{else}}
+          <div class="empty-state">
+            <h2>Sin eventos recientes</h2>
+            <p>Todavía no hay eventos de auditoría para los filtros seleccionados.</p>
+          </div>
+        {{end}}
+      </div>
+    </section>
+  </main>
+</body>
+</html>
