@@ -5,236 +5,101 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{.Title}}</title>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7f5f2;
-      --card: #ffffff;
-      --text: #2a2826;
-      --muted: #6b6560;
-      --primary: #e85d3c;
-      --primary-strong: #cf4528;
-      --success: #2d9d78;
-      --border: #e8e4df;
-      --warning: #f59e42;
-    }
-
-    * {
-      box-sizing: border-box;
-      font-family: "Inter", "Segoe UI", sans-serif;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      animation: fadeIn 0.4s ease-out;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    .global-banner {
-      background: #f47a24;
-      padding: 6px 32px;
-    }
-
-    .banner-logos {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .logo-placeholder {
-      height: 22px;
-      min-width: 76px;
-      padding: 0 10px;
-      border-radius: 999px;
-      border: 1px dashed rgba(255, 255, 255, 0.7);
-      color: #ffffff;
-      font-size: 11px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      background: rgba(255, 255, 255, 0.2);
-    }
-
-    .page-header {
-      padding: 16px 32px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .page-header h1 {
-      margin: 0;
-      font-size: 24px;
-    }
-
-    .page-header p {
-      margin: 0;
-      color: var(--muted);
-    }
-
-    .page-content {
-      padding: 24px 32px 32px;
-    }
-
-    .nav-buttons {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .nav-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px 16px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-size: 13px;
-      font-weight: 600;
-      transition: all 0.2s ease;
-      border: 1px solid var(--primary);
-      background: var(--card);
-      color: var(--primary);
-      cursor: pointer;
-    }
-
-    .nav-button:hover {
-      background: var(--primary);
-      color: var(--card);
-    }
-
+    /* ── Cambio confirm: estilos locales ── */
     .card {
-      max-width: 760px;
-      margin: 0 auto;
-      background: var(--card);
-      border-radius: 18px;
-      border: 1px solid var(--border);
-      padding: 28px;
-      box-shadow: 0 12px 30px rgba(30, 41, 59, 0.08);
-      animation: slideUp 0.5s ease-out;
+      max-width: 620px;
+      margin: 24px auto 0;
     }
 
-    @keyframes slideUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    h1 {
-      margin: 0 0 8px;
-      font-size: 24px;
-    }
-
-    p {
-      margin: 0 0 16px;
-      color: var(--muted);
-    }
-
-    .badge {
+    .confirm-badge {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      background: linear-gradient(135deg, #fff4e1 0%, #ffe8c9 100%);
-      color: var(--warning);
-      font-weight: 700;
-      padding: 8px 14px;
+      gap: 6px;
+      padding: 4px 12px;
       border-radius: 999px;
       font-size: 12px;
-      border: 1px solid #f5d9a5;
-      box-shadow: 0 2px 6px rgba(245, 158, 66, 0.15);
-      animation: bounceIn 0.6s ease-out 0.2s backwards;
+      font-weight: 700;
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid rgba(5, 150, 105, 0.2);
+      margin-bottom: 10px;
     }
 
-    @keyframes bounceIn {
-      0% {
-        opacity: 0;
-        transform: scale(0.8);
-      }
-      60% {
-        opacity: 1;
-        transform: scale(1.05);
-      }
-      100% {
-        transform: scale(1);
-      }
+    .confirm-title {
+      margin: 0 0 4px;
+    }
+
+    .confirm-sub {
+      margin: 0 0 20px;
+      font-size: 13px;
     }
 
     .summary {
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      background: #f9fafc;
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      background: var(--bg-card-muted);
       display: grid;
-      gap: 8px;
-      margin-bottom: 16px;
+      gap: 0;
+      margin-bottom: 12px;
     }
 
-    .summary div {
+    .summary-row {
       display: flex;
       justify-content: space-between;
-      font-size: 14px;
+      align-items: baseline;
+      gap: 12px;
+      font-size: 13.5px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
     }
 
-    .list {
+    .summary-row:last-child {
+      border-bottom: none;
+    }
+
+    .summary-row strong {
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    .summary-row span {
+      color: var(--text);
+      font-weight: 600;
+      text-align: right;
+    }
+
+    .tag-list {
       display: flex;
-      gap: 8px;
       flex-wrap: wrap;
-      margin-top: 6px;
+      gap: 6px;
+      justify-content: flex-end;
     }
 
     .tag {
-      padding: 5px 11px;
+      padding: 3px 10px;
       border-radius: 999px;
       font-size: 12px;
-      background: linear-gradient(135deg, #e9f7f1 0%, #d4f1e4 100%);
-      color: var(--success);
       font-weight: 600;
-      border: 1px solid #b8e6d3;
-      box-shadow: 0 1px 3px rgba(45, 157, 120, 0.1);
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid rgba(5, 150, 105, 0.2);
     }
 
-    .tag.warning {
-      background: linear-gradient(135deg, #fff1dc 0%, #ffe4c2 100%);
-      color: #a75d02;
-      border-color: #f5d9a5;
-      box-shadow: 0 1px 3px rgba(167, 93, 2, 0.1);
+    .tag.out {
+      background: #fffbeb;
+      color: #92400e;
+      border-color: rgba(217, 119, 6, 0.2);
     }
 
-    a.button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 12px 18px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, var(--primary) 0%, #d85038 100%);
-      color: white;
-      text-decoration: none;
-      font-weight: 600;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 2px 8px rgba(232, 93, 60, 0.25);
-      margin-top: 4px;
-    }
-
-    a.button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 14px rgba(232, 93, 60, 0.35);
-    }
-
-    a.button:active {
-      transform: translateY(0);
+    .confirm-actions {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
     }
   </style>
   {{template "app_styles" .}}
@@ -243,85 +108,81 @@
   {{template "header" .}}
   <main class="page-content">
     <div class="card">
-    <span class="badge">¡Listo!</span>
-    <h1>{{.Title}}</h1>
-    <p>Cambio registrado e inventario actualizado.</p>
+      <div class="confirm-badge">&#10003; Listo</div>
+      <h1 class="confirm-title">{{.Title}}</h1>
+      <p class="confirm-sub">Cambio registrado e inventario actualizado.</p>
 
-    <div class="summary">
-      <div>
-        <strong>Sale</strong>
-        <span>{{.ProductoNombre}} ({{.ProductoID}})</span>
-      </div>
-      <div>
-        <strong>Cliente</strong>
-        <span>{{.PersonaCambio}}</span>
-      </div>
-      {{if .Notas}}
-        <div>
-          <strong>Notas</strong>
-          <span>{{.Notas}}</span>
+      <div class="summary">
+        <div class="summary-row">
+          <strong>Sale</strong>
+          <span>{{.ProductoNombre}} ({{.ProductoID}})</span>
         </div>
-      {{end}}
-    </div>
-
-    <div class="summary">
-      <div>
-        <strong>Salen</strong>
-        <span>{{len .Salientes}} unidades</span>
-      </div>
-      <div class="list">
-        {{range .Salientes}}
-          <span class="tag warning">{{.}}</span>
-        {{end}}
-      </div>
-      <div>
-        <strong>Entran</strong>
-        <span>{{len .Entrantes}} unidades</span>
-      </div>
-      <div class="list">
-        {{range .Entrantes}}
-          <span class="tag">{{.}}</span>
-        {{end}}
-      </div>
-    </div>
-
-    <div class="summary">
-      <div>
-        <strong>Tipo</strong>
-        <span>{{if eq .IncomingMode "new"}}Nuevo{{else}}Existente{{end}}</span>
-      </div>
-      {{if eq .IncomingMode "existing"}}
-        <div>
-          <strong>Producto</strong>
-          <span>{{.IncomingExistingID}}</span>
+        <div class="summary-row">
+          <strong>Cliente</strong>
+          <span>{{.PersonaCambio}}</span>
         </div>
-        <div>
-          <strong>Cantidad</strong>
-          <span>{{.IncomingExistingQty}}</span>
-        </div>
-      {{else}}
-        <div>
-          <strong>ID</strong>
-          <span>{{.IncomingNewSKU}}</span>
-        </div>
-        <div>
-          <strong>Nombre</strong>
-          <span>{{.IncomingNewName}}</span>
-        </div>
-        {{if .IncomingNewLine}}
-          <div>
-            <strong>Línea</strong>
-            <span>{{.IncomingNewLine}}</span>
+        {{if .Notas}}
+          <div class="summary-row">
+            <strong>Notas</strong>
+            <span>{{.Notas}}</span>
           </div>
         {{end}}
-        <div>
-          <strong>Cantidad</strong>
-          <span>{{.IncomingNewQty}}</span>
-        </div>
-      {{end}}
-    </div>
+      </div>
 
-      <a class="button" href="/inventario?mensaje=Cambio%20registrado%20correctamente">Volver</a>
+      <div class="summary">
+        <div class="summary-row">
+          <strong>Salen</strong>
+          <div class="tag-list">
+            {{range .Salientes}}<span class="tag out">{{.}}</span>{{end}}
+          </div>
+        </div>
+        <div class="summary-row">
+          <strong>Entran</strong>
+          <div class="tag-list">
+            {{range .Entrantes}}<span class="tag">{{.}}</span>{{end}}
+          </div>
+        </div>
+      </div>
+
+      <div class="summary">
+        <div class="summary-row">
+          <strong>Tipo</strong>
+          <span>{{if eq .IncomingMode "new"}}Nuevo{{else}}Existente{{end}}</span>
+        </div>
+        {{if eq .IncomingMode "existing"}}
+          <div class="summary-row">
+            <strong>Producto</strong>
+            <span>{{.IncomingExistingID}}</span>
+          </div>
+          <div class="summary-row">
+            <strong>Cantidad</strong>
+            <span>{{.IncomingExistingQty}}</span>
+          </div>
+        {{else}}
+          <div class="summary-row">
+            <strong>ID</strong>
+            <span>{{.IncomingNewSKU}}</span>
+          </div>
+          <div class="summary-row">
+            <strong>Nombre</strong>
+            <span>{{.IncomingNewName}}</span>
+          </div>
+          {{if .IncomingNewLine}}
+            <div class="summary-row">
+              <strong>Línea</strong>
+              <span>{{.IncomingNewLine}}</span>
+            </div>
+          {{end}}
+          <div class="summary-row">
+            <strong>Cantidad</strong>
+            <span>{{.IncomingNewQty}}</span>
+          </div>
+        {{end}}
+      </div>
+
+      <div class="confirm-actions">
+        <a class="button primary" href="/inventario?mensaje=Cambio%20registrado%20correctamente">Volver al inventario</a>
+      </div>
     </div>
   </main>
 </body>
