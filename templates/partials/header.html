@@ -63,8 +63,17 @@
       gap: 2px;
       flex: 1;
       padding: 0 8px;
-      overflow-x: auto;
+      overflow: visible;
       scrollbar-width: none;
+    }
+
+    .topbar-admin-nav {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+      margin-left: auto;
+      padding-right: 12px;
     }
 
     .topbar-nav::-webkit-scrollbar {
@@ -95,6 +104,97 @@
       color: #ffffff;
       background: rgba(14, 165, 201, 0.16);
       border-color: rgba(14, 165, 201, 0.2);
+    }
+
+    .topbar-menu {
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .topbar-menu summary {
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      height: 32px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.62);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: color 0.15s ease, background 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .topbar-menu summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .topbar-menu summary:hover,
+    .topbar-menu[open] summary,
+    .topbar-menu.active summary {
+      color: rgba(255,255,255,0.95);
+      background: rgba(255,255,255,0.07);
+    }
+
+    .topbar-menu.active summary {
+      border-color: rgba(14, 165, 201, 0.2);
+      background: rgba(14, 165, 201, 0.16);
+      color: #ffffff;
+    }
+
+    .topbar-menu-caret {
+      font-size: 10px;
+      opacity: 0.8;
+      transition: transform 0.15s ease;
+    }
+
+    .topbar-menu[open] .topbar-menu-caret {
+      transform: rotate(180deg);
+    }
+
+    .topbar-menu-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      min-width: 220px;
+      padding: 6px;
+      border-radius: 12px;
+      border: 1px solid rgba(15, 40, 80, 0.12);
+      background: #ffffff;
+      box-shadow: 0 12px 28px rgba(10, 25, 55, 0.16);
+      display: none;
+      gap: 2px;
+      z-index: 120;
+    }
+
+    .topbar-menu[open] .topbar-menu-panel {
+      display: grid;
+    }
+
+    .topbar-menu-panel a {
+      display: grid;
+      gap: 2px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .topbar-menu-panel a:hover,
+    .topbar-menu-panel a.active {
+      background: var(--secondary-soft);
+      color: var(--secondary);
+    }
+
+    .topbar-menu-panel small {
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 500;
     }
 
     /* Separador de sección admin */
@@ -130,6 +230,10 @@
       text-transform: uppercase;
       color: {{businessPrimaryColor}};
       white-space: nowrap;
+    }
+
+    .topbar-role.admin-muted {
+      color: rgba(255,255,255,0.46);
     }
 
     .topbar-logout {
@@ -196,6 +300,15 @@
     }
 
     @media (max-width: 767px) {
+      .topbar-admin-nav {
+        padding-right: 8px;
+      }
+
+      .topbar-nav {
+        overflow-x: auto;
+        overflow-y: visible;
+      }
+
       .topbar-inner {
         height: 48px;
       }
@@ -206,6 +319,12 @@
 
       .topbar-username {
         display: none;
+      }
+
+      .topbar-menu-panel {
+        left: auto;
+        right: 0;
+        min-width: 200px;
       }
 
       .page-header {
@@ -226,23 +345,59 @@
       <nav class="topbar-nav" aria-label="Navegación principal">
         <a href="/dashboard" class="topbar-link">Dashboard</a>
         <a href="/inventario" class="topbar-link">Inventario</a>
+      </nav>
+
+      <div class="topbar-admin-nav" aria-label="Menús administrativos">
         {{if .CurrentUser}}
           {{if eq .CurrentUser.Role "admin"}}
-            <span class="topbar-sep" aria-hidden="true"></span>
-            <a href="/productos/new" class="topbar-link">Nuevo producto</a>
-            <a href="/admin/users" class="topbar-link">Usuarios</a>
-            <a href="/configuracion" class="topbar-link">Configuración</a>
-            <a href="/auditoria" class="topbar-link">Auditoría</a>
-            <a href="/csv/template" class="topbar-link" target="_blank">Importar</a>
-            <a href="/csv/export" class="topbar-link" target="_blank">Exportar</a>
+            <details class="topbar-menu">
+              <summary>
+                Productos
+                <span class="topbar-menu-caret" aria-hidden="true">▾</span>
+              </summary>
+              <div class="topbar-menu-panel">
+                <a href="/productos/new">
+                  <span>Nuevo producto</span>
+                  <small>Alta manual de productos</small>
+                </a>
+                <a href="/csv/template" target="_blank" rel="noreferrer">
+                  <span>Importar</span>
+                  <small>Plantilla y carga de productos</small>
+                </a>
+              </div>
+            </details>
+            <details class="topbar-menu">
+              <summary>
+                Admin
+                <span class="topbar-menu-caret" aria-hidden="true">▾</span>
+              </summary>
+              <div class="topbar-menu-panel">
+                <a href="/configuracion">
+                  <span>Configuración</span>
+                  <small>Branding, catálogos y movimientos</small>
+                </a>
+                <a href="/admin/users">
+                  <span>Usuarios</span>
+                  <small>Accesos y administración</small>
+                </a>
+                <a href="/auditoria">
+                  <span>Auditoría</span>
+                  <small>Trazabilidad de eventos</small>
+                </a>
+                <a href="/csv/export" target="_blank" rel="noreferrer">
+                  <span>Exportar</span>
+                  <small>Descargas operativas</small>
+                </a>
+              </div>
+            </details>
           {{end}}
         {{end}}
-      </nav>
+      </div>
 
       {{if .CurrentUser}}
       <div class="topbar-user">
         <span class="topbar-username">{{.CurrentUser.Username}}</span>
-        <span class="topbar-role">{{.CurrentUser.Role}}</span>
+        <span class="topbar-role admin-muted">{{if eq .CurrentUser.Role "admin"}}Panel{{else}}{{.CurrentUser.Role}}{{end}}</span>
         <form class="topbar-logout-form" method="POST" action="/logout">
           <button class="topbar-logout" type="submit">Salir</button>
         </form>
@@ -259,4 +414,39 @@
       </div>
     </div>
   </div>
+  <script>
+    (function () {
+      const path = window.location.pathname;
+      const directLinks = document.querySelectorAll(".topbar-link");
+      directLinks.forEach((link) => {
+        const href = link.getAttribute("href");
+        if (!href) return;
+        if (href === path) link.classList.add("active");
+      });
+
+      document.querySelectorAll(".topbar-menu").forEach((menu) => {
+        const links = menu.querySelectorAll(".topbar-menu-panel a");
+        let hasActiveChild = false;
+        links.forEach((link) => {
+          const href = link.getAttribute("href");
+          if (!href) return;
+          const cleanHref = href.replace(window.location.origin, "");
+          if (cleanHref === path) {
+            link.classList.add("active");
+            hasActiveChild = true;
+          }
+        });
+        if (hasActiveChild) {
+          menu.classList.add("active");
+          menu.open = true;
+        }
+      });
+
+      document.addEventListener("click", (event) => {
+        document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
+          if (!menu.contains(event.target)) menu.open = false;
+        });
+      });
+    })();
+  </script>
 {{end}}
