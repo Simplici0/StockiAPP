@@ -443,6 +443,66 @@
 
     <section class="card line-card">
       <div>
+        <h2>API keys</h2>
+        <p>Crea credenciales para integraciones externas. El token solo se muestra al momento de crearlo y luego se guarda únicamente como hash.</p>
+      </div>
+
+      {{if .CreatedAPIToken}}
+        <div class="settings-note">
+          <p><strong>Token generado:</strong> guarda este valor ahora. No volverá a mostrarse.</p>
+          <code style="display:block; padding:12px; border-radius:10px; background:#f4f8fc; border:1px solid rgba(15,40,80,0.1); word-break:break-all;">{{.CreatedAPIToken}}</code>
+        </div>
+      {{end}}
+
+      <form class="line-form" method="POST" action="/configuracion/api-keys/create">
+        <div class="line-form-grid">
+          <div>
+            <label for="new_api_key_name">Nueva API key</label>
+            <input id="new_api_key_name" name="name" type="text" value="{{.NewAPIKeyName}}" placeholder="Ej. n8n-produccion" />
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">Crear API key</button>
+          </div>
+        </div>
+      </form>
+
+      {{if .APIKeys}}
+        <div class="stack">
+          {{range .APIKeys}}
+            <form class="line-row" method="POST" action="/configuracion/api-keys/update">
+              <input type="hidden" name="id" value="{{.ID}}" />
+              <div class="line-meta">
+                <label for="api_key_{{.ID}}">Nombre</label>
+                <input id="api_key_{{.ID}}" name="name" type="text" value="{{.Name}}" />
+                <p>Creada: {{.CreatedAt}} · Actualizada: {{.UpdatedAt}}</p>
+              </div>
+              <div>
+                <span class="line-status {{if not .Active}}inactive{{end}}">
+                  {{if .Active}}Activa{{else}}Inactiva{{end}}
+                </span>
+              </div>
+              <div class="stack">
+                <label class="checkline">
+                  <input type="checkbox" name="active" {{if .Active}}checked{{end}} />
+                  Permitir llamadas a la API
+                </label>
+                <div class="actions">
+                  <button class="secondary" type="submit">Guardar</button>
+                </div>
+              </div>
+            </form>
+          {{end}}
+        </div>
+      {{else}}
+        <div class="empty-state">
+          <h2>Sin API keys configuradas</h2>
+          <p>Crea la primera key para permitir integraciones con n8n, scripts o agentes sin depender de cookies de sesión.</p>
+        </div>
+      {{end}}
+    </section>
+
+    <section class="card line-card">
+      <div>
         <h2>Tipos de movimiento</h2>
         <p>Controla qué operaciones nuevas están visibles y disponibles en la app. Desactivar una opción no afecta el historial existente.</p>
       </div>

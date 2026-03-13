@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -142,6 +144,14 @@ type AuditEvent struct {
 	Source      string
 	PayloadJSON string
 	CreatedAt   string
+}
+
+type APIKey struct {
+	ID        int
+	Name      string
+	Active    bool
+	CreatedAt string
+	UpdatedAt string
 }
 
 var (
@@ -720,7 +730,10 @@ type User struct {
 
 type contextKey string
 
-const userContextKey contextKey = "user"
+const (
+	userContextKey               contextKey = "user"
+	apiIntegrationNameContextKey contextKey = "api_integration_name"
+)
 
 func findProduct(products []productOption, id string) (productOption, bool) {
 	for _, product := range products {
@@ -827,6 +840,16 @@ func logAuditEvent(exec sqlExecer, user *User, eventType, entityType, entityID, 
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, strings.TrimSpace(eventType), strings.TrimSpace(entityType), strings.TrimSpace(entityID), userID, normalizeAuditSource(source), payloadJSON, time.Now().Format(time.RFC3339))
 	return err
+}
+
+func withAPIAuditMetadata(r *http.Request, payload map[string]any) map[string]any {
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if integrationName := apiIntegrationNameFromContext(r); integrationName != "" {
+		payload["integration_name"] = integrationName
+	}
+	return payload
 }
 
 func writeAPIJSON(w http.ResponseWriter, status int, payload any) {
@@ -1217,6 +1240,35 @@ func loadPaymentMethods(db *sql.DB, activeOnly bool) ([]PaymentMethod, error) {
 	return methods, nil
 }
 
+func loadAPIKeys(db *sql.DB) ([]APIKey, error) {
+	rows, err := db.Query(`
+		SELECT id, name, active, created_at, updated_at
+		FROM api_keys
+		ORDER BY active DESC, updated_at DESC, id DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]APIKey, 0, 16)
+	for rows.Next() {
+		var item APIKey
+		var active int
+		if err := rows.Scan(&item.ID, &item.Name, &active, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		item.Active = active == 1
+		item.CreatedAt = formatDateWithSettings(item.CreatedAt)
+		item.UpdatedAt = formatDateWithSettings(item.UpdatedAt)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func paymentMethodNames(methods []PaymentMethod) []string {
 	out := make([]string, 0, len(methods))
 	for _, method := range methods {
@@ -1518,11 +1570,23 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
+func hashAPIToken(token string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+	return hex.EncodeToString(sum[:])
+}
+
 func userFromContext(r *http.Request) *User {
 	if user, ok := r.Context().Value(userContextKey).(*User); ok {
 		return user
 	}
 	return nil
+}
+
+func apiIntegrationNameFromContext(r *http.Request) string {
+	if name, ok := r.Context().Value(apiIntegrationNameContextKey).(string); ok {
+		return strings.TrimSpace(name)
+	}
+	return ""
 }
 
 func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
@@ -1560,12 +1624,86 @@ func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
 	return &user, nil
 }
 
+func bearerTokenFromRequest(r *http.Request) string {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(strings.TrimSpace(parts[0]), "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+func integrationUserFromDB(db *sql.DB) (*User, error) {
+	var user User
+	var isActive int
+	err := db.QueryRow(`
+		SELECT id, username, role, is_active
+		FROM users
+		WHERE role = 'admin' AND is_active = 1
+		ORDER BY id
+		LIMIT 1
+	`).Scan(&user.ID, &user.Username, &user.Role, &isActive)
+	if err != nil {
+		return nil, err
+	}
+	user.IsActive = isActive == 1
+	return &user, nil
+}
+
+func apiAuthFromRequest(db *sql.DB, r *http.Request) (*User, string, error) {
+	if user, err := userFromRequest(db, r); err == nil && user != nil {
+		return user, "", nil
+	}
+
+	token := bearerTokenFromRequest(r)
+	if token == "" {
+		return nil, "", sql.ErrNoRows
+	}
+
+	var integrationName string
+	var active int
+	err := db.QueryRow(`
+		SELECT name, active
+		FROM api_keys
+		WHERE token_hash = ?
+	`, hashAPIToken(token)).Scan(&integrationName, &active)
+	if err != nil {
+		return nil, "", err
+	}
+	if active != 1 {
+		return nil, "", sql.ErrNoRows
+	}
+
+	user, err := integrationUserFromDB(db)
+	if err != nil {
+		return nil, "", err
+	}
+	return user, strings.TrimSpace(integrationName), nil
+}
+
 func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Allow unauthenticated access to healthcheck and static assets.
 		// Static assets are safe to serve publicly and needed for the login page too.
 		if r.URL.Path == "/login" || r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/static/") {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			user, integrationName, err := apiAuthFromRequest(db, r)
+			if err != nil {
+				writeAPIError(w, http.StatusUnauthorized, "Autenticación requerida para la API.", nil)
+				return
+			}
+			ctx := context.WithValue(r.Context(), userContextKey, user)
+			if integrationName != "" {
+				ctx = context.WithValue(ctx, apiIntegrationNameContextKey, integrationName)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 
@@ -1721,6 +1859,16 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		expires_at TEXT NOT NULL,
 		FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 	);
+
+	CREATE TABLE IF NOT EXISTS api_keys (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		token_hash TEXT NOT NULL UNIQUE,
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys (active);
 
 	CREATE TABLE IF NOT EXISTS business_settings (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -2186,6 +2334,9 @@ func main() {
 		Settings          BusinessSettings
 		Lines             []BusinessLine
 		PaymentMethods    []PaymentMethod
+		APIKeys           []APIKey
+		NewAPIKeyName     string
+		CreatedAPIToken   string
 		MovementSettings  []MovementSetting
 		NewPaymentMethod  string
 		NewLineName       string
@@ -2235,6 +2386,17 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"service": "stocki-app",
+		})
 	})
 
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -2498,51 +2660,63 @@ func main() {
 		}
 	}))
 
+	renderBusinessSettingsPage := func(w http.ResponseWriter, r *http.Request, flash, errText, createdToken, newAPIKeyName string) {
+		lines, err := loadBusinessLines(db, false)
+		if err != nil {
+			http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
+			return
+		}
+		paymentMethodsCfg, err := loadPaymentMethods(db, false)
+		if err != nil {
+			http.Error(w, "Error al cargar canales de pago", http.StatusInternalServerError)
+			return
+		}
+		apiKeys, err := loadAPIKeys(db)
+		if err != nil {
+			http.Error(w, "Error al cargar API keys", http.StatusInternalServerError)
+			return
+		}
+		movementSettings, _, err := loadMovementSettings(db)
+		if err != nil {
+			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
+			return
+		}
+		editingID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("edit_line")))
+		editingName := ""
+		for _, line := range lines {
+			if line.ID == editingID {
+				editingName = line.Name
+				break
+			}
+		}
+		data := businessSettingsPageData{
+			Title:             "Configuración",
+			Subtitle:          "Separa branding general del negocio y catálogos operativos desde un único panel.",
+			Flash:             flash,
+			Error:             errText,
+			Settings:          currentBusinessSettings(),
+			Lines:             lines,
+			PaymentMethods:    paymentMethodsCfg,
+			APIKeys:           apiKeys,
+			NewAPIKeyName:     strings.TrimSpace(newAPIKeyName),
+			CreatedAPIToken:   strings.TrimSpace(createdToken),
+			MovementSettings:  movementSettings,
+			NewPaymentMethod:  strings.TrimSpace(r.URL.Query().Get("new_payment_method")),
+			NewLineName:       strings.TrimSpace(r.URL.Query().Get("new_line")),
+			EditingLineID:     editingID,
+			EditingLineName:   editingName,
+			CurrencyOptions:   currencyOptions,
+			DateFormatOptions: dateFormatOptions,
+			CurrentUser:       userFromContext(r),
+		}
+		if err := tmpl.ExecuteTemplate(w, "business_settings.html", data); err != nil {
+			http.Error(w, "Error al renderizar configuración", http.StatusInternalServerError)
+		}
+	}
+
 	mux.HandleFunc("/configuracion", adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			lines, err := loadBusinessLines(db, false)
-			if err != nil {
-				http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
-				return
-			}
-			paymentMethodsCfg, err := loadPaymentMethods(db, false)
-			if err != nil {
-				http.Error(w, "Error al cargar canales de pago", http.StatusInternalServerError)
-				return
-			}
-			movementSettings, _, err := loadMovementSettings(db)
-			if err != nil {
-				http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
-				return
-			}
-			editingID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("edit_line")))
-			editingName := ""
-			for _, line := range lines {
-				if line.ID == editingID {
-					editingName = line.Name
-					break
-				}
-			}
-			data := businessSettingsPageData{
-				Title:             "Configuración",
-				Subtitle:          "Separa branding general del negocio y catálogos operativos desde un único panel.",
-				Flash:             r.URL.Query().Get("mensaje"),
-				Error:             r.URL.Query().Get("error"),
-				Settings:          currentBusinessSettings(),
-				Lines:             lines,
-				PaymentMethods:    paymentMethodsCfg,
-				MovementSettings:  movementSettings,
-				NewPaymentMethod:  strings.TrimSpace(r.URL.Query().Get("new_payment_method")),
-				NewLineName:       strings.TrimSpace(r.URL.Query().Get("new_line")),
-				EditingLineID:     editingID,
-				EditingLineName:   editingName,
-				CurrencyOptions:   currencyOptions,
-				DateFormatOptions: dateFormatOptions,
-				CurrentUser:       userFromContext(r),
-			}
-			if err := tmpl.ExecuteTemplate(w, "business_settings.html", data); err != nil {
-				http.Error(w, "Error al renderizar configuración", http.StatusInternalServerError)
-			}
+			renderBusinessSettingsPage(w, r, r.URL.Query().Get("mensaje"), r.URL.Query().Get("error"), "", strings.TrimSpace(r.URL.Query().Get("new_api_key_name")))
 			return
 		}
 
@@ -2767,6 +2941,89 @@ func main() {
 			log.Printf("audit payment method update: %v", err)
 		}
 		redirectWithMessage(w, r, "/configuracion", "Canal de pago actualizado.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/api-keys/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			redirectWithMessage(w, r, "/configuracion", "", "El nombre de la API key es obligatorio.")
+			return
+		}
+		token, err := generateToken()
+		if err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo generar el token.")
+			return
+		}
+		now := time.Now().Format(time.RFC3339)
+		if _, err := db.Exec(`
+			INSERT INTO api_keys (name, token_hash, active, created_at, updated_at)
+			VALUES (?, ?, 1, ?, ?)
+		`, name, hashAPIToken(token), now, now); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una API key con ese nombre.")
+				return
+			}
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo crear la API key.")
+			return
+		}
+		if err := logAuditEvent(db, userFromContext(r), "api_key_created", "api_key", name, "manual", map[string]any{
+			"name": name,
+		}); err != nil {
+			log.Printf("audit api key created: %v", err)
+		}
+		renderBusinessSettingsPage(w, r, "API key creada. Copia el token ahora; no volverá a mostrarse.", "", token, "")
+	}))
+
+	mux.HandleFunc("/configuracion/api-keys/update", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		keyID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("id")))
+		if err != nil || keyID <= 0 {
+			redirectWithMessage(w, r, "/configuracion", "", "ID de API key inválido.")
+			return
+		}
+		name := strings.TrimSpace(r.FormValue("name"))
+		if name == "" {
+			redirectWithMessage(w, r, "/configuracion", "", "El nombre de la API key es obligatorio.")
+			return
+		}
+		active := 0
+		if r.FormValue("active") != "" {
+			active = 1
+		}
+		if _, err := db.Exec(`
+			UPDATE api_keys
+			SET name = ?, active = ?, updated_at = ?
+			WHERE id = ?
+		`, name, active, time.Now().Format(time.RFC3339), keyID); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una API key con ese nombre.")
+				return
+			}
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar la API key.")
+			return
+		}
+		if err := logAuditEvent(db, userFromContext(r), "api_key_updated", "api_key", strconv.Itoa(keyID), "manual", map[string]any{
+			"name":   name,
+			"active": active == 1,
+		}); err != nil {
+			log.Printf("audit api key updated: %v", err)
+		}
+		redirectWithMessage(w, r, "/configuracion", "API key actualizada.", "")
 	}))
 
 	mux.HandleFunc("/configuracion/movimientos/update", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -3490,22 +3747,22 @@ func main() {
 				return
 			}
 		}
-		if err := logAuditEvent(tx, currentUser, "product_created", "product", sku, "api", map[string]any{
+		if err := logAuditEvent(tx, currentUser, "product_created", "product", sku, "api", withAPIAuditMetadata(r, map[string]any{
 			"sku":           sku,
 			"name":          payload.Name,
 			"line":          payload.Line,
 			"owner_user_id": ownerUserID,
 			"cantidad":      payload.Quantity,
-		}); err != nil {
+		})); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la auditoría.", nil)
 			return
 		}
 		if ownerUserID.Valid {
-			if err := logAuditEvent(tx, currentUser, "product_assigned", "product", sku, "api", map[string]any{
+			if err := logAuditEvent(tx, currentUser, "product_assigned", "product", sku, "api", withAPIAuditMetadata(r, map[string]any{
 				"sku":           sku,
 				"name":          payload.Name,
 				"owner_user_id": ownerUserID.Int64,
-			}); err != nil {
+			})); err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la auditoría.", nil)
 				return
 			}
@@ -4915,13 +5172,13 @@ func main() {
 			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
 			return
 		}
-		if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", map[string]any{
+		if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
 			"producto_id": payload.ProductID,
 			"producto":    selectedProduct.Name,
 			"cantidad":    payload.Quantity,
 			"metodo_pago": payload.PaymentMethod,
 			"total":       unitPrice * float64(payload.Quantity),
-		}); err != nil {
+		})); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
 			return
 		}
@@ -5061,14 +5318,14 @@ func main() {
 				return
 			}
 		}
-		if err := logAuditEvent(tx, currentUser, "change_registered", "change", payload.ProductID, "api", map[string]any{
+		if err := logAuditEvent(tx, currentUser, "change_registered", "change", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
 			"producto_saliente_id": payload.ProductID,
 			"producto_saliente":    selectedProduct.Name,
 			"producto_entrante_id": incomingProductID,
 			"cantidad_saliente":    payload.Quantity,
 			"cantidad_entrante":    incomingQty,
 			"modo_entrada":         payload.IncomingMode,
-		}); err != nil {
+		})); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del cambio.", nil)
 			return
 		}
