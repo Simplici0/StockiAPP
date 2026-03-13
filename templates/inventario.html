@@ -137,6 +137,54 @@
       margin-top: 2px;
     }
 
+    .value-cell {
+      display: grid;
+      gap: 4px;
+      min-width: 132px;
+    }
+
+    .value-line {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .value-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #7a93ae;
+    }
+
+    .value-amount {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0d2b55;
+    }
+
+    .value-line.sale .value-label {
+      color: #4a6080;
+    }
+
+    .value-line.sale .value-amount {
+      color: #0d2b55;
+    }
+
+    .value-line.retoma .value-label {
+      color: #0f766e;
+    }
+
+    .value-line.retoma .value-amount {
+      color: #0f766e;
+    }
+
+    .value-line.retoma.is-empty .value-amount {
+      color: #7a93ae;
+      font-weight: 600;
+    }
+
     .age-pill {
       display: inline-flex;
       align-items: center;
@@ -445,6 +493,7 @@
         <tr>
           <th>Producto</th>
           <th>Línea</th>
+          <th>Valor</th>
           <th>Estado</th>
           <th>Stock</th>
           <th>Acciones</th>
@@ -840,6 +889,15 @@
       Cambio: "Cambio"
     };
     const statusLabel = (status) => statusLabels[status] || status;
+    const formatCOP = (value) => {
+      const n = Math.max(0, Math.round(Number(value || 0)));
+      return n.toLocaleString("es-CO");
+    };
+    const parseCOP = (raw) => {
+      const digits = String(raw || "").replace(/[^\d]/g, "");
+      if (!digits) return NaN;
+      return Number(digits);
+    };
 
     const updateSummary = (visibleProducts) => {
       if (!summary) {
@@ -924,6 +982,20 @@
             <div class="fifo-note">ID ${product.id} · ${product.available} disponibles</div>
           </td>
           <td>${normalizeLine(product.line)}</td>
+          <td>
+            <div class="value-cell">
+              <div class="value-line sale">
+                <span class="value-label">Venta</span>
+                <span class="value-amount">${formatCOP(product.salePrice || 0)}</span>
+              </div>
+              ${product.retomaEnabled
+                ? `<div class="value-line retoma ${product.retomaPrice > 0 ? "" : "is-empty"}">
+                    <span class="value-label">Retoma</span>
+                    <span class="value-amount">${product.retomaPrice > 0 ? formatCOP(product.retomaPrice) : "No definido"}</span>
+                  </div>`
+                : ``}
+            </div>
+          </td>
           <td><span class="status ${product.statusClass}">${statusLabel(product.statusLabel)}</span></td>
           <td><strong>${product.available}</strong></td>
           <td>
@@ -963,7 +1035,7 @@
 
         const unitsRow = document.createElement("tr");
         unitsRow.innerHTML = `
-          <td colspan="6" class="units-panel" id="units-${product.id}" style="display: none;">
+          <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
             <div class="units-header">
               <h4>Unidades</h4>
               <span class="fifo-note">Selección FIFO</span>
@@ -1042,16 +1114,6 @@
     const actionRetomaPrice = document.getElementById("action-retoma-price");
     const actionSubmit = document.getElementById("action-submit");
     const actionDeleteProduct = document.getElementById("action-delete-product");
-
-    const formatCOP = (value) => {
-      const n = Math.max(0, Math.round(Number(value || 0)));
-      return n.toLocaleString("es-CO");
-    };
-    const parseCOP = (raw) => {
-      const digits = String(raw || "").replace(/[^\d]/g, "");
-      if (!digits) return NaN;
-      return Number(digits);
-    };
 
     const saleModal = document.getElementById("sale-modal");
     const saleSubtitle = document.getElementById("sale-subtitle");
