@@ -50,6 +50,8 @@ type productOption struct {
 	Line         string
 	FechaIngreso string
 	SalePrice    float64
+	OwnerUserID  int
+	HasOwner     bool
 	Units        []unitOption
 }
 
@@ -124,6 +126,11 @@ type MovementSetting struct {
 	UpdatedAt    string
 }
 
+type assignableUser struct {
+	ID       int
+	Username string
+}
+
 var (
 	errInsufficientStock = fmt.Errorf("stock insuficiente")
 
@@ -183,7 +190,11 @@ func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 }
 
 func loadProductos(db *sql.DB) ([]productOption, error) {
-	rows, err := db.Query(`SELECT sku, nombre, linea, COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0) FROM productos ORDER BY sku`)
+	rows, err := db.Query(`
+		SELECT sku, nombre, linea, COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), owner_user_id
+		FROM productos
+		ORDER BY sku
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +203,13 @@ func loadProductos(db *sql.DB) ([]productOption, error) {
 	products := []productOption{}
 	for rows.Next() {
 		var p productOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.Line, &p.FechaIngreso, &p.SalePrice); err != nil {
+		var ownerUserID sql.NullInt64
+		if err := rows.Scan(&p.ID, &p.Name, &p.Line, &p.FechaIngreso, &p.SalePrice, &ownerUserID); err != nil {
 			return nil, err
+		}
+		p.HasOwner = ownerUserID.Valid
+		if ownerUserID.Valid {
+			p.OwnerUserID = int(ownerUserID.Int64)
 		}
 		products = append(products, p)
 	}
@@ -201,6 +217,84 @@ func loadProductos(db *sql.DB) ([]productOption, error) {
 		return nil, err
 	}
 	return products, nil
+}
+
+func loadAssignableUsers(db *sql.DB) ([]assignableUser, error) {
+	rows, err := db.Query(`
+		SELECT id, username
+		FROM users
+		WHERE is_active = 1
+		ORDER BY LOWER(username), id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := make([]assignableUser, 0)
+	for rows.Next() {
+		var user assignableUser
+		if err := rows.Scan(&user.ID, &user.Username); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func canAccessProduct(user *User, product productOption) bool {
+	if user != nil && user.Role == "admin" {
+		return true
+	}
+	if !product.HasOwner {
+		return true
+	}
+	if user == nil {
+		return false
+	}
+	return product.OwnerUserID == user.ID
+}
+
+func filterProductsForUser(products []productOption, user *User) []productOption {
+	if user != nil && user.Role == "admin" {
+		return products
+	}
+	filtered := make([]productOption, 0, len(products))
+	for _, product := range products {
+		if canAccessProduct(user, product) {
+			filtered = append(filtered, product)
+		}
+	}
+	return filtered
+}
+
+func productAccessibleByID(db *sql.DB, user *User, productID string) (bool, error) {
+	var ownerUserID sql.NullInt64
+	err := db.QueryRow(`
+		SELECT owner_user_id
+		FROM productos
+		WHERE sku = ? OR id = ?
+		LIMIT 1
+	`, productID, productID).Scan(&ownerUserID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if user != nil && user.Role == "admin" {
+		return true, nil
+	}
+	if !ownerUserID.Valid {
+		return true, nil
+	}
+	if user == nil {
+		return false, nil
+	}
+	return int(ownerUserID.Int64) == user.ID, nil
 }
 
 func generateNextProductSKU(db *sql.DB) (string, error) {
@@ -1497,6 +1591,7 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		id TEXT,
 		linea TEXT NOT NULL,
 		nombre TEXT NOT NULL,
+		owner_user_id INTEGER,
 		precio_base REAL NOT NULL DEFAULT 0,
 		precio_venta REAL NOT NULL DEFAULT 0,
 		precio_consultora REAL NOT NULL DEFAULT 0,
@@ -1620,6 +1715,19 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 	}
 	// Backfill missing timestamps (use CURRENT_TIMESTAMP so we always have a value).
 	if _, err := db.Exec("UPDATE productos SET fecha_ingreso = CURRENT_TIMESTAMP WHERE fecha_ingreso IS NULL OR fecha_ingreso = ''"); err != nil {
+		return nil, err
+	}
+
+	var productosHasOwner int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('productos') WHERE name = 'owner_user_id'").Scan(&productosHasOwner); err != nil {
+		return nil, err
+	}
+	if productosHasOwner == 0 {
+		if _, err := db.Exec("ALTER TABLE productos ADD COLUMN owner_user_id INTEGER"); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_productos_owner_user_id ON productos(owner_user_id)"); err != nil {
 		return nil, err
 	}
 
@@ -1993,19 +2101,21 @@ func main() {
 	}
 
 	type productNewData struct {
-		Title       string
-		Subtitle    string
-		SKU         string
-		Nombre      string
-		Linea       string
-		PrecioVenta string
-		Lineas      []string
-		HasLineas   bool
-		Cantidad    int
-		AplicaCad   bool
-		Caducidad   string
-		Errors      map[string]string
-		CurrentUser *User
+		Title           string
+		Subtitle        string
+		SKU             string
+		Nombre          string
+		Linea           string
+		OwnerUserID     string
+		PrecioVenta     string
+		Lineas          []string
+		HasLineas       bool
+		AssignableUsers []assignableUser
+		Cantidad        int
+		AplicaCad       bool
+		Caducidad       string
+		Errors          map[string]string
+		CurrentUser     *User
 	}
 
 	mux := http.NewServeMux()
@@ -2219,7 +2329,7 @@ func main() {
 			}
 			data := businessSettingsPageData{
 				Title:             "Configuración",
-				Subtitle:          "Personaliza la identidad visual y parámetros base del negocio.",
+				Subtitle:          "Separa branding general del negocio y catálogos operativos desde un único panel.",
 				Flash:             r.URL.Query().Get("mensaje"),
 				Error:             r.URL.Query().Get("error"),
 				Settings:          currentBusinessSettings(),
@@ -2765,10 +2875,6 @@ func main() {
 	}))
 
 	mux.HandleFunc("/productos/new", adminOnly(func(w http.ResponseWriter, r *http.Request) {
-		productsMu.RLock()
-		productsSnapshot := make([]productOption, len(products))
-		copy(productsSnapshot, products)
-		productsMu.RUnlock()
 		activeLines, err := loadBusinessLines(db, true)
 		if err != nil {
 			http.Error(w, "No se pudieron cargar las líneas de negocio", http.StatusInternalServerError)
@@ -2779,14 +2885,20 @@ func main() {
 			http.Error(w, "No se pudo generar el SKU", http.StatusInternalServerError)
 			return
 		}
+		assignableUsers, err := loadAssignableUsers(db)
+		if err != nil {
+			http.Error(w, "No se pudieron cargar los usuarios", http.StatusInternalServerError)
+			return
+		}
 		data := productNewData{
-			Title:       "Crear producto",
-			Subtitle:    "Acción reservada para administradores.",
-			SKU:         nextSKU,
-			Cantidad:    1,
-			Lineas:      businessLineNames(activeLines),
-			HasLineas:   len(activeLines) > 0,
-			CurrentUser: userFromContext(r),
+			Title:           "Crear producto",
+			Subtitle:        "Acción reservada para administradores.",
+			SKU:             nextSKU,
+			Cantidad:        1,
+			Lineas:          businessLineNames(activeLines),
+			HasLineas:       len(activeLines) > 0,
+			AssignableUsers: assignableUsers,
+			CurrentUser:     userFromContext(r),
 		}
 		if err := tmpl.ExecuteTemplate(w, "product_new.html", data); err != nil {
 			http.Error(w, "Error al renderizar productos", http.StatusInternalServerError)
@@ -2812,10 +2924,20 @@ func main() {
 
 		nombre := strings.TrimSpace(r.FormValue("nombre"))
 		linea := strings.TrimSpace(r.FormValue("linea"))
+		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		cantidadRaw := strings.TrimSpace(r.FormValue("cantidad"))
 		precioVentaRaw := strings.TrimSpace(r.FormValue("precio_venta"))
 		aplicaCad := r.FormValue("aplica_caducidad") != ""
 		caducidad := strings.TrimSpace(r.FormValue("fecha_caducidad"))
+		assignableUsers, err := loadAssignableUsers(db)
+		if err != nil {
+			http.Error(w, "No se pudieron cargar los usuarios", http.StatusInternalServerError)
+			return
+		}
+		validOwners := make(map[string]struct{}, len(assignableUsers))
+		for _, user := range assignableUsers {
+			validOwners[strconv.Itoa(user.ID)] = struct{}{}
+		}
 
 		errors := map[string]string{}
 		if nombre == "" {
@@ -2853,12 +2975,18 @@ func main() {
 				errors["fecha_caducidad"] = "Fecha caducidad debe ser YYYY-MM-DD."
 			}
 		}
+		var ownerUserID sql.NullInt64
+		if ownerUserIDRaw != "" {
+			if _, ok := validOwners[ownerUserIDRaw]; !ok {
+				errors["owner_user_id"] = "Selecciona un usuario válido."
+			} else if parsedOwnerID, parseErr := strconv.Atoi(ownerUserIDRaw); parseErr != nil || parsedOwnerID <= 0 {
+				errors["owner_user_id"] = "Selecciona un usuario válido."
+			} else {
+				ownerUserID = sql.NullInt64{Int64: int64(parsedOwnerID), Valid: true}
+			}
+		}
 
 		if len(errors) > 0 {
-			productsMu.RLock()
-			productsSnapshot := make([]productOption, len(products))
-			copy(productsSnapshot, products)
-			productsMu.RUnlock()
 			nextSKU, skuErr := generateNextProductSKU(db)
 			if skuErr != nil {
 				http.Error(w, "No se pudo generar el SKU", http.StatusInternalServerError)
@@ -2866,19 +2994,21 @@ func main() {
 			}
 			w.WriteHeader(http.StatusBadRequest)
 			data := productNewData{
-				Title:       "Crear producto",
-				Subtitle:    "Acción reservada para administradores.",
-				SKU:         nextSKU,
-				Nombre:      nombre,
-				Linea:       linea,
-				PrecioVenta: precioVentaRaw,
-				Lineas:      ensureLineOption(businessLineNames(activeLines), linea),
-				HasLineas:   len(activeLines) > 0,
-				Cantidad:    cantidad,
-				AplicaCad:   aplicaCad,
-				Caducidad:   caducidad,
-				Errors:      errors,
-				CurrentUser: userFromContext(r),
+				Title:           "Crear producto",
+				Subtitle:        "Acción reservada para administradores.",
+				SKU:             nextSKU,
+				Nombre:          nombre,
+				Linea:           linea,
+				OwnerUserID:     ownerUserIDRaw,
+				PrecioVenta:     precioVentaRaw,
+				Lineas:          ensureLineOption(businessLineNames(activeLines), linea),
+				HasLineas:       len(activeLines) > 0,
+				AssignableUsers: assignableUsers,
+				Cantidad:        cantidad,
+				AplicaCad:       aplicaCad,
+				Caducidad:       caducidad,
+				Errors:          errors,
+				CurrentUser:     userFromContext(r),
 			}
 			if err := tmpl.ExecuteTemplate(w, "product_new.html", data); err != nil {
 				http.Error(w, "Error al renderizar productos", http.StatusInternalServerError)
@@ -2905,6 +3035,10 @@ func main() {
 		}
 		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE sku = ?`, float64(precioVenta), sku); err != nil {
 			http.Error(w, "No se pudo guardar el precio del producto", http.StatusInternalServerError)
+			return
+		}
+		if _, err := tx.Exec(`UPDATE productos SET owner_user_id = ? WHERE sku = ?`, ownerUserID, sku); err != nil {
+			http.Error(w, "No se pudo guardar la asignación del producto", http.StatusInternalServerError)
 			return
 		}
 
@@ -2937,18 +3071,29 @@ func main() {
 				products[idx].Name = nombre
 				products[idx].Line = linea
 				products[idx].SalePrice = float64(precioVenta)
+				products[idx].HasOwner = ownerUserID.Valid
+				if ownerUserID.Valid {
+					products[idx].OwnerUserID = int(ownerUserID.Int64)
+				} else {
+					products[idx].OwnerUserID = 0
+				}
 				found = true
 				break
 			}
 		}
 		if !found {
-			products = append(products, productOption{
+			createdProduct := productOption{
 				ID:           sku,
 				Name:         nombre,
 				Line:         linea,
 				FechaIngreso: time.Now().Format("2006-01-02"),
 				SalePrice:    float64(precioVenta),
-			})
+			}
+			if ownerUserID.Valid {
+				createdProduct.HasOwner = true
+				createdProduct.OwnerUserID = int(ownerUserID.Int64)
+			}
+			products = append(products, createdProduct)
 		}
 		productsMu.Unlock()
 
@@ -3195,6 +3340,7 @@ func main() {
 			copy(products, productsSnapshot)
 			productsMu.Unlock()
 		}
+		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
 
 		inventoryProducts := make([]inventoryProduct, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
@@ -3345,6 +3491,15 @@ func main() {
 			writeJSONError(http.StatusBadRequest, "Datos inválidos.")
 			return
 		}
+		allowed, err := productAccessibleByID(db, userFromContext(r), productID)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.")
+			return
+		}
+		if !allowed {
+			writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.")
+			return
+		}
 
 		tx, err := db.Begin()
 		if err != nil {
@@ -3398,6 +3553,15 @@ func main() {
 		qty, err := strconv.Atoi(qtyValue)
 		if productID == "" || err != nil || qty <= 0 {
 			writeJSONError(http.StatusBadRequest, "Datos inválidos.")
+			return
+		}
+		allowed, err := productAccessibleByID(db, userFromContext(r), productID)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.")
+			return
+		}
+		if !allowed {
+			writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.")
 			return
 		}
 
@@ -3461,6 +3625,15 @@ func main() {
 		target, err := strconv.Atoi(targetValue)
 		if productID == "" || err != nil || target < 0 {
 			writeJSONError(http.StatusBadRequest, "Cantidad objetivo inválida.")
+			return
+		}
+		allowed, err := productAccessibleByID(db, currentUser, productID)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.")
+			return
+		}
+		if !allowed {
+			writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.")
 			return
 		}
 		updatePrice := priceValue != ""
@@ -3779,6 +3952,15 @@ func main() {
 			http.Error(w, "Falta producto_id", http.StatusBadRequest)
 			return
 		}
+		allowed, err := productAccessibleByID(db, userFromContext(r), productID)
+		if err != nil {
+			http.Error(w, "No se pudo validar acceso al producto", http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
+			http.Error(w, "No tienes acceso a este producto", http.StatusForbidden)
+			return
+		}
 
 		type movimientoRow struct {
 			UnidadID string `json:"unidad_id"`
@@ -3827,9 +4009,22 @@ func main() {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "Falta sku."})
 			return
 		}
+		allowed, err := productAccessibleByID(db, userFromContext(r), sku)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "No se pudo validar acceso al producto."})
+			return
+		}
+		if !allowed {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "No tienes acceso a este producto."})
+			return
+		}
 
 		var precioVenta float64
-		err := db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE sku = ?`, sku).Scan(&precioVenta)
+		err = db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE sku = ?`, sku).Scan(&precioVenta)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				precioVenta = 0
@@ -3866,6 +4061,7 @@ func main() {
 		productsSnapshot := make([]productOption, len(products))
 		copy(productsSnapshot, products)
 		productsMu.RUnlock()
+		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
 
 		productID := r.URL.Query().Get("producto_id")
 		if productID == "" && len(productsSnapshot) > 0 {
@@ -3882,6 +4078,10 @@ func main() {
 		if !ok && len(productsSnapshot) > 0 {
 			selectedProduct = productsSnapshot[0]
 			productID = selectedProduct.ID
+		}
+		if len(productsSnapshot) == 0 {
+			redirectWithMessage(w, r, "/inventario", "", "No tienes productos disponibles para vender.")
+			return
 		}
 
 		stockByProd, err := availableCountsByProduct(db)
@@ -3930,6 +4130,11 @@ func main() {
 		productsSnapshot := make([]productOption, len(products))
 		copy(productsSnapshot, products)
 		productsMu.RUnlock()
+		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+		if len(productsSnapshot) == 0 {
+			redirectWithMessage(w, r, "/inventario", "", "No tienes productos disponibles para cambio.")
+			return
+		}
 
 		productID := r.URL.Query().Get("producto_id")
 		if productID == "" {
@@ -3987,6 +4192,18 @@ func main() {
 			redirectWithMessage(w, r, "/inventario", "", "La retoma está deshabilitada en Configuración.")
 			return
 		}
+		productID := strings.TrimSpace(r.URL.Query().Get("producto_id"))
+		if productID != "" {
+			allowed, err := productAccessibleByID(db, userFromContext(r), productID)
+			if err != nil {
+				http.Error(w, "No se pudo validar acceso al producto", http.StatusInternalServerError)
+				return
+			}
+			if !allowed {
+				redirectWithMessage(w, r, "/inventario", "", "No tienes acceso a este producto.")
+				return
+			}
+		}
 		redirectWithMessage(w, r, "/inventario", "Retoma habilitada. El flujo detallado queda pendiente para una tarea posterior.", "")
 	})
 
@@ -4040,6 +4257,7 @@ func main() {
 		productsSnapshot := make([]productOption, len(products))
 		copy(productsSnapshot, products)
 		productsMu.RUnlock()
+		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
 
 		stockByProd, err := availableCountsByProduct(db)
 		if err != nil {
@@ -4066,6 +4284,21 @@ func main() {
 		valorVentaFinalValue := r.FormValue("valor_venta_final")
 		metodoPago := r.FormValue("metodo_pago")
 		notas := r.FormValue("notas")
+		if allowed, accessErr := productAccessibleByID(db, currentUser, productID); accessErr != nil {
+			if wantsJSON {
+				writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+				return
+			}
+			http.Error(w, "No se pudo validar acceso al producto", http.StatusInternalServerError)
+			return
+		} else if !allowed {
+			if wantsJSON {
+				writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.", map[string]string{"producto_id": "No tienes acceso a este producto."})
+				return
+			}
+			http.Error(w, "No tienes acceso a este producto", http.StatusForbidden)
+			return
+		}
 
 		selectedProduct, ok := findProduct(productsSnapshot, productID)
 		if !ok && len(productsSnapshot) > 0 {
@@ -4294,6 +4527,7 @@ func main() {
 		productsSnapshot := make([]productOption, len(products))
 		copy(productsSnapshot, products)
 		productsMu.RUnlock()
+		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
 
 		if r.Method != http.MethodPost {
 			http.Redirect(w, r, "/cambio/new", http.StatusSeeOther)
@@ -4318,6 +4552,16 @@ func main() {
 		incomingNewQtyValue := r.FormValue("incoming_new_qty")
 
 		errors := make(map[string]string)
+		if allowed, accessErr := productAccessibleByID(db, currentUser, productID); accessErr != nil {
+			http.Error(w, "No se pudo validar acceso al producto", http.StatusInternalServerError)
+			return
+		} else if !allowed {
+			errors["producto_id"] = "No tienes acceso a este producto."
+		}
+		if len(productsSnapshot) == 0 {
+			http.Error(w, "No tienes productos disponibles para cambio", http.StatusForbidden)
+			return
+		}
 
 		selectedProduct, ok := findProduct(productsSnapshot, productID)
 		if !ok {
@@ -4373,6 +4617,8 @@ func main() {
 		if incomingMode == "existing" {
 			if incomingExistingID == "" {
 				errors["incoming_existing_id"] = "Selecciona el producto entrante."
+			} else if _, ok := findProduct(productsSnapshot, incomingExistingID); !ok {
+				errors["incoming_existing_id"] = "Selecciona un producto entrante válido."
 			}
 			if incomingExistingQty <= 0 {
 				errors["incoming_existing_qty"] = "Ingresa una cantidad válida para la entrada."

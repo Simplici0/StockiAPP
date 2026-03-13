@@ -124,7 +124,8 @@
       color: var(--muted);
     }
 
-    input {
+    input,
+    select {
       width: 100%;
       padding: 10px 12px;
       border-radius: 12px;
@@ -134,13 +135,15 @@
       background: #ffffff;
     }
 
-    input:focus {
+    input:focus,
+    select:focus {
       outline: none;
       border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(232, 93, 60, 0.16);
     }
 
-    input:disabled {
+    input:disabled,
+    select:disabled {
       background: #f4f2ef;
       color: var(--muted);
     }
@@ -246,6 +249,16 @@
           <div class="note">No hay líneas activas. Crea la primera desde <a href="/configuracion">Configuración</a>.</div>
         {{end}}
         {{with .Errors}}{{with index . "linea"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+
+        <label for="owner_user_id">Usuario asignado (opcional)</label>
+        <select id="owner_user_id" name="owner_user_id">
+          <option value="">Sin asignar</option>
+          {{range .AssignableUsers}}
+            <option value="{{.ID}}" {{if eq $.OwnerUserID (printf "%d" .ID)}}selected{{end}}>{{.Username}}</option>
+          {{end}}
+        </select>
+        <div class="note">Si asignas el producto, solo ese usuario y los administradores podrán verlo y operarlo.</div>
+        {{with .Errors}}{{with index . "owner_user_id"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
 
         <label for="precio_venta">Precio de venta (opcional)</label>
         <input id="precio_venta" name="precio_venta" type="text" inputmode="numeric" placeholder="0" value="{{.PrecioVenta}}" />
