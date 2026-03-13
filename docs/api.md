@@ -451,6 +451,126 @@ Respuesta:
 }
 ```
 
+## Endpoints para agente
+
+Estos endpoints complementan la API general con respuestas más compactas para automatización y agentes tipo n8n.
+
+Reglas:
+- usan siempre `id` como identificador del producto
+- respetan ownership y visibilidad actual
+- aceptan sesión web o `Authorization: Bearer <token>`
+- no generan auditoría en lecturas `GET`
+
+### GET /api/agent/products/search?q=
+
+Busca productos visibles por `id`, nombre o línea.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/agent/products/search?q=iphone"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "items": [
+    {
+      "id": "IP12-001",
+      "name": "iPhone 12",
+      "line": "Celulares",
+      "sale_price": 1800000,
+      "retoma_enabled": true,
+      "retoma_price": 1400000,
+      "available": 3,
+      "status": "available"
+    }
+  ]
+}
+```
+
+### GET /api/agent/products/price?id=
+
+Consulta rápida de precio de venta y valor de retoma por `id`.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/agent/products/price?id=IP12-001"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "item": {
+    "id": "IP12-001",
+    "name": "iPhone 12",
+    "sale_price": 1800000,
+    "retoma_enabled": true,
+    "retoma_price": 1400000
+  }
+}
+```
+
+### GET /api/agent/inventory?q=
+
+Consulta rápida de disponibilidad.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/agent/inventory?q=iphone"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "items": [
+    {
+      "id": "IP12-001",
+      "name": "iPhone 12",
+      "line": "Celulares",
+      "sale_price": 1800000,
+      "retoma_enabled": true,
+      "retoma_price": 1400000,
+      "available": 3,
+      "status": "available"
+    }
+  ]
+}
+```
+
+### GET /api/agent/business
+
+Devuelve la configuración básica útil para un agente.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/agent/business
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "item": {
+    "business_name": "Stocki App",
+    "currency": "COP",
+    "date_format": "2006-01-02"
+  }
+}
+```
+
 ### GET /api/productos/precio
 
 Endpoint legado para consultar el precio de venta de un producto por ID.

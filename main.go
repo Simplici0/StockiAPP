@@ -106,6 +106,13 @@ type inventoryProduct struct {
 	HasOwner          bool
 }
 
+type productInventoryCounts struct {
+	Available int
+	Reserved  int
+	Swapped   int
+	Damaged   int
+}
+
 type BusinessSettings struct {
 	ID           int
 	BusinessName string
@@ -893,6 +900,96 @@ func writeAPIError(w http.ResponseWriter, status int, message string, fields map
 		resp["fields"] = fields
 	}
 	writeAPIJSON(w, status, resp)
+}
+
+func loadInventoryCountsForProducts(db *sql.DB, productIDs []string) (map[string]productInventoryCounts, error) {
+	counts := make(map[string]productInventoryCounts, len(productIDs))
+	if len(productIDs) == 0 {
+		return counts, nil
+	}
+
+	placeholders := make([]string, len(productIDs))
+	args := make([]any, 0, len(productIDs))
+	for i, productID := range productIDs {
+		placeholders[i] = "?"
+		args = append(args, productID)
+	}
+
+	rows, err := db.Query(`
+		SELECT producto_id, estado, COUNT(*)
+		FROM unidades
+		WHERE producto_id IN (`+strings.Join(placeholders, ",")+`)
+		GROUP BY producto_id, estado
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			productID string
+			estado    string
+			count     int
+		)
+		if err := rows.Scan(&productID, &estado, &count); err != nil {
+			return nil, err
+		}
+		current := counts[productID]
+		switch estado {
+		case "Disponible", "available":
+			current.Available = count
+		case "Reservada", "reserved":
+			current.Reserved = count
+		case "Cambio", "swapped":
+			current.Swapped = count
+		case "Danada", "Dañada", "damaged":
+			current.Damaged = count
+		}
+		counts[productID] = current
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return counts, nil
+}
+
+func agentProductItem(product productOption, counts productInventoryCounts, includeOwner bool) map[string]any {
+	var retomaPrice any = nil
+	if product.HasRetomaPrice {
+		retomaPrice = product.RetomaPrice
+	}
+
+	item := map[string]any{
+		"id":             product.ID,
+		"name":           product.Name,
+		"line":           product.Line,
+		"sale_price":     product.SalePrice,
+		"retoma_enabled": product.RetomaEnabled,
+		"retoma_price":   retomaPrice,
+		"available":      counts.Available,
+		"status": func() string {
+			if counts.Available > 0 {
+				return "available"
+			}
+			return "out_of_stock"
+		}(),
+	}
+	if includeOwner && product.HasOwner {
+		item["owner_user_id"] = product.OwnerUserID
+	}
+	return item
+}
+
+func findVisibleProduct(products []productOption, productID string) (productOption, bool) {
+	productID = strings.TrimSpace(productID)
+	for _, product := range products {
+		if strings.EqualFold(product.ID, productID) {
+			return product, true
+		}
+	}
+	return productOption{}, false
 }
 
 func selectAndMarkUnitsSold(tx *sql.Tx, productID string, qty int) ([]string, error) {
@@ -5508,6 +5605,135 @@ func main() {
 				"date_format":   settings.DateFormat,
 			},
 		})
+	})
+
+	mux.HandleFunc("/api/agent/business", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		settings := currentBusinessSettings()
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok": true,
+			"item": map[string]any{
+				"business_name": settings.BusinessName,
+				"currency":      settings.Currency,
+				"date_format":   settings.DateFormat,
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/agent/products/search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+		currentUser := userFromContext(r)
+		productsSnapshot, err := loadProductos(db)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
+			return
+		}
+		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+		productIDs := make([]string, 0, len(productsSnapshot))
+		filtered := make([]productOption, 0, len(productsSnapshot))
+		for _, product := range productsSnapshot {
+			if q != "" {
+				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line)
+				if !strings.Contains(haystack, q) {
+					continue
+				}
+			}
+			filtered = append(filtered, product)
+			productIDs = append(productIDs, product.ID)
+		}
+		countsByProduct, err := loadInventoryCountsForProducts(db, productIDs)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
+			return
+		}
+		includeOwner := currentUser != nil && currentUser.Role == "admin"
+		items := make([]map[string]any, 0, len(filtered))
+		for _, product := range filtered {
+			items = append(items, agentProductItem(product, countsByProduct[product.ID], includeOwner))
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+	})
+
+	mux.HandleFunc("/api/agent/products/price", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		productID := strings.TrimSpace(r.URL.Query().Get("id"))
+		if productID == "" {
+			writeAPIError(w, http.StatusBadRequest, "Falta id.", nil)
+			return
+		}
+		productsSnapshot, err := loadProductos(db)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
+			return
+		}
+		productsSnapshot = filterProductsForUser(productsSnapshot, userFromContext(r))
+		product, ok := findVisibleProduct(productsSnapshot, productID)
+		if !ok {
+			writeAPIError(w, http.StatusNotFound, "Producto no encontrado.", nil)
+			return
+		}
+		var retomaPrice any = nil
+		if product.HasRetomaPrice {
+			retomaPrice = product.RetomaPrice
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok": true,
+			"item": map[string]any{
+				"id":             product.ID,
+				"name":           product.Name,
+				"sale_price":     product.SalePrice,
+				"retoma_enabled": product.RetomaEnabled,
+				"retoma_price":   retomaPrice,
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/agent/inventory", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+		currentUser := userFromContext(r)
+		productsSnapshot, err := loadProductos(db)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el inventario.", nil)
+			return
+		}
+		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+		productIDs := make([]string, 0, len(productsSnapshot))
+		filtered := make([]productOption, 0, len(productsSnapshot))
+		for _, product := range productsSnapshot {
+			if q != "" {
+				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line)
+				if !strings.Contains(haystack, q) {
+					continue
+				}
+			}
+			filtered = append(filtered, product)
+			productIDs = append(productIDs, product.ID)
+		}
+		countsByProduct, err := loadInventoryCountsForProducts(db, productIDs)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
+			return
+		}
+		includeOwner := currentUser != nil && currentUser.Role == "admin"
+		items := make([]map[string]any, 0, len(filtered))
+		for _, product := range filtered {
+			items = append(items, agentProductItem(product, countsByProduct[product.ID], includeOwner))
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
 	})
 
 	mux.HandleFunc("/api/products/search", func(w http.ResponseWriter, r *http.Request) {

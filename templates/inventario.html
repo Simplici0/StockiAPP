@@ -21,25 +21,13 @@
     }
 
     .toggle {
-      display: flex;
-      align-items: center;
       gap: 8px;
       font-size: 13.5px;
       min-height: 42px;
     }
 
     .toggle input[type="checkbox"] {
-      width: 18px;
-      min-width: 18px;
-      height: 18px;
-      min-height: 18px;
-      margin: 0;
-      padding: 0;
       border-radius: 6px;
-      accent-color: var(--primary);
-      box-shadow: none;
-      transform: none;
-      flex: 0 0 auto;
     }
 
     .toggle span {
@@ -48,8 +36,8 @@
 
     .actions {
       display: flex;
-      align-items: center;
-      gap: 6px;
+      align-items: stretch;
+      gap: 8px;
       flex-wrap: wrap;
     }
 
@@ -59,6 +47,25 @@
       padding: 6px 10px;
       font-size: 13px;
       border-radius: 6px;
+    }
+
+    .actions > button {
+      min-height: 36px;
+    }
+
+    .actions button.ghost {
+      min-height: 36px;
+      padding: 0 12px;
+      border-color: rgba(15, 40, 80, 0.12);
+      background: #ffffff;
+      color: #4a6080;
+      font-size: 13px;
+    }
+
+    .actions button.ghost:hover {
+      background: #eaf0f9;
+      color: #0d2b55;
+      border-color: rgba(15, 40, 80, 0.18);
     }
 
     /* KPI summary strip */
@@ -365,6 +372,12 @@
     .modal-grid {
       display: grid;
       gap: 12px;
+    }
+
+    .checkline {
+      min-height: 20px;
+      font-size: 13.5px;
+      font-weight: 600;
     }
 
     .modal-row {
