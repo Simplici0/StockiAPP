@@ -3,20 +3,16 @@
 Esta API permite consultar y operar Stocki App sin acceder directamente a la base de datos.
 
 Estado actual:
-- Base URL local: `http://localhost:8080`
+- Base URL producción: `https://login.stockiapp.co`
 - Formato: `application/json`
 - Autenticación soportada:
-  - sesión web existente
   - `Authorization: Bearer <token>`
 
 ## Autenticación
 
-Los endpoints `/api/*` aceptan dos mecanismos durante la transición:
+Los endpoints `/api/*` aceptan autenticación vía header `Authorization: Bearer <token>`.
 
-- sesión web válida
-- API key vía header `Authorization: Bearer <token>`
-
-Si no envías una sesión válida ni un Bearer token válido, la API responde:
+Si no envías un Bearer token válido, la API responde:
 
 ```json
 {
@@ -27,21 +23,7 @@ Si no envías una sesión válida ni un Bearer token válido, la API responde:
 
 con código HTTP `401 Unauthorized`.
 
-### Opción 1: sesión web
-
-Útil para pruebas manuales.
-
-Ejemplo para iniciar sesión y guardar cookies:
-
-```bash
-curl -c cookies.txt -X POST http://localhost:8080/login \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=SuperSecreto123"
-```
-
-Luego usa `-b cookies.txt` en las demás llamadas.
-
-### Opción 2: API key
+### API key
 
 Las API keys se crean desde `Configuración > API keys`.
 
@@ -54,7 +36,84 @@ Reglas:
 Ejemplo de uso:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/health
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/health
+```
+
+### Uso en n8n / producción
+
+Para n8n en producción usa la URL oficial:
+
+- `https://login.stockiapp.co`
+
+Headers recomendados en todos los nodos `HttpRequest`:
+
+```http
+Authorization: Bearer TU_TOKEN
+Accept: application/json
+```
+
+Si el nodo hace `POST` con JSON, agrega también:
+
+```http
+Content-Type: application/json
+```
+
+Ejemplos rápidos con la URL oficial:
+
+Healthcheck:
+
+```bash
+curl -X GET "https://login.stockiapp.co/api/health" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Consultar inventario:
+
+```bash
+curl -X GET "https://login.stockiapp.co/api/inventory" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Consultar retomas:
+
+```bash
+curl -X GET "https://login.stockiapp.co/api/retomas" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Ajustar inventario:
+
+```bash
+curl -X POST "https://login.stockiapp.co/api/inventory/adjust" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_id": "P-001",
+    "target_quantity": 10,
+    "notes": "Ajuste desde n8n"
+  }'
+```
+
+Registrar retoma:
+
+```bash
+curl -X POST "https://login.stockiapp.co/api/retomas" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_id": "P-001",
+    "quantity": 1,
+    "value_received": 12000,
+    "received_state": "Usado",
+    "publish_to_stock": true,
+    "final_sale_price": 25000,
+    "notes": "Retoma desde n8n"
+  }'
 ```
 
 ## Reglas generales
@@ -98,7 +157,7 @@ Healthcheck JSON de la API. Requiere sesión o Bearer token válido.
 Ejemplo con API key:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/health
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/health
 ```
 
 Respuesta:
@@ -135,32 +194,16 @@ Respuesta:
 }
 ```
 
-Ejemplo:
-
 ```bash
-curl -b cookies.txt http://localhost:8080/api/products
-```
-
-Ejemplo con API key:
-
-```bash
-curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/products
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/products
 ```
 
 ### GET /api/products/search?q=
 
 Busca productos visibles por `id`, nombre o línea.
 
-Ejemplo:
-
 ```bash
-curl -b cookies.txt "http://localhost:8080/api/products/search?q=crema"
-```
-
-Ejemplo con API key:
-
-```bash
-curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/products/search?q=crema"
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/products/search?q=crema"
 ```
 
 ### POST /api/products
@@ -194,7 +237,7 @@ Notas:
 Ejemplo:
 
 ```bash
-curl -X POST http://localhost:8080/api/products \
+curl -X POST https://login.stockiapp.co/api/products \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer TU_TOKEN" \
   -d '{
@@ -247,32 +290,169 @@ Respuesta:
 }
 ```
 
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/inventory
+```
+
+### POST /api/inventory/adjust
+
+Ajusta el inventario de un producto y, opcionalmente, actualiza nombre, precio de venta y configuración de retoma.
+
+Respeta:
+- ownership
+- stock disponible al reducir
+- auditoría y movimientos del sistema
+
+Payload:
+
+```json
+{
+  "product_id": "P-001",
+  "target_quantity": 10,
+  "sale_price": 26000,
+  "retoma_enabled": true,
+  "retoma_price": 12000,
+  "notes": "Ajuste desde API"
+}
+```
+
+Notas:
+- `target_quantity` es opcional. Si no va, puedes actualizar solo datos del producto.
+- `sale_price` es opcional.
+- `name` es opcional.
+- Si envías `retoma_price`, también debes enviar `retoma_enabled`.
+- Si `retoma_enabled=true`, `retoma_price` es obligatorio y no puede superar `sale_price`.
+
 Ejemplo:
 
 ```bash
-curl -b cookies.txt http://localhost:8080/api/inventory
+curl -X POST https://login.stockiapp.co/api/inventory/adjust \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -d '{
+    "product_id": "P-001",
+    "target_quantity": 10,
+    "sale_price": 26000,
+    "retoma_enabled": true,
+    "retoma_price": 12000,
+    "notes": "Ajuste desde API"
+  }'
 ```
 
-Ejemplo con API key:
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "product_id": "P-001",
+  "previous_quantity": 8,
+  "current_quantity": 10,
+  "delta": 2,
+  "message": "Stock, precio de venta y retoma actualizados correctamente."
+}
+```
+
+### GET /api/retomas
+
+Lista retomas visibles para el usuario autenticado.
+
+Puedes filtrar con `?q=` por producto, estado recibido o notas.
+
+Ejemplo:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/inventory
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/retomas?q=usado"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "items": [
+    {
+      "id": 7,
+      "fecha": "2026-03-12",
+      "product_id": "P-001",
+      "product_name": "Crema corporal",
+      "quantity": 1,
+      "value_received": 12000,
+      "received_state": "Usado",
+      "published_to_stock": true,
+      "final_sale_price": 25000,
+      "notes": "Retoma desde API"
+    }
+  ]
+}
+```
+
+### POST /api/retomas
+
+Registra una retoma. Respeta:
+- ownership
+- tipo de movimiento `retoma` habilitado
+- configuración `retoma_enabled` del producto
+
+Payload:
+
+```json
+{
+  "product_id": "P-001",
+  "quantity": 1,
+  "value_received": 12000,
+  "received_state": "Usado",
+  "publish_to_stock": true,
+  "final_sale_price": 25000,
+  "notes": "Retoma desde API"
+}
+```
+
+Notas:
+- `received_state` debe ser uno de: `Nuevo`, `Usado`, `Dañado`, `Para repuestos`, `Otro`.
+- `final_sale_price` es opcional y solo se aplica cuando `publish_to_stock=true`.
+- Si `publish_to_stock=true`, se crean unidades disponibles y se registra movimiento `retoma_stock`.
+
+Ejemplo:
+
+```bash
+curl -X POST https://login.stockiapp.co/api/retomas \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -d '{
+    "product_id": "P-001",
+    "quantity": 1,
+    "value_received": 12000,
+    "received_state": "Usado",
+    "publish_to_stock": true,
+    "final_sale_price": 25000,
+    "notes": "Retoma desde API"
+  }'
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "retoma_id": 7,
+  "product_id": "P-001",
+  "product_name": "Crema corporal",
+  "quantity": 1,
+  "value_received": 12000,
+  "received_state": "Usado",
+  "published_to_stock": true,
+  "units_created": 1,
+  "message": "Retoma registrada y publicada a stock correctamente."
+}
 ```
 
 ### GET /api/sales/recent
 
 Devuelve las ventas recientes visibles para el usuario autenticado.
 
-Ejemplo:
-
 ```bash
-curl -b cookies.txt http://localhost:8080/api/sales/recent
-```
-
-Ejemplo con API key:
-
-```bash
-curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/sales/recent
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/sales/recent
 ```
 
 Respuesta:
@@ -321,7 +501,7 @@ También puedes enviar `total` en lugar de `unit_price`, o junto con él. Si amb
 Ejemplo:
 
 ```bash
-curl -X POST http://localhost:8080/api/sales \
+curl -X POST https://login.stockiapp.co/api/sales \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer TU_TOKEN" \
   -d '{
@@ -375,7 +555,7 @@ Payload:
 Ejemplo:
 
 ```bash
-curl -X POST http://localhost:8080/api/swaps \
+curl -X POST https://login.stockiapp.co/api/swaps \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer TU_TOKEN" \
   -d '{
@@ -429,16 +609,10 @@ Soporta búsqueda opcional con `q` sobre:
 - nombre del producto
 - nombre del deudor
 
-Ejemplo:
-
-```bash
-curl -b cookies.txt http://localhost:8080/api/credits
-```
-
 Ejemplo con filtro:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/credits?q=maria"
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/credits?q=maria"
 ```
 
 Respuesta:
@@ -499,7 +673,7 @@ Notas:
 Ejemplo:
 
 ```bash
-curl -X POST http://localhost:8080/api/credits \
+curl -X POST https://login.stockiapp.co/api/credits \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer TU_TOKEN" \
   -d '{
@@ -547,7 +721,7 @@ Notas:
 Ejemplo:
 
 ```bash
-curl -X POST http://localhost:8080/api/credits/installments \
+curl -X POST https://login.stockiapp.co/api/credits/installments \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer TU_TOKEN" \
   -d '{
@@ -573,16 +747,8 @@ Respuesta:
 
 Devuelve la configuración general del negocio.
 
-Ejemplo:
-
 ```bash
-curl -b cookies.txt http://localhost:8080/api/settings/business
-```
-
-Ejemplo con API key:
-
-```bash
-curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/settings/business
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/settings/business
 ```
 
 Respuesta:
@@ -600,6 +766,83 @@ Respuesta:
 }
 ```
 
+### GET /api/settings/lines
+
+Devuelve las líneas de negocio disponibles para crear productos.
+
+Por defecto devuelve solo líneas activas. Si eres admin, puedes incluir inactivas con `?include_inactive=true`.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/settings/lines
+```
+
+Ejemplo con URL oficial:
+
+```bash
+curl -X GET "https://login.stockiapp.co/api/settings/lines" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 2,
+  "items": [
+    {
+      "id": 1,
+      "name": "Farmacia",
+      "active": true,
+      "created_at": "2026-03-20",
+      "updated_at": "2026-03-20"
+    }
+  ]
+}
+```
+
+### GET /api/settings/owners
+
+Devuelve usuarios asignables con su `id` para usar en `owner_user_id` al crear o editar productos.
+
+Solo admin.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/settings/owners
+```
+
+Ejemplo con URL oficial:
+
+```bash
+curl -X GET "https://login.stockiapp.co/api/settings/owners" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 2,
+  "items": [
+    {
+      "id": 2,
+      "username": "maria"
+    },
+    {
+      "id": 3,
+      "username": "carlos"
+    }
+  ]
+}
+```
+
 ## Endpoints para agente
 
 Estos endpoints complementan la API general con respuestas más compactas para automatización y agentes tipo n8n.
@@ -607,7 +850,7 @@ Estos endpoints complementan la API general con respuestas más compactas para a
 Reglas:
 - usan siempre `id` como identificador del producto
 - respetan ownership y visibilidad actual
-- aceptan sesión web o `Authorization: Bearer <token>`
+- aceptan `Authorization: Bearer <token>`
 - no generan auditoría en lecturas `GET`
 
 ### GET /api/agent/products/search?q=
@@ -617,7 +860,7 @@ Busca productos visibles por `id`, nombre o línea.
 Ejemplo:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/agent/products/search?q=iphone"
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/agent/products/search?q=iphone"
 ```
 
 Respuesta:
@@ -648,7 +891,7 @@ Consulta rápida de precio de venta y valor de retoma por `id`.
 Ejemplo:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/agent/products/price?id=IP12-001"
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/agent/products/price?id=IP12-001"
 ```
 
 Respuesta:
@@ -673,7 +916,7 @@ Consulta rápida de disponibilidad.
 Ejemplo:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/agent/inventory?q=iphone"
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/agent/inventory?q=iphone"
 ```
 
 Respuesta:
@@ -704,7 +947,7 @@ Devuelve la configuración básica útil para un agente.
 Ejemplo:
 
 ```bash
-curl -H "Authorization: Bearer TU_TOKEN" http://localhost:8080/api/agent/business
+curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/agent/business
 ```
 
 Respuesta:
@@ -727,7 +970,7 @@ Endpoint legado para consultar el precio de venta de un producto por ID.
 Uso:
 
 ```bash
-curl -b cookies.txt "http://localhost:8080/api/productos/precio?id=P-001"
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/productos/precio?id=P-001"
 ```
 
 Nota:
