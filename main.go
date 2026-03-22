@@ -556,6 +556,23 @@ type dashboardSaleDetail struct {
 	MetodoPago string `json:"metodo_pago"`
 }
 
+type dashboardUserTimelineSeries struct {
+	UserLabel string          `json:"user_label"`
+	Total     string          `json:"total"`
+	Value     float64         `json:"value"`
+	Color     string          `json:"color"`
+	Points    []timelinePoint `json:"points"`
+}
+
+type dashboardCategoryTotal struct {
+	Key   string  `json:"key"`
+	Label string  `json:"label"`
+	Count int     `json:"count"`
+	Total string  `json:"total"`
+	Value float64 `json:"value"`
+	Color string  `json:"color"`
+}
+
 type pieSlice struct {
 	Metodo  string  `json:"metodo"`
 	Total   string  `json:"total"`
@@ -576,6 +593,8 @@ type dashboardData struct {
 	MaxTimelineText string
 	TimelinePoints  string
 	Timeline        []timelinePoint
+	UserTimeline    []dashboardUserTimelineSeries
+	CategoryTotals  []dashboardCategoryTotal
 	Sales           []dashboardSaleDetail
 	CurrentUser     *User
 	RangeStart      string
@@ -592,13 +611,15 @@ type dashboardDataResponse struct {
 	RangeTotal string `json:"range_total"`
 	RangeCount int    `json:"range_count"`
 
-	MetodosPago     []metodoPagoTotal     `json:"metodos_pago"`
-	PieSlices       []pieSlice            `json:"pie_slices"`
-	PieTotal        string                `json:"pie_total"`
-	MaxTimeline     float64               `json:"max_timeline"`
-	MaxTimelineText string                `json:"max_timeline_text"`
-	Timeline        []timelinePoint       `json:"timeline"`
-	Sales           []dashboardSaleDetail `json:"sales"`
+	MetodosPago     []metodoPagoTotal             `json:"metodos_pago"`
+	PieSlices       []pieSlice                    `json:"pie_slices"`
+	PieTotal        string                        `json:"pie_total"`
+	MaxTimeline     float64                       `json:"max_timeline"`
+	MaxTimelineText string                        `json:"max_timeline_text"`
+	Timeline        []timelinePoint               `json:"timeline"`
+	UserTimeline    []dashboardUserTimelineSeries `json:"user_timeline"`
+	CategoryTotals  []dashboardCategoryTotal      `json:"category_totals"`
+	Sales           []dashboardSaleDetail         `json:"sales"`
 }
 
 func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, startDate, endDate time.Time) (dashboardDataResponse, error) {
@@ -609,6 +630,12 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 	}
 	visibilitySQL, visibilityArgs := productVisibilityPredicate("p", user)
 	salesDateExpr := "substr(v.fecha, 1, 10)"
+	userSeriesColors := []string{"#2c6bed", "#e85d3c", "#22a88b", "#7d4cf6", "#f5a524", "#0ea5c9"}
+	categoryColors := map[string]string{
+		"venta":   "#2c6bed",
+		"credito": "#22a88b",
+		"retoma":  "#f5a524",
+	}
 
 	var rangeTotal float64
 	var rangeCount int
@@ -746,6 +773,169 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 	resp.MaxTimeline = maxTimeline
 	resp.MaxTimelineText = formatCurrency(maxTimeline)
 	resp.Timeline = timeline
+
+	type userTimelineBucket struct {
+		label       string
+		valueByDate map[string]float64
+		total       float64
+	}
+
+	userTimelineArgs := append([]any{startStr, endStr}, visibilityArgs...)
+	userTimelineRows, err := db.Query(`
+		SELECT
+			substr(a.created_at, 1, 10) as fecha,
+			COALESCE(NULLIF(TRIM(u.username), ''), 'Sin usuario') as user_label,
+			COALESCE(a.payload_json, '{}') as payload_json
+		FROM audit_events a
+		LEFT JOIN users u ON u.id = a.user_id
+		LEFT JOIN productos p ON p.sku = a.entity_id
+		WHERE a.event_type = 'sale_registered'
+			AND substr(a.created_at, 1, 10) BETWEEN ? AND ?
+			AND `+visibilitySQL+`
+		ORDER BY user_label ASC, fecha ASC
+	`, userTimelineArgs...)
+	if err != nil {
+		return dashboardDataResponse{}, err
+	}
+	defer userTimelineRows.Close()
+
+	userBuckets := map[string]*userTimelineBucket{}
+	for userTimelineRows.Next() {
+		var (
+			fecha      string
+			userLabel  string
+			payloadRaw string
+		)
+		if err := userTimelineRows.Scan(&fecha, &userLabel, &payloadRaw); err != nil {
+			return dashboardDataResponse{}, err
+		}
+		total := 0.0
+		if payloadRaw != "" {
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(payloadRaw), &payload); err == nil {
+				switch v := payload["total"].(type) {
+				case float64:
+					total = v
+				case string:
+					if parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(v), 64); parseErr == nil {
+						total = parsed
+					}
+				}
+			}
+		}
+		if total <= 0 {
+			continue
+		}
+		bucket, ok := userBuckets[userLabel]
+		if !ok {
+			bucket = &userTimelineBucket{
+				label:       userLabel,
+				valueByDate: map[string]float64{},
+			}
+			userBuckets[userLabel] = bucket
+		}
+		bucket.valueByDate[fecha] += total
+		bucket.total += total
+	}
+	if err := userTimelineRows.Err(); err != nil {
+		return dashboardDataResponse{}, err
+	}
+
+	userLabels := make([]string, 0, len(userBuckets))
+	for label := range userBuckets {
+		userLabels = append(userLabels, label)
+	}
+	sort.Strings(userLabels)
+	userTimeline := make([]dashboardUserTimelineSeries, 0, len(userLabels))
+	for idx, label := range userLabels {
+		bucket := userBuckets[label]
+		points := make([]timelinePoint, 0, len(timeline))
+		for pointIdx, cursor := 0, startDate; !cursor.After(endDate); cursor, pointIdx = cursor.AddDate(0, 0, 1), pointIdx+1 {
+			fecha := cursor.Format("2006-01-02")
+			value := bucket.valueByDate[fecha]
+			points = append(points, timelinePoint{
+				Fecha:   fecha,
+				Total:   formatCurrency(value),
+				Value:   value,
+				Index:   pointIdx,
+				Percent: 0,
+			})
+		}
+		maxUserValue := 0.0
+		for _, point := range points {
+			if point.Value > maxUserValue {
+				maxUserValue = point.Value
+			}
+		}
+		if maxUserValue > 0 {
+			for i := range points {
+				points[i].Percent = (points[i].Value / maxUserValue) * 100
+			}
+		}
+		userTimeline = append(userTimeline, dashboardUserTimelineSeries{
+			UserLabel: bucket.label,
+			Total:     formatCurrency(bucket.total),
+			Value:     bucket.total,
+			Color:     userSeriesColors[idx%len(userSeriesColors)],
+			Points:    points,
+		})
+	}
+	resp.UserTimeline = userTimeline
+
+	_, movementEnabledMap, err := loadMovementSettings(db)
+	if err != nil {
+		return dashboardDataResponse{}, err
+	}
+	categoryTotals := make([]dashboardCategoryTotal, 0, 3)
+	categoryTotals = append(categoryTotals, dashboardCategoryTotal{
+		Key:   "venta",
+		Label: "Ventas",
+		Count: rangeCount,
+		Total: formatCurrency(rangeTotal),
+		Value: rangeTotal,
+		Color: categoryColors["venta"],
+	})
+	if movementEnabled(movementEnabledMap, "credito") {
+		var creditTotal float64
+		var creditCount int
+		creditArgs := append([]any{startStr, endStr}, visibilityArgs...)
+		if err := db.QueryRow(`
+			SELECT COALESCE(SUM(cs.total_value), 0), COALESCE(COUNT(*), 0)
+			FROM credit_sales cs
+			LEFT JOIN productos p ON p.sku = cs.product_id
+			WHERE substr(cs.created_at, 1, 10) BETWEEN ? AND ? AND `+visibilitySQL, creditArgs...).Scan(&creditTotal, &creditCount); err != nil {
+			return dashboardDataResponse{}, err
+		}
+		categoryTotals = append(categoryTotals, dashboardCategoryTotal{
+			Key:   "credito",
+			Label: "Créditos",
+			Count: creditCount,
+			Total: formatCurrency(creditTotal),
+			Value: creditTotal,
+			Color: categoryColors["credito"],
+		})
+	}
+	if movementEnabled(movementEnabledMap, "retoma") {
+		var retomaTotal float64
+		var retomaCount int
+		retomaArgs := append([]any{startStr, endStr}, visibilityArgs...)
+		if err := db.QueryRow(`
+			SELECT COALESCE(SUM(r.valor_recibido), 0), COALESCE(COUNT(*), 0)
+			FROM retomas r
+			LEFT JOIN productos p ON p.sku = r.producto_id
+			WHERE substr(r.fecha, 1, 10) BETWEEN ? AND ? AND `+visibilitySQL, retomaArgs...).Scan(&retomaTotal, &retomaCount); err != nil {
+			return dashboardDataResponse{}, err
+		}
+		categoryTotals = append(categoryTotals, dashboardCategoryTotal{
+			Key:   "retoma",
+			Label: "Retomas",
+			Count: retomaCount,
+			Total: formatCurrency(retomaTotal),
+			Value: retomaTotal,
+			Color: categoryColors["retoma"],
+		})
+	}
+	resp.CategoryTotals = categoryTotals
 
 	saleArgs := append([]any{startStr, endStr}, visibilityArgs...)
 	saleRows, err := db.Query(`
@@ -4366,6 +4556,8 @@ func main() {
 			MaxTimelineText: salesData.MaxTimelineText,
 			TimelinePoints:  buildTimelinePoints(salesData.Timeline, 560, 180, 24),
 			Timeline:        salesData.Timeline,
+			UserTimeline:    salesData.UserTimeline,
+			CategoryTotals:  salesData.CategoryTotals,
 			Sales:           salesData.Sales,
 			CurrentUser:     currentUser,
 			RangeStart:      startStr,
