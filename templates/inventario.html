@@ -137,6 +137,58 @@
       margin-top: 2px;
     }
 
+    .credit-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 0;
+      background: transparent;
+      border: 0;
+    }
+
+    .credit-meta strong {
+      color: #9a3412;
+      font-size: 12px;
+    }
+
+    .credit-meta span {
+      font-size: 12px;
+      color: #7c2d12;
+    }
+
+    .credit-meta-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #fff7ed;
+      border: 1px solid rgba(234, 88, 12, 0.14);
+    }
+
+    .credit-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #fff7ed;
+      border: 1px solid rgba(234, 88, 12, 0.18);
+      color: #9a3412;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .status.credit_active {
+      background: #eff6ff;
+      border-color: rgba(59, 130, 246, 0.22);
+      color: #1d4ed8;
+    }
+
     .value-cell {
       display: grid;
       gap: 4px;
@@ -457,8 +509,9 @@
     <div class="filter-group">
       <label for="statusFilter">Estado</label>
       <select id="statusFilter">
-        <option value="all">Todos</option>
-        <option value="available" selected>Disponible</option>
+        <option value="all" selected>Todos</option>
+        <option value="available">Disponible</option>
+        <option value="credit_active">Crédito activo</option>
         <option value="reserved">Reservado</option>
         <option value="sold">Vendido</option>
         <option value="swapped">Cambio</option>
@@ -473,7 +526,7 @@
     </div>
     <div class="filter-group">
       <label for="searchFilter">Búsqueda</label>
-      <input id="searchFilter" type="search" placeholder="Nombre o ID" />
+      <input id="searchFilter" type="search" placeholder="Nombre, ID, línea o deudor" />
     </div>
     <div class="filter-group">
       <label>Caducidad</label>
@@ -603,6 +656,15 @@
         <form id="sale-form" class="modal-grid">
           <div id="sale-error" class="modal-error" hidden></div>
 
+          {{if .CanCredit}}
+          <div>
+            <label class="checkline">
+              <input id="sale-credit-toggle" name="sale_credit_enabled" type="checkbox" />
+              Registrar esta venta como crédito
+            </label>
+          </div>
+          {{end}}
+
           <div class="modal-row">
             <div>
               <label for="sale-qty">Cantidad</label>
@@ -614,6 +676,7 @@
             </div>
           </div>
 
+          <div id="sale-normal-fields" class="modal-grid">
           <div class="modal-row">
             <div>
               <label for="sale-price">Precio unitario</label>
@@ -633,6 +696,37 @@
             <label for="sale-final">Valor venta final (opcional)</label>
             <input id="sale-final" name="valor_venta_final" type="text" inputmode="numeric" placeholder="0" />
             <div class="modal-hint">Si lo llenas, este valor reemplaza (Precio unitario x Cantidad).</div>
+          </div>
+          </div>
+
+          <div id="sale-credit-fields" class="modal-grid" hidden>
+            <div>
+              <label for="sale-debtor-name">Nombre del deudor</label>
+              <input id="sale-debtor-name" name="debtor_name" type="text" placeholder="Nombre del deudor" />
+            </div>
+            <div class="modal-row">
+              <div>
+                <label for="sale-installments-total">Cuotas totales</label>
+                <input id="sale-installments-total" name="installments_total" type="number" min="1" step="1" value="1" />
+              </div>
+              <div>
+                <label for="sale-total-value">Valor total</label>
+                <input id="sale-total-value" name="total_value" type="text" inputmode="numeric" placeholder="0" />
+              </div>
+            </div>
+            <div class="modal-row">
+              <div>
+                <label for="sale-interest-percent">% de interés (opcional)</label>
+                <input id="sale-interest-percent" name="interest_percent" type="number" min="0" step="0.01" placeholder="0" />
+              </div>
+              <div>
+                <label for="sale-installment-value">Valor por cuota</label>
+                <input id="sale-installment-value" name="installment_value" type="text" inputmode="numeric" placeholder="0" readonly />
+              </div>
+            </div>
+            <div>
+              <div class="modal-hint">El valor por cuota se calcula automaticamente usando valor total, interes y numero de cuotas.</div>
+            </div>
           </div>
 
           <div>
@@ -718,6 +812,45 @@
     </div>
   </div>
 
+  <div id="installment-modal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="installment-title">
+      <div class="modal-header">
+        <div>
+          <h3 id="installment-title">Registrar cuota</h3>
+          <div id="installment-subtitle" class="modal-subtitle"></div>
+        </div>
+        <button type="button" class="modal-close" data-modal-close aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="installment-form" class="modal-grid">
+          <div id="installment-error" class="modal-error" hidden></div>
+
+          <div class="modal-row">
+            <div>
+              <label for="installment-next-number">Cuota</label>
+              <input id="installment-next-number" type="text" value="-" disabled />
+            </div>
+            <div>
+              <label for="installment-default-value">Valor sugerido</label>
+              <input id="installment-default-value" type="text" value="-" disabled />
+            </div>
+          </div>
+
+          <div>
+            <label for="installment-amount-paid">Valor abonado</label>
+            <input id="installment-amount-paid" name="amount_paid" type="text" inputmode="numeric" placeholder="0" />
+            <div class="modal-hint">Puedes registrar un abono mayor al valor sugerido de la cuota.</div>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="secondary" data-modal-close>Cancelar</button>
+            <button id="installment-submit" type="submit" class="primary">Guardar cuota</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div id="edit-modal" class="modal-backdrop" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
       <div class="modal-header">
@@ -789,9 +922,20 @@
     const products = [
       {{- range .Products }}
       {
+        entryType: "{{js .EntryType}}",
+        creditSaleId: {{.CreditSaleID}},
+        baseProductId: "{{js .BaseProductID}}",
         id: "{{js .ID}}",
         name: "{{js .Name}}",
         line: "{{js .Line}}",
+        debtorName: "{{js .DebtorName}}",
+        installmentsTotal: {{.InstallmentsTotal}},
+        installmentsPaid: {{.InstallmentsPaid}},
+        totalValue: {{printf "%.0f" .TotalValue}},
+        installmentValue: {{printf "%.0f" .InstallmentValue}},
+        lastPaymentAmount: {{printf "%.0f" .LastPaymentAmount}},
+        lastPaymentAt: "{{js .LastPaymentAt}}",
+        creditEnabled: {{if .CreditEnabled}}true{{else}}false{{end}},
         notes: "{{js .Notes}}",
         ingreso: "{{js .FechaIngreso}}",
         ageMonths: {{.MesesEnStock}},
@@ -854,7 +998,6 @@
       const line = String(value || "").trim();
       return line || "Sin línea";
     };
-
     const populateLineFilter = () => {
       if (!lineFilter) return;
       const currentValue = lineFilter.value || "all";
@@ -871,18 +1014,38 @@
       lineFilter.value = lines.includes(currentValue) ? currentValue : "all";
     };
 
-    const formatDate = (value) => new Date(value).toLocaleDateString("es-ES");
+    const bogotaDateOptions = { timeZone: "America/Bogota" };
+    const bogotaDateTimeOptions = { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" };
+    const formatDate = (value) => new Date(value).toLocaleDateString("es-ES", bogotaDateOptions);
+    const timeAgo = (value) => {
+      if (!value) return "Sin cuotas registradas";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return "Sin cuotas registradas";
+      const diffMs = Date.now() - parsed.getTime();
+      const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+      if (diffDays === 0) return "Hoy";
+      if (diffDays === 1) return "Hace 1 dia";
+      if (diffDays < 30) return `Hace ${diffDays} dias`;
+      const diffMonths = Math.floor(diffDays / 30);
+      if (diffMonths === 1) return "Hace 1 mes";
+      if (diffMonths < 12) return `Hace ${diffMonths} meses`;
+      const diffYears = Math.floor(diffMonths / 12);
+      if (diffYears === 1) return "Hace 1 ano";
+      return `Hace ${diffYears} anos`;
+    };
     const formatOptionalDate = (value) => {
       if (!value) return "-";
       const parsed = new Date(value);
       if (Number.isNaN(parsed.getTime())) return "-";
-      return parsed.toLocaleDateString("es-ES");
+      return parsed.toLocaleDateString("es-ES", bogotaDateOptions);
     };
     const formatDateISO = (value) => new Date(value).toISOString().slice(0, 10);
     const statusLabels = {
       available: "Disponible",
+      credit_active: "Crédito activo",
       sold: "Vendido",
       swapped: "Cambio",
+      reserved: "Crédito activo",
       Disponible: "Disponible",
       Vendida: "Vendido",
       Vendido: "Vendido",
@@ -944,18 +1107,27 @@
       }
       const statusValue = statusFilter.value;
       const lineValue = lineFilter.value;
-      const query = searchFilter.value.toLowerCase();
+      const query = searchFilter.value.toLowerCase().trim();
       const expiryOnly = expiryToggle.checked;
 
       const filtered = products.filter((product) => {
+        const debtorName = String(product.debtorName || "").toLowerCase();
+        const matchesSearch =
+          product.name.toLowerCase().includes(query) ||
+          product.id.toLowerCase().includes(query) ||
+          String(product.baseProductId || "").toLowerCase().includes(query) ||
+          normalizeLine(product.line).toLowerCase().includes(query) ||
+          debtorName.includes(query);
         const matchesStatus = statusValue === "all" || product.statusClass === statusValue;
         const matchesLine = lineValue === "all" || normalizeLine(product.line) === lineValue;
-        const matchesSearch =
-          product.name.toLowerCase().includes(query) || product.id.toLowerCase().includes(query);
         const matchesExpiry =
           !expiryOnly ||
           product.ageAlert ||
           product.units.some((unit) => isExpiringSoon(unit.expires));
+
+        if (query) {
+          return matchesSearch && matchesExpiry;
+        }
 
         return matchesStatus && matchesLine && matchesSearch && matchesExpiry;
       });
@@ -977,17 +1149,25 @@
           <td>
             <div class="product-name" data-product="${product.id}">
               ${product.name}
+              ${product.entryType === "credit" ? `<span class="credit-badge">Crédito</span>` : ``}
               ${product.ageAlert ? `<span class="age-pill" title="En stock ${product.ageMonths} meses (fecha ingreso: ${product.ingreso || '-'})">+6 meses</span>` : ``}
             </div>
-            <div class="fifo-note">ID ${product.id} · ${product.available} disponibles</div>
+            <div class="fifo-note">${product.entryType === "credit" ? `Crédito ${product.id} · Producto ${product.baseProductId || "-"}` : `ID ${product.id} · ${product.available} disponibles`}</div>
+            ${product.entryType === "credit" ? `<div class="credit-meta"><span class="credit-meta-item"><strong>Deudor:</strong><span>${product.debtorName || "Sin definir"}</span></span><span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.installmentsPaid}/${product.installmentsTotal}</span></span><span class="credit-meta-item"><strong>Ultimo abono:</strong><span>${product.lastPaymentAmount > 0 ? formatCOP(product.lastPaymentAmount) : "Sin registro"}</span></span><span class="credit-meta-item"><strong>Ultima cuota:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span></div>` : ``}
           </td>
           <td>${normalizeLine(product.line)}</td>
           <td>
             <div class="value-cell">
               <div class="value-line sale">
-                <span class="value-label">Venta</span>
-                <span class="value-amount">${formatCOP(product.salePrice || 0)}</span>
+                <span class="value-label">${product.entryType === "credit" ? "Total" : "Venta"}</span>
+                <span class="value-amount">${formatCOP(product.entryType === "credit" ? (product.totalValue || 0) : (product.salePrice || 0))}</span>
               </div>
+              ${product.entryType === "credit"
+                ? `<div class="value-line sale">
+                    <span class="value-label">Cuota</span>
+                    <span class="value-amount">${formatCOP(product.installmentValue || 0)}</span>
+                  </div>`
+                : ``}
               ${product.retomaEnabled
                 ? `<div class="value-line retoma ${product.retomaPrice > 0 ? "" : "is-empty"}">
                     <span class="value-label">Retoma</span>
@@ -1000,6 +1180,9 @@
           <td><strong>${product.available}</strong></td>
           <td>
             <div class="actions">
+              ${product.entryType === "credit"
+                ? `{{if .CanCredit}}<button class="primary" data-action="installment" data-product="${product.id}">Agregar cuota</button>{{end}}`
+                : `
               <input type="number" min="1" max="${Math.max(product.available, 1)}" value="1" data-qty="${product.id}" />
               {{if .CanSell}}
               <button class="primary" data-action="sell" data-product="${product.id}">Vender</button>
@@ -1010,12 +1193,16 @@
               {{if .CanRetoma}}
               ${product.retomaEnabled ? `<button class="ghost" data-action="retoma" data-product="${product.id}">Retoma</button>` : ``}
               {{end}}
+              `}
             </div>
           </td>
           <td>
             <div class="menu">
               <button class="ghost" data-menu="${product.id}">⋮</button>
               <div class="menu-panel" id="menu-${product.id}">
+                ${product.entryType === "credit" ? `
+                <button type="button" data-menu-action="history" data-product="${product.id}">Ver historial</button>
+                ` : `
                 <button type="button" data-menu-action="reserve" data-product="${product.id}">Reservar unidades</button>
                 <button type="button" data-menu-action="damage" data-product="${product.id}">Registrar daño</button>
                 <button type="button" data-menu-action="edit" data-product="${product.id}">Editar producto</button>
@@ -1026,6 +1213,7 @@
                 <button type="button" data-menu-action="stock" data-product="${product.id}">Ajustar stock</button>
                 {{end}}
                 <button type="button" data-menu-action="history" data-product="${product.id}">Ver historial</button>
+                `}
               </div>
             </div>
           </td>
@@ -1034,6 +1222,16 @@
         productTable.appendChild(row);
 
         const unitsRow = document.createElement("tr");
+        if (product.entryType === "credit") {
+          unitsRow.innerHTML = `
+            <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
+              <div class="fifo-note">Este registro corresponde a una venta a crédito ya generada.</div>
+            </td>
+          </tr>
+          `;
+          productTable.appendChild(unitsRow);
+          return;
+        }
         unitsRow.innerHTML = `
           <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
             <div class="units-header">
@@ -1118,14 +1316,30 @@
     const saleModal = document.getElementById("sale-modal");
     const saleSubtitle = document.getElementById("sale-subtitle");
     const saleForm = document.getElementById("sale-form");
+    const saleCreditToggle = document.getElementById("sale-credit-toggle");
     const saleQty = document.getElementById("sale-qty");
     const saleMax = document.getElementById("sale-max");
+    const saleNormalFields = document.getElementById("sale-normal-fields");
     const salePrice = document.getElementById("sale-price");
     const saleFinal = document.getElementById("sale-final");
     const saleMethod = document.getElementById("sale-method");
+    const saleCreditFields = document.getElementById("sale-credit-fields");
+    const saleDebtorName = document.getElementById("sale-debtor-name");
+    const saleInstallmentsTotal = document.getElementById("sale-installments-total");
+    const saleTotalValue = document.getElementById("sale-total-value");
+    const saleInterestPercent = document.getElementById("sale-interest-percent");
+    const saleInstallmentValue = document.getElementById("sale-installment-value");
     const saleNotes = document.getElementById("sale-notes");
     const saleError = document.getElementById("sale-error");
     const saleSubmit = document.getElementById("sale-submit");
+    const installmentModal = document.getElementById("installment-modal");
+    const installmentSubtitle = document.getElementById("installment-subtitle");
+    const installmentForm = document.getElementById("installment-form");
+    const installmentError = document.getElementById("installment-error");
+    const installmentNextNumber = document.getElementById("installment-next-number");
+    const installmentDefaultValue = document.getElementById("installment-default-value");
+    const installmentAmountPaid = document.getElementById("installment-amount-paid");
+    const installmentSubmit = document.getElementById("installment-submit");
     const retomaModal = document.getElementById("retoma-modal");
     const retomaSubtitle = document.getElementById("retoma-subtitle");
     const retomaForm = document.getElementById("retoma-form");
@@ -1174,6 +1388,17 @@
         saleFinal.value = formatCOP(n);
       });
     }
+    [saleTotalValue].forEach((input) => {
+      if (!input) return;
+      input.addEventListener("input", () => {
+        const n = parseCOP(input.value);
+        if (Number.isNaN(n)) {
+          input.value = "";
+          return;
+        }
+        input.value = formatCOP(n);
+      });
+    });
     if (retomaValue) {
       retomaValue.addEventListener("input", () => {
         const n = parseCOP(retomaValue.value);
@@ -1234,6 +1459,16 @@
         actionRetomaPrice.value = formatCOP(n);
       });
     }
+    if (installmentAmountPaid) {
+      installmentAmountPaid.addEventListener("input", () => {
+        const n = parseCOP(installmentAmountPaid.value);
+        if (Number.isNaN(n)) {
+          installmentAmountPaid.value = "";
+          return;
+        }
+        installmentAmountPaid.value = formatCOP(n);
+      });
+    }
     const syncActionRetoma = () => {
       if (!actionRetomaEnabled || !actionRetomaPrice) return;
       actionRetomaPrice.disabled = !actionRetomaEnabled.checked;
@@ -1248,6 +1483,7 @@
       if (subtitleText && backdrop === historyModal && historySubtitle) historySubtitle.textContent = subtitleText;
       if (subtitleText && backdrop === actionModal && actionSubtitle) actionSubtitle.textContent = subtitleText;
       if (subtitleText && backdrop === saleModal && saleSubtitle) saleSubtitle.textContent = subtitleText;
+      if (subtitleText && backdrop === installmentModal && installmentSubtitle) installmentSubtitle.textContent = subtitleText;
       if (subtitleText && backdrop === retomaModal && retomaSubtitle) retomaSubtitle.textContent = subtitleText;
       if (subtitleText && backdrop === editModal && editSubtitle) editSubtitle.textContent = subtitleText;
       document.body.style.overflow = "hidden";
@@ -1259,6 +1495,9 @@
       backdrop.setAttribute("aria-hidden", "true");
       if (backdrop === retomaModal) {
         retomaContext = null;
+      }
+      if (backdrop === installmentModal) {
+        installmentContext = null;
       }
       if (backdrop === editModal) {
         editContext = null;
@@ -1281,6 +1520,7 @@
 
     let actionContext = null;
     let saleContext = null;
+    let installmentContext = null;
     let retomaContext = null;
     let editContext = null;
     let openMenuContext = null;
@@ -1423,6 +1663,65 @@
       saleError.textContent = msg;
     };
 
+    const setInstallmentError = (msg) => {
+      if (!installmentError) return;
+      if (!msg) {
+        installmentError.hidden = true;
+        installmentError.textContent = "";
+        return;
+      }
+      installmentError.hidden = false;
+      installmentError.textContent = msg;
+    };
+
+    const computeSaleInstallmentValue = () => {
+      const total = parseCOP(saleTotalValue?.value || "");
+      const installments = parseInt(saleInstallmentsTotal?.value || "0", 10);
+      const interest = Number.parseFloat(String(saleInterestPercent?.value || "0").trim() || "0");
+      if (!saleInstallmentValue) return;
+      if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(installments) || installments <= 0 || !Number.isFinite(interest) || interest < 0) {
+        saleInstallmentValue.value = "";
+        return;
+      }
+      const financedTotal = total + (total * interest / 100);
+      const installment = Math.round((financedTotal / installments) * 100) / 100;
+      saleInstallmentValue.value = formatCOP(installment);
+    };
+
+    const syncCreditTotalFromSalePrice = () => {
+      if (!saleCreditToggle?.checked || !saleTotalValue) return;
+      if (saleTotalValue.dataset.manual === "1") return;
+      const finalValue = parseCOP(saleFinal?.value || "");
+      const unitPrice = parseCOP(salePrice?.value || "");
+      const initial = Number.isFinite(finalValue) && finalValue > 0 ? finalValue : unitPrice;
+      saleTotalValue.value = Number.isFinite(initial) && initial > 0 ? formatCOP(initial) : "";
+      computeSaleInstallmentValue();
+    };
+
+    const syncSaleMode = () => {
+      const isCredit = !!saleCreditToggle?.checked;
+      if (saleNormalFields) saleNormalFields.hidden = isCredit;
+      if (saleCreditFields) saleCreditFields.hidden = !isCredit;
+      if (saleMethod) saleMethod.disabled = isCredit;
+      if (salePrice) salePrice.disabled = isCredit;
+      if (saleFinal) saleFinal.disabled = isCredit;
+      if (saleInterestPercent) saleInterestPercent.disabled = !isCredit;
+      if (isCredit) {
+        syncCreditTotalFromSalePrice();
+      }
+    };
+    if (saleCreditToggle) saleCreditToggle.addEventListener("change", syncSaleMode);
+    if (saleInstallmentsTotal) saleInstallmentsTotal.addEventListener("input", computeSaleInstallmentValue);
+    if (saleInterestPercent) saleInterestPercent.addEventListener("input", computeSaleInstallmentValue);
+    if (saleTotalValue) {
+      saleTotalValue.addEventListener("input", () => {
+        saleTotalValue.dataset.manual = "1";
+        computeSaleInstallmentValue();
+      });
+    }
+    if (salePrice) salePrice.addEventListener("input", syncCreditTotalFromSalePrice);
+    if (saleFinal) saleFinal.addEventListener("input", syncCreditTotalFromSalePrice);
+
     const setRetomaError = (msg) => {
       if (!retomaError) return;
       if (!msg) {
@@ -1511,6 +1810,66 @@
       if (editSKU) editSKU.focus();
     };
 
+    const openInstallmentModal = (product) => {
+      if (product?.entryType !== "credit") return;
+      if ((product.installmentsPaid || 0) >= (product.installmentsTotal || 0)) {
+        window.alert("Este crédito ya está completamente pagado.");
+        return;
+      }
+      const nextInstallment = Number(product.installmentsPaid || 0) + 1;
+      installmentContext = {
+        creditSaleId: Number(product.creditSaleId || 0),
+        nextInstallment,
+        installmentsTotal: Number(product.installmentsTotal || 0)
+      };
+      setInstallmentError("");
+      if (installmentNextNumber) installmentNextNumber.value = `${nextInstallment} de ${product.installmentsTotal}`;
+      if (installmentDefaultValue) installmentDefaultValue.value = formatCOP(product.installmentValue || 0);
+      if (installmentAmountPaid) installmentAmountPaid.value = formatCOP(product.installmentValue || 0);
+      if (installmentSubmit) installmentSubmit.disabled = false;
+      openModal(installmentModal, `${product.name} · ${product.debtorName || "Sin deudor"}`);
+      if (installmentAmountPaid) installmentAmountPaid.focus();
+    };
+
+    if (installmentForm) {
+      installmentForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!installmentContext) return;
+        const amountPaid = parseCOP(installmentAmountPaid?.value || "");
+        if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+          setInstallmentError("Ingresa un valor abonado válido.");
+          return;
+        }
+        if (installmentSubmit) installmentSubmit.disabled = true;
+        setInstallmentError("");
+        try {
+          const body = new URLSearchParams({ credit_sale_id: String(installmentContext.creditSaleId || 0), amount_paid: String(amountPaid) });
+          const resp = await fetch("/inventario/cuota", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "application/json",
+              "X-Requested-With": "XMLHttpRequest"
+            },
+            body
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) {
+            throw new Error(data.error || "No se pudo registrar la cuota.");
+          }
+          closeModal(installmentModal);
+          window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Cuota registrada correctamente.")}`;
+        } catch (err) {
+          setInstallmentError(err?.message || "No se pudo registrar la cuota.");
+          if (installmentSubmit) installmentSubmit.disabled = false;
+        }
+      });
+    }
+
+    const addInstallment = async (product) => {
+      openInstallmentModal(product);
+    };
+
     const openSaleModal = ({ product, productId, maxQty, defaultQty }) => {
       saleContext = { productId, maxQty, productName: product?.name || "" };
       setSaleError("");
@@ -1519,8 +1878,15 @@
         saleQty.max = String(Math.max(1, maxQty));
         saleQty.value = String(Math.min(Math.max(1, defaultQty || 1), Math.max(1, maxQty)));
       }
+      if (saleCreditToggle) saleCreditToggle.checked = false;
       if (salePrice) salePrice.value = "";
       if (saleFinal) saleFinal.value = "";
+      if (saleDebtorName) saleDebtorName.value = "";
+      if (saleInstallmentsTotal) saleInstallmentsTotal.value = "1";
+      if (saleInterestPercent) saleInterestPercent.value = "";
+      if (saleTotalValue) saleTotalValue.value = "";
+      if (saleTotalValue) saleTotalValue.dataset.manual = "0";
+      if (saleInstallmentValue) saleInstallmentValue.value = "";
       if (saleNotes) saleNotes.value = "";
       if (saleMethod && saleMethod.options.length > 0) {
         saleMethod.selectedIndex = 0;
@@ -1529,6 +1895,7 @@
       if (maxQty < 1) {
         setSaleError("No hay stock disponible para vender.");
       }
+      syncSaleMode();
       openModal(saleModal, product ? `${product.name} · ID ${productId}` : `ID ${productId}`);
       if (saleQty && maxQty >= 1) saleQty.focus();
 
@@ -1536,6 +1903,7 @@
       if (salePrice && localSalePrice > 0) {
         salePrice.value = formatCOP(localSalePrice);
         salePrice.dataset.autofilled = "1";
+        syncCreditTotalFromSalePrice();
       }
 
       // Auto-fill unit price from DB (if available) without overriding manual edits.
@@ -1557,6 +1925,7 @@
             if (canAutofill) {
               salePrice.value = formatCOP(v);
               salePrice.dataset.autofilled = "1";
+              syncCreditTotalFromSalePrice();
             }
           })
           .catch(() => {});
@@ -1588,7 +1957,8 @@
 
     const showHistory = async (product) => {
       if (!product) return;
-      openModal(historyModal, `${product.name} · ID ${product.id}`);
+      const historyProductID = product.entryType === "credit" ? (product.baseProductId || product.id) : product.id;
+      openModal(historyModal, `${product.name} · ID ${historyProductID}`);
 
       if (historyLoading) historyLoading.hidden = false;
       if (historyEmpty) {
@@ -1599,7 +1969,7 @@
       if (historyTbody) historyTbody.innerHTML = "";
 
       try {
-        const resp = await fetch(`/productos/historial?${new URLSearchParams({ producto_id: product.id }).toString()}`);
+        const resp = await fetch(`/productos/historial?${new URLSearchParams({ producto_id: historyProductID }).toString()}`);
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || !data.ok) {
           throw new Error(data.error || "No se pudo cargar el historial.");
@@ -1619,13 +1989,14 @@
           const parsed = new Date(m.fecha);
           dateCell.textContent = Number.isNaN(parsed.getTime())
             ? String(m.fecha || "-")
-            : parsed.toLocaleString("es-ES");
+            : parsed.toLocaleString("es-ES", bogotaDateTimeOptions);
 
           const typeCell = document.createElement("td");
           const tag = document.createElement("span");
           const tipo = String(m.tipo || "movimiento");
           const labels = {
             venta: "Venta",
+            venta_credito: "Venta a crédito",
             retoma: "Retoma",
             retoma_stock: "Retoma a stock",
             reservar: "Reserva",
@@ -1780,7 +2151,13 @@
         const price = String(salePrice?.value || "").trim();
         const finalValue = String(saleFinal?.value || "").trim();
         const method = String(saleMethod?.value || "").trim();
+        const saleMode = saleCreditToggle?.checked ? "credit" : "normal";
         const notes = String(saleNotes?.value || "").trim();
+        const debtorName = String(saleDebtorName?.value || "").trim();
+        const installmentsTotal = parseInt(saleInstallmentsTotal?.value || "0", 10);
+        const totalValue = parseCOP(saleTotalValue?.value || "");
+        const interestPercent = Number.parseFloat(String(saleInterestPercent?.value || "0").trim() || "0");
+        const installmentValue = parseCOP(saleInstallmentValue?.value || "");
         const parsedPrice = parseCOP(price);
         const parsedFinalValue = parseCOP(finalValue);
         const hasFinal = !!finalValue && Number.isFinite(parsedFinalValue) && parsedFinalValue > 0;
@@ -1789,13 +2166,36 @@
           setSaleError("Cantidad inválida.");
           return;
         }
-        if (!hasFinal && (!price || !Number.isFinite(parsedPrice) || parsedPrice <= 0)) {
-          setSaleError("Ingresa un precio válido.");
-          return;
-        }
-        if (!method) {
-          setSaleError("Selecciona un método de pago.");
-          return;
+        if (saleMode === "credit") {
+          if (!debtorName) {
+            setSaleError("Ingresa el nombre del deudor.");
+            return;
+          }
+          if (!Number.isFinite(installmentsTotal) || installmentsTotal < 1) {
+            setSaleError("La cantidad total de cuotas debe ser mayor a 0.");
+            return;
+          }
+          if (!Number.isFinite(totalValue) || totalValue <= 0) {
+            setSaleError("Ingresa un valor total válido.");
+            return;
+          }
+          if (!Number.isFinite(interestPercent) || interestPercent < 0) {
+            setSaleError("Ingresa un porcentaje de interés válido.");
+            return;
+          }
+          if (!Number.isFinite(installmentValue) || installmentValue <= 0) {
+            setSaleError("Ingresa un valor por cuota válido.");
+            return;
+          }
+        } else {
+          if (!hasFinal && (!price || !Number.isFinite(parsedPrice) || parsedPrice <= 0)) {
+            setSaleError("Ingresa un precio válido.");
+            return;
+          }
+          if (!method) {
+            setSaleError("Selecciona un método de pago.");
+            return;
+          }
         }
 
         if (saleSubmit) saleSubmit.disabled = true;
@@ -1804,12 +2204,20 @@
         try {
           const body = new URLSearchParams({
             producto_id: saleContext.productId,
+            sale_mode: saleMode,
             cantidad: String(qty),
             precio_final_venta: Number.isFinite(parsedPrice) && parsedPrice > 0 ? String(parsedPrice) : "",
             valor_venta_final: hasFinal ? String(parsedFinalValue) : "",
             metodo_pago: method,
             notas: notes
           });
+          if (saleMode === "credit") {
+            body.set("debtor_name", debtorName);
+            body.set("installments_total", String(installmentsTotal));
+            body.set("total_value", String(totalValue));
+            body.set("interest_percent", String(interestPercent));
+            body.set("installment_value", String(installmentValue));
+          }
 
           const resp = await fetch("/venta", {
             method: "POST",
@@ -2126,6 +2534,13 @@
           const product = products.find((p) => p.id === productId);
           closeOpenMenuPanels();
           openSaleModal({ product, productId, maxQty, defaultQty: quantity });
+          return;
+        }
+
+        if (action === "installment") {
+          const product = products.find((p) => p.id === productId);
+          closeOpenMenuPanels();
+          addInstallment(product);
           return;
         }
 
