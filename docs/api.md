@@ -420,6 +420,155 @@ Respuesta:
 }
 ```
 
+### GET /api/credits
+
+Devuelve los créditos visibles para el usuario autenticado.
+
+Soporta búsqueda opcional con `q` sobre:
+- `product_id`
+- nombre del producto
+- nombre del deudor
+
+Ejemplo:
+
+```bash
+curl -b cookies.txt http://localhost:8080/api/credits
+```
+
+Ejemplo con filtro:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "http://localhost:8080/api/credits?q=maria"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "items": [
+    {
+      "id": 12,
+      "created_at": "2026-03-12",
+      "product_id": "P-001",
+      "product": "Crema corporal",
+      "quantity": 1,
+      "debtor_name": "Maria Gomez",
+      "installments_total": 6,
+      "installments_paid": 2,
+      "installments_pending": 4,
+      "total_value": 250000,
+      "interest_percent": 5,
+      "installment_value": 43750,
+      "notes": "VENTA A CREDITO | Deudor: Maria Gomez | Cuotas: 6",
+      "status": "active",
+      "last_payment_amount": 43750,
+      "last_payment_at": "2026-03-20"
+    }
+  ]
+}
+```
+
+### POST /api/credits
+
+Registra una venta a crédito. Respeta:
+- stock disponible
+- ownership
+- tipo de movimiento `credito` habilitado
+
+Payload:
+
+```json
+{
+  "product_id": "P-001",
+  "quantity": 1,
+  "debtor_name": "Maria Gomez",
+  "installments_total": 6,
+  "total_value": 250000,
+  "interest_percent": 5,
+  "notes": "Crédito desde API"
+}
+```
+
+Notas:
+- `installment_value` es opcional.
+- Si no se envía, el backend calcula la cuota con `total_value`, `installments_total` e `interest_percent`.
+- Si se envía, debe ser mayor a `0`.
+
+Ejemplo:
+
+```bash
+curl -X POST http://localhost:8080/api/credits \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -d '{
+    "product_id": "P-001",
+    "quantity": 1,
+    "debtor_name": "Maria Gomez",
+    "installments_total": 6,
+    "total_value": 250000,
+    "interest_percent": 5,
+    "notes": "Crédito desde API"
+  }'
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "credit_sale_id": 12,
+  "product_id": "P-001",
+  "product_name": "Crema corporal",
+  "quantity": 1,
+  "installment_value": 43750,
+  "message": "Venta a crédito registrada correctamente."
+}
+```
+
+### POST /api/credits/installments
+
+Registra una cuota para un crédito visible.
+
+Payload:
+
+```json
+{
+  "credit_sale_id": 12,
+  "amount_paid": 43750
+}
+```
+
+Notas:
+- `amount_paid` es opcional.
+- Si no se envía, el backend usa el `installment_value` configurado en el crédito.
+
+Ejemplo:
+
+```bash
+curl -X POST http://localhost:8080/api/credits/installments \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -d '{
+    "credit_sale_id": 12,
+    "amount_paid": 43750
+  }'
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "credit_sale_id": 12,
+  "product_id": "P-001",
+  "amount_paid": 43750,
+  "installment_number": 3,
+  "message": "Cuota 3 registrada correctamente."
+}
+```
+
 ### GET /api/settings/business
 
 Devuelve la configuración general del negocio.
@@ -620,6 +769,8 @@ Eventos actuales:
 - `product_created`
 - `product_assigned`
 - `sale_registered`
+- `credit_sale_created`
+- `credit_installment_added`
 - `change_registered`
 
 ## Recomendaciones para futuras integraciones

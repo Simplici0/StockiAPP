@@ -9,6 +9,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -1150,6 +1151,124 @@ func writeAPIError(w http.ResponseWriter, status int, message string, fields map
 		resp["fields"] = fields
 	}
 	writeAPIJSON(w, status, resp)
+}
+
+type requestError struct {
+	Status  int
+	Message string
+}
+
+func (e requestError) Error() string {
+	return e.Message
+}
+
+type creditInstallmentResult struct {
+	CreditSaleID      int
+	ProductID         string
+	DebtorName        string
+	InstallmentsTotal int
+	InstallmentsPaid  int
+	TotalValue        float64
+	InterestPercent   float64
+	InstallmentValue  float64
+	AmountPaid        float64
+	InstallmentNumber int
+}
+
+func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64, currentUser *User, source string, decoratePayload func(map[string]any) map[string]any) (creditInstallmentResult, error) {
+	var accessProductID string
+	if err := db.QueryRow(`SELECT product_id FROM credit_sales WHERE id = ?`, creditSaleID).Scan(&accessProductID); err != nil {
+		if err == sql.ErrNoRows {
+			return creditInstallmentResult{}, requestError{Status: http.StatusNotFound, Message: "Crédito no encontrado."}
+		}
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el crédito."}
+	}
+	allowed, err := productAccessibleByID(db, currentUser, accessProductID)
+	if err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al producto."}
+	}
+	if !allowed {
+		return creditInstallmentResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto."}
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo iniciar la transacción."}
+	}
+	defer tx.Rollback()
+
+	var result creditInstallmentResult
+	if err := tx.QueryRow(`
+		SELECT cs.id, cs.product_id, COALESCE(cs.debtor_name, ''), COALESCE(cs.installments_total, 0), COALESCE(cs.installments_paid, 0), COALESCE(cs.total_value, 0), COALESCE(cs.interest_percent, 0), COALESCE(cs.installment_value, 0)
+		FROM credit_sales cs
+		JOIN productos p ON p.sku = cs.product_id
+		WHERE cs.id = ?
+		LIMIT 1
+	`, creditSaleID).Scan(&result.CreditSaleID, &result.ProductID, &result.DebtorName, &result.InstallmentsTotal, &result.InstallmentsPaid, &result.TotalValue, &result.InterestPercent, &result.InstallmentValue); err != nil {
+		if err == sql.ErrNoRows {
+			return creditInstallmentResult{}, requestError{Status: http.StatusNotFound, Message: "Crédito no encontrado."}
+		}
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el crédito."}
+	}
+	if result.InstallmentsTotal <= 0 {
+		return creditInstallmentResult{}, requestError{Status: http.StatusBadRequest, Message: "El crédito no tiene cuotas configuradas."}
+	}
+	if result.InstallmentsPaid >= result.InstallmentsTotal {
+		return creditInstallmentResult{}, requestError{Status: http.StatusBadRequest, Message: "Este crédito ya está completamente pagado."}
+	}
+
+	amountPaid := result.InstallmentValue
+	if amountPaidValue != nil {
+		if *amountPaidValue <= 0 {
+			return creditInstallmentResult{}, requestError{Status: http.StatusBadRequest, Message: "El valor abonado debe ser mayor a 0."}
+		}
+		amountPaid = *amountPaidValue
+	}
+
+	result.InstallmentNumber = result.InstallmentsPaid + 1
+	result.AmountPaid = amountPaid
+	now := time.Now().Format(time.RFC3339)
+	if _, err := tx.Exec(`
+		INSERT INTO credit_installments (product_id, installment_number, amount_paid, created_at, created_by)
+		VALUES (?, ?, ?, ?, ?)
+	`, result.ProductID, result.InstallmentNumber, amountPaid, now, nullableUserID(currentUser)); err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la cuota."}
+	}
+	if _, err := tx.Exec(`UPDATE credit_installments SET credit_sale_id = ? WHERE id = last_insert_rowid()`, result.CreditSaleID); err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo vincular la cuota al crédito."}
+	}
+	if _, err := tx.Exec(`
+		UPDATE credit_sales
+		SET installments_paid = installments_paid + 1
+		WHERE id = ? AND installments_paid < installments_total
+	`, result.CreditSaleID); err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el crédito."}
+	}
+
+	auditPayload := map[string]any{
+		"credit_sale_id":     result.CreditSaleID,
+		"product_id":         result.ProductID,
+		"debtor_name":        result.DebtorName,
+		"installments_total": result.InstallmentsTotal,
+		"installments_paid":  result.InstallmentNumber,
+		"total_value":        result.TotalValue,
+		"interest_percent":   result.InterestPercent,
+		"installment_value":  result.InstallmentValue,
+		"amount_paid":        amountPaid,
+		"installment_number": result.InstallmentNumber,
+	}
+	if decoratePayload != nil {
+		auditPayload = decoratePayload(auditPayload)
+	}
+	if err := logAuditEvent(tx, currentUser, "credit_installment_added", "credit_sale", strconv.Itoa(result.CreditSaleID), source, auditPayload); err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría de la cuota."}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo confirmar la cuota."}
+	}
+	result.InstallmentsPaid = result.InstallmentNumber
+	return result, nil
 }
 
 func loadInventoryCountsForProducts(db *sql.DB, productIDs []string) (map[string]productInventoryCounts, error) {
@@ -5407,119 +5526,25 @@ func main() {
 			writeJSONError(http.StatusBadRequest, "Crédito inválido.")
 			return
 		}
-		var accessProductID string
-		if err := db.QueryRow(`SELECT product_id FROM credit_sales WHERE id = ?`, creditSaleID).Scan(&accessProductID); err != nil {
-			if err == sql.ErrNoRows {
-				writeJSONError(http.StatusNotFound, "Crédito no encontrado.")
-				return
-			}
-			writeJSONError(http.StatusInternalServerError, "No se pudo cargar el crédito.")
-			return
-		}
-		allowed, err := productAccessibleByID(db, userFromContext(r), accessProductID)
-		if err != nil {
-			writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.")
-			return
-		}
-		if !allowed {
-			writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.")
-			return
-		}
-
-		tx, err := db.Begin()
-		if err != nil {
-			writeJSONError(http.StatusInternalServerError, "No se pudo iniciar la transacción.")
-			return
-		}
-		defer tx.Rollback()
-
-		var product struct {
-			CreditSaleID      int
-			SKU               string
-			Name              string
-			DebtorName        string
-			InstallmentsTotal int
-			InstallmentsPaid  int
-			TotalValue        float64
-			InterestPercent   float64
-			InstallmentValue  float64
-		}
-		if err := tx.QueryRow(`
-			SELECT cs.id, cs.product_id, p.nombre, COALESCE(cs.debtor_name, ''), COALESCE(cs.installments_total, 0), COALESCE(cs.installments_paid, 0), COALESCE(cs.total_value, 0), COALESCE(cs.interest_percent, 0), COALESCE(cs.installment_value, 0)
-			FROM credit_sales cs
-			JOIN productos p ON p.sku = cs.product_id
-			WHERE cs.id = ?
-			LIMIT 1
-		`, creditSaleID).Scan(&product.CreditSaleID, &product.SKU, &product.Name, &product.DebtorName, &product.InstallmentsTotal, &product.InstallmentsPaid, &product.TotalValue, &product.InterestPercent, &product.InstallmentValue); err != nil {
-			if err == sql.ErrNoRows {
-				writeJSONError(http.StatusNotFound, "Producto no encontrado.")
-				return
-			}
-			writeJSONError(http.StatusInternalServerError, "No se pudo cargar el producto.")
-			return
-		}
-		if product.InstallmentsTotal <= 0 {
-			writeJSONError(http.StatusBadRequest, "El crédito no tiene cuotas configuradas.")
-			return
-		}
-		if product.InstallmentsPaid >= product.InstallmentsTotal {
-			writeJSONError(http.StatusBadRequest, "Este crédito ya está completamente pagado.")
-			return
-		}
 		amountPaidValue := strings.TrimSpace(r.FormValue("amount_paid"))
-		amountPaid := product.InstallmentValue
+		var amountPaid *float64
 		if amountPaidValue != "" {
 			parsedAmountPaid, err := strconv.ParseFloat(amountPaidValue, 64)
-			if err != nil || parsedAmountPaid <= 0 {
+			if err != nil {
 				writeJSONError(http.StatusBadRequest, "El valor abonado debe ser mayor a 0.")
 				return
 			}
-			amountPaid = parsedAmountPaid
+			amountPaid = &parsedAmountPaid
 		}
 
-		nextInstallment := product.InstallmentsPaid + 1
-		now := time.Now().Format(time.RFC3339)
-		var createdBy any
-		if currentUser := userFromContext(r); currentUser != nil {
-			createdBy = currentUser.ID
-		}
-		if _, err := tx.Exec(`
-			INSERT INTO credit_installments (product_id, installment_number, amount_paid, created_at, created_by)
-			VALUES (?, ?, ?, ?, ?)
-		`, product.SKU, nextInstallment, amountPaid, now, createdBy); err != nil {
+		result, err := addCreditInstallment(db, creditSaleID, amountPaid, userFromContext(r), "web", nil)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeJSONError(reqErr.Status, reqErr.Message)
+				return
+			}
 			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la cuota.")
-			return
-		}
-		if _, err := tx.Exec(`UPDATE credit_installments SET credit_sale_id = ? WHERE id = last_insert_rowid()`, product.CreditSaleID); err != nil {
-			writeJSONError(http.StatusInternalServerError, "No se pudo vincular la cuota al crédito.")
-			return
-		}
-		if _, err := tx.Exec(`
-			UPDATE credit_sales
-			SET installments_paid = installments_paid + 1
-			WHERE id = ? AND installments_paid < installments_total
-		`, product.CreditSaleID); err != nil {
-			writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el crédito.")
-			return
-		}
-		if err := logAuditEvent(tx, userFromContext(r), "credit_installment_added", "credit_sale", strconv.Itoa(product.CreditSaleID), "web", map[string]any{
-			"credit_sale_id":     product.CreditSaleID,
-			"product_id":         product.SKU,
-			"debtor_name":        product.DebtorName,
-			"installments_total": product.InstallmentsTotal,
-			"installments_paid":  nextInstallment,
-			"total_value":        product.TotalValue,
-			"interest_percent":   product.InterestPercent,
-			"installment_value":  product.InstallmentValue,
-			"amount_paid":        amountPaid,
-			"installment_number": nextInstallment,
-		}); err != nil {
-			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría de la cuota.")
-			return
-		}
-
-		if err := tx.Commit(); err != nil {
-			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la cuota.")
 			return
 		}
 
@@ -5529,11 +5554,11 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":                 true,
-			"credit_sale_id":     product.CreditSaleID,
-			"producto_id":        product.SKU,
-			"amount_paid":        amountPaid,
-			"installment_number": nextInstallment,
-			"mensaje":            fmt.Sprintf("Cuota %d registrada correctamente.", nextInstallment),
+			"credit_sale_id":     result.CreditSaleID,
+			"producto_id":        result.ProductID,
+			"amount_paid":        result.AmountPaid,
+			"installment_number": result.InstallmentNumber,
+			"mensaje":            fmt.Sprintf("Cuota %d registrada correctamente.", result.InstallmentNumber),
 		})
 	})
 
@@ -6699,6 +6724,327 @@ func main() {
 			})
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+	})
+
+	mux.HandleFunc("/api/credits", func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		switch r.Method {
+		case http.MethodGet:
+			q := strings.TrimSpace(r.URL.Query().Get("q"))
+			visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
+			args := append([]any{}, visibilityArgs...)
+			query := `
+				SELECT
+					cs.id,
+					cs.created_at,
+					cs.product_id,
+					COALESCE(p.nombre, cs.product_id),
+					cs.quantity,
+					COALESCE(cs.debtor_name, ''),
+					COALESCE(cs.installments_total, 0),
+					COALESCE(cs.installments_paid, 0),
+					COALESCE(cs.total_value, 0),
+					COALESCE(cs.interest_percent, 0),
+					COALESCE(cs.installment_value, 0),
+					COALESCE(cs.notes, ''),
+					COALESCE((
+						SELECT ci.amount_paid
+						FROM credit_installments ci
+						WHERE ci.credit_sale_id = cs.id
+						ORDER BY ci.installment_number DESC, ci.id DESC
+						LIMIT 1
+					), 0),
+					COALESCE((
+						SELECT ci.created_at
+						FROM credit_installments ci
+						WHERE ci.credit_sale_id = cs.id
+						ORDER BY ci.installment_number DESC, ci.id DESC
+						LIMIT 1
+					), '')
+				FROM credit_sales cs
+				LEFT JOIN productos p ON p.sku = cs.product_id
+				WHERE ` + visibilitySQL
+			if q != "" {
+				query += ` AND (LOWER(cs.product_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_name, '')) LIKE ?)`
+				qLike := "%" + strings.ToLower(q) + "%"
+				args = append(args, qLike, qLike, qLike)
+			}
+			query += ` ORDER BY cs.created_at DESC, cs.id DESC LIMIT 100`
+
+			rows, err := db.Query(query, args...)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los créditos.", nil)
+				return
+			}
+			defer rows.Close()
+
+			items := make([]map[string]any, 0, 64)
+			for rows.Next() {
+				var (
+					id                int
+					createdAt         string
+					productID         string
+					productName       string
+					quantity          int
+					debtorName        string
+					installmentsTotal int
+					installmentsPaid  int
+					totalValue        float64
+					interestPercent   float64
+					installmentValue  float64
+					notes             string
+					lastPaymentAmount float64
+					lastPaymentAt     string
+				)
+				if err := rows.Scan(&id, &createdAt, &productID, &productName, &quantity, &debtorName, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &lastPaymentAmount, &lastPaymentAt); err != nil {
+					writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer los créditos.", nil)
+					return
+				}
+				status := "active"
+				if installmentsTotal > 0 && installmentsPaid >= installmentsTotal {
+					status = "completed"
+				}
+				item := map[string]any{
+					"id":                   id,
+					"created_at":           formatDateWithSettings(createdAt),
+					"product_id":           productID,
+					"product":              productName,
+					"quantity":             quantity,
+					"debtor_name":          debtorName,
+					"installments_total":   installmentsTotal,
+					"installments_paid":    installmentsPaid,
+					"installments_pending": max(installmentsTotal-installmentsPaid, 0),
+					"total_value":          totalValue,
+					"interest_percent":     interestPercent,
+					"installment_value":    installmentValue,
+					"notes":                notes,
+					"status":               status,
+				}
+				if lastPaymentAt != "" {
+					item["last_payment_at"] = formatDateWithSettings(lastPaymentAt)
+					item["last_payment_amount"] = lastPaymentAmount
+				} else {
+					item["last_payment_at"] = ""
+					item["last_payment_amount"] = 0
+				}
+				items = append(items, item)
+			}
+			if err := rows.Err(); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron procesar los créditos.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+		case http.MethodPost:
+			_, movementEnabledMap, err := loadMovementSettings(db)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+				return
+			}
+			if !movementEnabled(movementEnabledMap, "credito") {
+				writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
+				return
+			}
+			var payload struct {
+				ProductID         string   `json:"product_id"`
+				Quantity          int      `json:"quantity"`
+				DebtorName        string   `json:"debtor_name"`
+				InstallmentsTotal int      `json:"installments_total"`
+				TotalValue        float64  `json:"total_value"`
+				InterestPercent   float64  `json:"interest_percent"`
+				InstallmentValue  *float64 `json:"installment_value"`
+				Notes             string   `json:"notes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+				return
+			}
+			payload.ProductID = strings.TrimSpace(payload.ProductID)
+			payload.DebtorName = strings.TrimSpace(payload.DebtorName)
+			payload.Notes = strings.TrimSpace(payload.Notes)
+
+			productsMu.RLock()
+			productsSnapshot := make([]productOption, len(products))
+			copy(productsSnapshot, products)
+			productsMu.RUnlock()
+			productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+
+			stockByProd, err := availableCountsByProduct(db)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
+				return
+			}
+
+			fields := map[string]string{}
+			if payload.ProductID == "" {
+				fields["product_id"] = "Selecciona un producto válido."
+			}
+			if payload.Quantity <= 0 {
+				fields["quantity"] = "La cantidad debe ser un número positivo."
+			}
+			if payload.DebtorName == "" {
+				fields["debtor_name"] = "El nombre del deudor es obligatorio."
+			}
+			if payload.InstallmentsTotal <= 0 {
+				fields["installments_total"] = "La cantidad total de cuotas debe ser mayor a 0."
+			}
+			if payload.TotalValue <= 0 {
+				fields["total_value"] = "El valor total debe ser mayor a 0."
+			}
+			if payload.InterestPercent < 0 {
+				fields["interest_percent"] = "El porcentaje de interés debe ser un número mayor o igual a 0."
+			}
+			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+				return
+			} else if !allowed {
+				fields["product_id"] = "No tienes acceso a este producto."
+			}
+			selectedProduct, ok := findProduct(productsSnapshot, payload.ProductID)
+			if !ok && len(productsSnapshot) > 0 {
+				selectedProduct = productsSnapshot[0]
+			}
+			if payload.ProductID != "" && payload.Quantity > 0 {
+				if available := stockByProd[payload.ProductID]; available > 0 && payload.Quantity > available {
+					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
+				}
+			}
+			installmentValue := 0.0
+			if payload.TotalValue > 0 && payload.InstallmentsTotal > 0 {
+				financedTotal := payload.TotalValue + (payload.TotalValue * payload.InterestPercent / 100)
+				installmentValue = math.Round((financedTotal/float64(payload.InstallmentsTotal))*100) / 100
+			}
+			if payload.InstallmentValue != nil {
+				if *payload.InstallmentValue <= 0 {
+					fields["installment_value"] = "El valor por cuota debe ser mayor a 0."
+				} else {
+					installmentValue = *payload.InstallmentValue
+				}
+			}
+			if installmentValue <= 0 {
+				fields["installment_value"] = "El valor por cuota debe ser mayor a 0."
+			}
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
+				return
+			}
+
+			tx, err := db.Begin()
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta a crédito.", nil)
+				return
+			}
+			defer tx.Rollback()
+
+			soldUnitIDs, err := selectAndMarkUnitsSold(tx, payload.ProductID, payload.Quantity)
+			if err != nil {
+				if err == errInsufficientStock {
+					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
+				return
+			}
+
+			now := time.Now().Format(time.RFC3339)
+			creditSummary := fmt.Sprintf("VENTA A CREDITO | Deudor: %s | Cuotas: %d | Interes: %.2f%% | Valor cuota: %.2f", payload.DebtorName, payload.InstallmentsTotal, payload.InterestPercent, installmentValue)
+			movementNote := creditSummary
+			if payload.Notes != "" {
+				movementNote += " | " + payload.Notes
+			}
+			if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta_credito", movementNote, currentUser, now); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
+				return
+			}
+			result, err := tx.Exec(
+				`INSERT INTO credit_sales (product_id, quantity, debtor_name, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+				VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+				payload.ProductID, payload.Quantity, payload.DebtorName, payload.InstallmentsTotal, payload.TotalValue, payload.InterestPercent, installmentValue, movementNote, now, nullableUserID(currentUser),
+			)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta a crédito.", nil)
+				return
+			}
+			creditSaleID, _ := result.LastInsertId()
+			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "api", withAPIAuditMetadata(r, map[string]any{
+				"credit_sale_id":     creditSaleID,
+				"product_id":         payload.ProductID,
+				"producto":           selectedProduct.Name,
+				"debtor_name":        payload.DebtorName,
+				"installments_total": payload.InstallmentsTotal,
+				"installments_paid":  0,
+				"total_value":        payload.TotalValue,
+				"interest_percent":   payload.InterestPercent,
+				"installment_value":  installmentValue,
+				"quantity":           payload.Quantity,
+			})); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del crédito.", nil)
+				return
+			}
+			if err := tx.Commit(); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta a crédito.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusCreated, map[string]any{
+				"ok":                true,
+				"credit_sale_id":    creditSaleID,
+				"product_id":        payload.ProductID,
+				"product_name":      selectedProduct.Name,
+				"quantity":          payload.Quantity,
+				"installment_value": installmentValue,
+				"message":           "Venta a crédito registrada correctamente.",
+			})
+		default:
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+		}
+	})
+
+	mux.HandleFunc("/api/credits/installments", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "credito") {
+			writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
+			return
+		}
+		var payload struct {
+			CreditSaleID int      `json:"credit_sale_id"`
+			AmountPaid   *float64 `json:"amount_paid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+			return
+		}
+		if payload.CreditSaleID <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "Crédito inválido.", map[string]string{"credit_sale_id": "Crédito inválido."})
+			return
+		}
+		result, err := addCreditInstallment(db, payload.CreditSaleID, payload.AmountPaid, currentUser, "api", func(item map[string]any) map[string]any {
+			return withAPIAuditMetadata(r, item)
+		})
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, nil)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la cuota.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusCreated, map[string]any{
+			"ok":                 true,
+			"credit_sale_id":     result.CreditSaleID,
+			"product_id":         result.ProductID,
+			"amount_paid":        result.AmountPaid,
+			"installment_number": result.InstallmentNumber,
+			"message":            fmt.Sprintf("Cuota %d registrada correctamente.", result.InstallmentNumber),
+		})
 	})
 
 	mux.HandleFunc("/venta/new", func(w http.ResponseWriter, r *http.Request) {
