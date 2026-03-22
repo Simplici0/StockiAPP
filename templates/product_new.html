@@ -303,7 +303,6 @@
     const retomaEnabled = document.getElementById("retoma_enabled");
     const retomaPriceWrap = document.getElementById("retoma_price_wrap");
     const retomaPrice = document.getElementById("retoma_price");
-
     const parseCOP = (raw) => {
       const digits = String(raw || "").replace(/[^\d]/g, "");
       if (!digits) return NaN;
@@ -356,7 +355,6 @@
         retomaPrice.value = formatCOP(n);
       });
     }
-
     if (aplica) aplica.addEventListener("change", sync);
     if (retomaEnabled) retomaEnabled.addEventListener("change", syncRetoma);
     sync();

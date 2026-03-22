@@ -29,6 +29,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var appTimeLocation = func() *time.Location {
+	loc, err := time.LoadLocation("America/Bogota")
+	if err != nil {
+		return time.FixedZone("America/Bogota", -5*60*60)
+	}
+	return loc
+}()
+
+func init() {
+	time.Local = appTimeLocation
+}
+
 type inventoryPageData struct {
 	Title           string
 	Subtitle        string
@@ -41,6 +53,7 @@ type inventoryPageData struct {
 	CanSell         bool
 	CanSwap         bool
 	CanRetoma       bool
+	CanCredit       bool
 	CurrentUser     *User
 }
 
@@ -49,18 +62,24 @@ type unitOption struct {
 }
 
 type productOption struct {
-	ID             string
-	Name           string
-	Line           string
-	Notes          string
-	FechaIngreso   string
-	SalePrice      float64
-	RetomaEnabled  bool
-	RetomaPrice    float64
-	HasRetomaPrice bool
-	OwnerUserID    int
-	HasOwner       bool
-	Units          []unitOption
+	ID                string
+	Name              string
+	Line              string
+	CreditEnabled     bool
+	DebtorName        string
+	InstallmentsTotal int
+	InstallmentsPaid  int
+	TotalValue        float64
+	InstallmentValue  float64
+	Notes             string
+	FechaIngreso      string
+	SalePrice         float64
+	RetomaEnabled     bool
+	RetomaPrice       float64
+	HasRetomaPrice    bool
+	OwnerUserID       int
+	HasOwner          bool
+	Units             []unitOption
 }
 
 type csvFailedRow struct {
@@ -86,9 +105,21 @@ type inventoryUnit struct {
 }
 
 type inventoryProduct struct {
+	EntryType         string
+	CreditSaleID      int
+	BaseProductID     string
 	ID                string
 	Name              string
 	Line              string
+	CreditEnabled     bool
+	InterestPercent   float64
+	DebtorName        string
+	InstallmentsTotal int
+	InstallmentsPaid  int
+	TotalValue        float64
+	InstallmentValue  float64
+	LastPaymentAmount float64
+	LastPaymentAt     string
 	Notes             string
 	EstadoLabel       string
 	EstadoClass       string
@@ -210,6 +241,26 @@ func upsertProducto(exec sqlExecer, sku, nombre, linea, now string) error {
 	return err
 }
 
+func normalizeCreditKey(value string) string {
+	replacer := strings.NewReplacer(
+		"á", "a",
+		"é", "e",
+		"í", "i",
+		"ó", "o",
+		"ú", "u",
+		"Á", "a",
+		"É", "e",
+		"Í", "i",
+		"Ó", "o",
+		"Ú", "u",
+	)
+	return strings.ToLower(strings.TrimSpace(replacer.Replace(value)))
+}
+
+func isCreditProduct(product productOption) bool {
+	return product.CreditEnabled
+}
+
 func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 	// Backfill unknown products that already exist in inventory units.
 	if _, err := db.Exec(`
@@ -233,7 +284,7 @@ func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 
 func loadProductos(db *sql.DB) ([]productOption, error) {
 	rows, err := db.Query(`
-		SELECT sku, nombre, linea, COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
+		SELECT sku, nombre, linea, COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
 		FROM productos
 		ORDER BY sku
 	`)
@@ -245,12 +296,14 @@ func loadProductos(db *sql.DB) ([]productOption, error) {
 	products := []productOption{}
 	for rows.Next() {
 		var p productOption
+		var creditEnabled int
 		var retomaEnabled int
 		var retomaPrice sql.NullFloat64
 		var ownerUserID sql.NullInt64
-		if err := rows.Scan(&p.ID, &p.Name, &p.Line, &p.Notes, &p.FechaIngreso, &p.SalePrice, &retomaEnabled, &retomaPrice, &ownerUserID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Line, &creditEnabled, &p.DebtorName, &p.InstallmentsTotal, &p.InstallmentsPaid, &p.TotalValue, &p.InstallmentValue, &p.Notes, &p.FechaIngreso, &p.SalePrice, &retomaEnabled, &retomaPrice, &ownerUserID); err != nil {
 			return nil, err
 		}
+		p.CreditEnabled = creditEnabled == 1
 		p.RetomaEnabled = retomaEnabled == 1
 		p.HasRetomaPrice = retomaPrice.Valid
 		if retomaPrice.Valid {
@@ -848,6 +901,13 @@ func normalizeAuditSource(source string) string {
 	}
 }
 
+func nullableUserID(user *User) any {
+	if user == nil {
+		return nil
+	}
+	return user.ID
+}
+
 func boolToInt(v bool) int {
 	if v {
 		return 1
@@ -1204,7 +1264,16 @@ func parseDateFlexible(raw string) (time.Time, bool) {
 		"2006-01-02 15:04:05-07:00",
 	}
 	for _, layout := range layouts {
-		if t, err := time.Parse(layout, value); err == nil {
+		var (
+			t   time.Time
+			err error
+		)
+		if strings.Contains(layout, "-07:00") || layout == time.RFC3339 {
+			t, err = time.Parse(layout, value)
+		} else {
+			t, err = time.ParseInLocation(layout, value, appTimeLocation)
+		}
+		if err == nil {
 			return t, true
 		}
 	}
@@ -1217,7 +1286,7 @@ func formatDateWithSettings(raw string) string {
 	}
 	settings := currentBusinessSettings()
 	if t, ok := parseDateFlexible(raw); ok {
-		return t.Format(settings.DateFormat)
+		return t.In(appTimeLocation).Format(settings.DateFormat)
 	}
 	return raw
 }
@@ -1327,7 +1396,7 @@ func defaultPaymentMethodNames() []string {
 }
 
 func defaultMovementTypes() []string {
-	return []string{"venta", "cambio", "retoma"}
+	return []string{"venta", "cambio", "retoma", "credito"}
 }
 
 func loadPaymentMethods(db *sql.DB, activeOnly bool) ([]PaymentMethod, error) {
@@ -1602,7 +1671,16 @@ func parseFlexibleTime(value string) (time.Time, bool) {
 		"2006-01-02",
 	}
 	for _, layout := range layouts {
-		if t, err := time.Parse(layout, value); err == nil {
+		var (
+			t   time.Time
+			err error
+		)
+		if strings.Contains(layout, "-07:00") || layout == time.RFC3339 {
+			t, err = time.Parse(layout, value)
+		} else {
+			t, err = time.ParseInLocation(layout, value, appTimeLocation)
+		}
+		if err == nil {
 			return t, true
 		}
 	}
@@ -1933,6 +2011,12 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		id TEXT,
 		linea TEXT NOT NULL,
 		nombre TEXT NOT NULL,
+		credit_enabled INTEGER NOT NULL DEFAULT 0,
+		debtor_name TEXT NOT NULL DEFAULT '',
+		installments_total INTEGER NOT NULL DEFAULT 0,
+		installments_paid INTEGER NOT NULL DEFAULT 0,
+		total_value REAL NOT NULL DEFAULT 0,
+		installment_value REAL NOT NULL DEFAULT 0,
 		owner_user_id INTEGER,
 		precio_base REAL NOT NULL DEFAULT 0,
 		precio_venta REAL NOT NULL DEFAULT 0,
@@ -2056,6 +2140,36 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 	CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events (created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events (event_type);
 	CREATE INDEX IF NOT EXISTS idx_audit_events_entity_type ON audit_events (entity_type);
+
+	CREATE TABLE IF NOT EXISTS credit_installments (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		credit_sale_id INTEGER,
+		product_id TEXT NOT NULL,
+		installment_number INTEGER NOT NULL,
+		amount_paid REAL NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by INTEGER,
+		FOREIGN KEY (product_id) REFERENCES productos (sku)
+	);
+	CREATE INDEX IF NOT EXISTS idx_credit_installments_product_id ON credit_installments (product_id, installment_number);
+
+	CREATE TABLE IF NOT EXISTS credit_sales (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		product_id TEXT NOT NULL,
+		quantity INTEGER NOT NULL DEFAULT 1,
+		debtor_name TEXT NOT NULL,
+		installments_total INTEGER NOT NULL,
+		installments_paid INTEGER NOT NULL DEFAULT 0,
+		total_value REAL NOT NULL,
+		interest_percent REAL NOT NULL DEFAULT 0,
+		installment_value REAL NOT NULL,
+		notes TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by INTEGER,
+		FOREIGN KEY (product_id) REFERENCES productos (sku)
+	);
+	CREATE INDEX IF NOT EXISTS idx_credit_sales_product_id ON credit_sales (product_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_credit_sales_debtor_name ON credit_sales (debtor_name);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -2112,6 +2226,78 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		if _, err := db.Exec("ALTER TABLE productos ADD COLUMN retoma_price REAL"); err != nil {
 			return nil, err
 		}
+	}
+	creditProductColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "credit_enabled", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "debtor_name", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "installments_total", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "installments_paid", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "total_value", definition: "REAL NOT NULL DEFAULT 0"},
+		{name: "installment_value", definition: "REAL NOT NULL DEFAULT 0"},
+	}
+	for _, column := range creditProductColumns {
+		var hasColumn int
+		if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('productos') WHERE name = ?", column.name).Scan(&hasColumn); err != nil {
+			return nil, err
+		}
+		if hasColumn == 0 {
+			if _, err := db.Exec("ALTER TABLE productos ADD COLUMN " + column.name + " " + column.definition); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_productos_debtor_name ON productos(debtor_name)"); err != nil {
+		return nil, err
+	}
+	creditSalesColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "quantity", definition: "INTEGER NOT NULL DEFAULT 1"},
+		{name: "interest_percent", definition: "REAL NOT NULL DEFAULT 0"},
+		{name: "notes", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "created_by", definition: "INTEGER"},
+	}
+	for _, column := range creditSalesColumns {
+		var hasColumn int
+		if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('credit_sales') WHERE name = ?", column.name).Scan(&hasColumn); err != nil {
+			return nil, err
+		}
+		if hasColumn == 0 {
+			if _, err := db.Exec("ALTER TABLE credit_sales ADD COLUMN " + column.name + " " + column.definition); err != nil {
+				return nil, err
+			}
+		}
+	}
+	var creditInstallmentsHasCreditSaleID int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('credit_installments') WHERE name = 'credit_sale_id'").Scan(&creditInstallmentsHasCreditSaleID); err != nil {
+		return nil, err
+	}
+	if creditInstallmentsHasCreditSaleID == 0 {
+		if _, err := db.Exec("ALTER TABLE credit_installments ADD COLUMN credit_sale_id INTEGER"); err != nil {
+			return nil, err
+		}
+	}
+	var creditInstallmentsHasAmountPaid int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('credit_installments') WHERE name = 'amount_paid'").Scan(&creditInstallmentsHasAmountPaid); err != nil {
+		return nil, err
+	}
+	if creditInstallmentsHasAmountPaid == 0 {
+		if _, err := db.Exec("ALTER TABLE credit_installments ADD COLUMN amount_paid REAL NOT NULL DEFAULT 0"); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_credit_sales_product_id ON credit_sales(product_id, created_at)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_credit_sales_debtor_name ON credit_sales(debtor_name)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_credit_installments_credit_sale_id ON credit_installments(credit_sale_id, installment_number)"); err != nil {
+		return nil, err
 	}
 	var retomasHasPublicadoStock int
 	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('retomas') WHERE name = 'publicado_stock'").Scan(&retomasHasPublicadoStock); err != nil {
@@ -2536,23 +2722,28 @@ func main() {
 	}
 
 	type productNewData struct {
-		Title           string
-		Subtitle        string
-		SKU             string
-		Nombre          string
-		Linea           string
-		OwnerUserID     string
-		PrecioVenta     string
-		RetomaEnabled   bool
-		RetomaPrice     string
-		Lineas          []string
-		HasLineas       bool
-		AssignableUsers []assignableUser
-		Cantidad        int
-		AplicaCad       bool
-		Caducidad       string
-		Errors          map[string]string
-		CurrentUser     *User
+		Title             string
+		Subtitle          string
+		SKU               string
+		Nombre            string
+		Linea             string
+		OwnerUserID       string
+		PrecioVenta       string
+		RetomaEnabled     bool
+		RetomaPrice       string
+		Lineas            []string
+		HasLineas         bool
+		AssignableUsers   []assignableUser
+		Cantidad          int
+		AplicaCad         bool
+		Caducidad         string
+		CreditEnabled     bool
+		DebtorName        string
+		InstallmentsTotal string
+		TotalValue        string
+		InstallmentValue  string
+		Errors            map[string]string
+		CurrentUser       *User
 	}
 
 	mux := http.NewServeMux()
@@ -3593,6 +3784,7 @@ func main() {
 			customSKU = strings.TrimSpace(r.FormValue("sku"))
 		}
 		linea := strings.TrimSpace(r.FormValue("linea"))
+		isCreditProduct := r.FormValue("credit_enabled") != ""
 		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		cantidadRaw := strings.TrimSpace(r.FormValue("cantidad"))
 		precioVentaRaw := strings.TrimSpace(r.FormValue("precio_venta"))
@@ -3600,6 +3792,10 @@ func main() {
 		retomaPriceRaw := strings.TrimSpace(r.FormValue("retoma_price"))
 		aplicaCad := r.FormValue("aplica_caducidad") != ""
 		caducidad := strings.TrimSpace(r.FormValue("fecha_caducidad"))
+		debtorName := strings.TrimSpace(r.FormValue("debtor_name"))
+		installmentsTotalRaw := strings.TrimSpace(r.FormValue("installments_total"))
+		totalValueRaw := strings.TrimSpace(r.FormValue("total_value"))
+		installmentValueRaw := strings.TrimSpace(r.FormValue("installment_value"))
 		assignableUsers, err := loadAssignableUsers(db)
 		if err != nil {
 			http.Error(w, "No se pudieron cargar los usuarios", http.StatusInternalServerError)
@@ -3659,8 +3855,40 @@ func main() {
 			}
 		}
 		cantidad, err := strconv.Atoi(cantidadRaw)
-		if err != nil || cantidad <= 0 {
+		if (err != nil || cantidad <= 0) && !isCreditProduct {
 			errors["cantidad"] = "Cantidad debe ser entero mayor a 0."
+		}
+		installmentsTotal := 0
+		totalValue := 0
+		installmentValue := 0
+		if isCreditProduct {
+			cantidad = 1
+			if debtorName == "" {
+				errors["debtor_name"] = "Nombre del deudor obligatorio."
+			}
+			parsedInstallments, parseErr := strconv.Atoi(installmentsTotalRaw)
+			if parseErr != nil || parsedInstallments <= 0 {
+				errors["installments_total"] = "La cantidad total de cuotas debe ser mayor a 0."
+			} else {
+				installmentsTotal = parsedInstallments
+			}
+			parsedTotalValue, parseErr := parseCOPInteger(totalValueRaw)
+			if parseErr != nil || parsedTotalValue <= 0 {
+				errors["total_value"] = "El valor total debe ser mayor a 0."
+			} else {
+				totalValue = parsedTotalValue
+			}
+			parsedInstallmentValue, parseErr := parseCOPInteger(installmentValueRaw)
+			if parseErr != nil || parsedInstallmentValue <= 0 {
+				errors["installment_value"] = "El valor por cuota debe ser mayor a 0."
+			} else {
+				installmentValue = parsedInstallmentValue
+			}
+		} else {
+			debtorName = ""
+			installmentsTotalRaw = ""
+			totalValueRaw = ""
+			installmentValueRaw = ""
 		}
 		if aplicaCad {
 			if caducidad == "" {
@@ -3697,23 +3925,28 @@ func main() {
 			}
 			w.WriteHeader(http.StatusBadRequest)
 			data := productNewData{
-				Title:           "Crear producto",
-				Subtitle:        "Acción reservada para administradores.",
-				SKU:             nextSKU,
-				Nombre:          nombre,
-				Linea:           linea,
-				OwnerUserID:     ownerUserIDRaw,
-				PrecioVenta:     precioVentaRaw,
-				RetomaEnabled:   retomaEnabled,
-				RetomaPrice:     retomaPriceRaw,
-				Lineas:          ensureLineOption(businessLineNames(activeLines), linea),
-				HasLineas:       len(activeLines) > 0,
-				AssignableUsers: assignableUsers,
-				Cantidad:        cantidad,
-				AplicaCad:       aplicaCad,
-				Caducidad:       caducidad,
-				Errors:          errors,
-				CurrentUser:     userFromContext(r),
+				Title:             "Crear producto",
+				Subtitle:          "Acción reservada para administradores.",
+				SKU:               nextSKU,
+				Nombre:            nombre,
+				Linea:             linea,
+				OwnerUserID:       ownerUserIDRaw,
+				PrecioVenta:       precioVentaRaw,
+				RetomaEnabled:     retomaEnabled,
+				RetomaPrice:       retomaPriceRaw,
+				Lineas:            ensureLineOption(businessLineNames(activeLines), linea),
+				HasLineas:         len(activeLines) > 0,
+				AssignableUsers:   assignableUsers,
+				Cantidad:          cantidad,
+				AplicaCad:         aplicaCad,
+				Caducidad:         caducidad,
+				CreditEnabled:     isCreditProduct,
+				DebtorName:        debtorName,
+				InstallmentsTotal: installmentsTotalRaw,
+				TotalValue:        totalValueRaw,
+				InstallmentValue:  installmentValueRaw,
+				Errors:            errors,
+				CurrentUser:       userFromContext(r),
 			}
 			if err := tmpl.ExecuteTemplate(w, "product_new.html", data); err != nil {
 				http.Error(w, "Error al renderizar productos", http.StatusInternalServerError)
@@ -3741,7 +3974,11 @@ func main() {
 			http.Error(w, "No se pudo guardar el producto", http.StatusInternalServerError)
 			return
 		}
-		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ?, retoma_enabled = ?, retoma_price = ? WHERE sku = ?`, float64(precioVenta), boolToInt(retomaEnabled), retomaPrice, sku); err != nil {
+		if _, err := tx.Exec(`
+			UPDATE productos
+			SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?
+			WHERE sku = ?
+		`, float64(precioVenta), boolToInt(retomaEnabled), retomaPrice, boolToInt(isCreditProduct), debtorName, installmentsTotal, 0, float64(totalValue), float64(installmentValue), sku); err != nil {
 			http.Error(w, "No se pudo guardar el precio del producto", http.StatusInternalServerError)
 			return
 		}
@@ -3760,6 +3997,19 @@ func main() {
 		}); err != nil {
 			http.Error(w, "No se pudo registrar la auditoría del producto", http.StatusInternalServerError)
 			return
+		}
+		if isCreditProduct {
+			if err := logAuditEvent(tx, userFromContext(r), "credit_created", "product", sku, "manual", map[string]any{
+				"product_id":         sku,
+				"debtor_name":        debtorName,
+				"installments_total": installmentsTotal,
+				"installments_paid":  0,
+				"total_value":        totalValue,
+				"installment_value":  installmentValue,
+			}); err != nil {
+				http.Error(w, "No se pudo registrar la auditoría del crédito", http.StatusInternalServerError)
+				return
+			}
 		}
 		if ownerUserID.Valid {
 			if err := logAuditEvent(tx, userFromContext(r), "product_assigned", "product", sku, "manual", map[string]any{
@@ -3800,6 +4050,12 @@ func main() {
 			if products[idx].ID == sku {
 				products[idx].Name = nombre
 				products[idx].Line = linea
+				products[idx].CreditEnabled = isCreditProduct
+				products[idx].DebtorName = debtorName
+				products[idx].InstallmentsTotal = installmentsTotal
+				products[idx].InstallmentsPaid = 0
+				products[idx].TotalValue = float64(totalValue)
+				products[idx].InstallmentValue = float64(installmentValue)
 				products[idx].SalePrice = float64(precioVenta)
 				products[idx].RetomaEnabled = retomaEnabled
 				products[idx].HasRetomaPrice = retomaPrice.Valid
@@ -3820,12 +4076,18 @@ func main() {
 		}
 		if !found {
 			createdProduct := productOption{
-				ID:            sku,
-				Name:          nombre,
-				Line:          linea,
-				FechaIngreso:  time.Now().Format("2006-01-02"),
-				SalePrice:     float64(precioVenta),
-				RetomaEnabled: retomaEnabled,
+				ID:                sku,
+				Name:              nombre,
+				Line:              linea,
+				CreditEnabled:     isCreditProduct,
+				DebtorName:        debtorName,
+				InstallmentsTotal: installmentsTotal,
+				InstallmentsPaid:  0,
+				TotalValue:        float64(totalValue),
+				InstallmentValue:  float64(installmentValue),
+				FechaIngreso:      time.Now().Format("2006-01-02"),
+				SalePrice:         float64(precioVenta),
+				RetomaEnabled:     retomaEnabled,
 			}
 			if retomaPrice.Valid {
 				createdProduct.HasRetomaPrice = true
@@ -3861,14 +4123,20 @@ func main() {
 					retomaPrice = product.RetomaPrice
 				}
 				items = append(items, map[string]any{
-					"id":             product.ID,
-					"name":           product.Name,
-					"line":           product.Line,
-					"fecha_ingreso":  formatDateWithSettings(product.FechaIngreso),
-					"sale_price":     product.SalePrice,
-					"retoma_enabled": product.RetomaEnabled,
-					"retoma_price":   retomaPrice,
-					"owner_user_id":  owner,
+					"id":                 product.ID,
+					"name":               product.Name,
+					"line":               product.Line,
+					"credit_enabled":     product.CreditEnabled,
+					"debtor_name":        product.DebtorName,
+					"installments_total": product.InstallmentsTotal,
+					"installments_paid":  product.InstallmentsPaid,
+					"total_value":        product.TotalValue,
+					"installment_value":  product.InstallmentValue,
+					"fecha_ingreso":      formatDateWithSettings(product.FechaIngreso),
+					"sale_price":         product.SalePrice,
+					"retoma_enabled":     product.RetomaEnabled,
+					"retoma_price":       retomaPrice,
+					"owner_user_id":      owner,
 				})
 			}
 			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
@@ -4295,7 +4563,9 @@ func main() {
 		}
 
 		inventoryProducts := make([]inventoryProduct, 0, len(productsSnapshot))
+		allowedProducts := make(map[string]productOption, len(productsSnapshot))
 		for _, product := range productsSnapshot {
+			allowedProducts[product.ID] = product
 			rows, err := db.Query(`
 					SELECT id, estado, creado_en, caducidad
 					FROM unidades
@@ -4384,9 +4654,16 @@ func main() {
 			alertaPermanencia := mesesEnStock >= 6
 
 			inventoryProducts = append(inventoryProducts, inventoryProduct{
+				EntryType:         "product",
 				ID:                product.ID,
 				Name:              product.Name,
 				Line:              product.Line,
+				CreditEnabled:     product.CreditEnabled,
+				DebtorName:        product.DebtorName,
+				InstallmentsTotal: product.InstallmentsTotal,
+				InstallmentsPaid:  product.InstallmentsPaid,
+				TotalValue:        product.TotalValue,
+				InstallmentValue:  product.InstallmentValue,
 				Notes:             product.Notes,
 				EstadoLabel:       estadoLabel,
 				EstadoClass:       estadoClass,
@@ -4403,6 +4680,90 @@ func main() {
 				OwnerUserID:       product.OwnerUserID,
 				HasOwner:          product.HasOwner,
 			})
+		}
+
+		creditRows, err := db.Query(`
+			SELECT id, product_id, quantity, debtor_name, installments_total, installments_paid, total_value, COALESCE(interest_percent, 0), installment_value, COALESCE(notes, ''), created_at
+			FROM credit_sales
+			ORDER BY created_at DESC, id DESC
+		`)
+		if err != nil {
+			http.Error(w, "Error al consultar créditos", http.StatusInternalServerError)
+			return
+		}
+		defer creditRows.Close()
+		for creditRows.Next() {
+			var creditID int
+			var productID string
+			var quantity int
+			var debtorName string
+			var installmentsTotal int
+			var installmentsPaid int
+			var totalValue float64
+			var interestPercent float64
+			var installmentValue float64
+			var lastPaymentAmount float64
+			var lastPaymentAt string
+			var notes string
+			var createdAt string
+			if err := creditRows.Scan(&creditID, &productID, &quantity, &debtorName, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &createdAt); err != nil {
+				http.Error(w, "Error al leer créditos", http.StatusInternalServerError)
+				return
+			}
+			product, ok := allowedProducts[productID]
+			if !ok {
+				continue
+			}
+			statusLabel := "Crédito activo"
+			statusClass := "credit_active"
+			if installmentsTotal > 0 && installmentsPaid >= installmentsTotal {
+				statusLabel = "Crédito completado"
+				statusClass = "sold"
+			}
+			creditName := product.Name
+			if quantity > 1 {
+				creditName = fmt.Sprintf("%s x%d", product.Name, quantity)
+			}
+			if err := db.QueryRow(`
+				SELECT COALESCE(amount_paid, 0), COALESCE(created_at, '')
+				FROM credit_installments
+				WHERE credit_sale_id = ?
+				ORDER BY installment_number DESC, id DESC
+				LIMIT 1
+			`, creditID).Scan(&lastPaymentAmount, &lastPaymentAt); err != nil && err != sql.ErrNoRows {
+				http.Error(w, "Error al leer el ultimo pago del credito", http.StatusInternalServerError)
+				return
+			}
+			inventoryProducts = append(inventoryProducts, inventoryProduct{
+				EntryType:         "credit",
+				CreditSaleID:      creditID,
+				BaseProductID:     productID,
+				ID:                fmt.Sprintf("CR-%d", creditID),
+				Name:              creditName,
+				Line:              "Crédito",
+				CreditEnabled:     true,
+				InterestPercent:   interestPercent,
+				DebtorName:        debtorName,
+				InstallmentsTotal: installmentsTotal,
+				InstallmentsPaid:  installmentsPaid,
+				TotalValue:        totalValue,
+				InstallmentValue:  installmentValue,
+				LastPaymentAmount: lastPaymentAmount,
+				LastPaymentAt:     lastPaymentAt,
+				Notes:             notes,
+				EstadoLabel:       statusLabel,
+				EstadoClass:       statusClass,
+				Disponible:        0,
+				Unidades:          []inventoryUnit{},
+				DisabledSale:      true,
+				FechaIngreso:      formatDateWithSettings(createdAt),
+				SalePrice:         product.SalePrice,
+				RetomaEnabled:     false,
+			})
+		}
+		if err := creditRows.Err(); err != nil {
+			http.Error(w, "Error al procesar créditos", http.StatusInternalServerError)
+			return
 		}
 		_, movementEnabledMap, err := loadMovementSettings(db)
 		if err != nil {
@@ -4421,6 +4782,7 @@ func main() {
 			CanSell:         movementEnabled(movementEnabledMap, "venta"),
 			CanSwap:         movementEnabled(movementEnabledMap, "cambio"),
 			CanRetoma:       movementEnabled(movementEnabledMap, "retoma"),
+			CanCredit:       movementEnabled(movementEnabledMap, "credito"),
 			CurrentUser:     currentUser,
 		}
 		if err := tmpl.ExecuteTemplate(w, "inventario.html", data); err != nil {
@@ -4459,8 +4821,13 @@ func main() {
 		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		priceValue := strings.TrimSpace(r.FormValue("precio_venta"))
 		retomaEnabled := r.FormValue("retoma_enabled") != ""
+		creditEnabledValue := r.FormValue("credit_enabled") != ""
 		retomaPriceValue := strings.TrimSpace(r.FormValue("retoma_price"))
 		notesValue := strings.TrimSpace(r.FormValue("notas"))
+		debtorNameValue := strings.TrimSpace(r.FormValue("debtor_name"))
+		installmentsTotalValue := strings.TrimSpace(r.FormValue("installments_total"))
+		totalValueValue := strings.TrimSpace(r.FormValue("total_value"))
+		installmentValueValue := strings.TrimSpace(r.FormValue("installment_value"))
 
 		if productID == "" {
 			writeJSONError(http.StatusBadRequest, "Producto inválido.")
@@ -4477,21 +4844,27 @@ func main() {
 		}
 
 		var previous struct {
-			SKU           string
-			Name          string
-			Line          string
-			SalePrice     float64
-			RetomaEnabled int
-			RetomaPrice   sql.NullFloat64
-			Notes         string
-			OwnerUserID   sql.NullInt64
+			SKU               string
+			Name              string
+			Line              string
+			CreditEnabled     int
+			DebtorName        string
+			InstallmentsTotal int
+			InstallmentsPaid  int
+			TotalValue        float64
+			InstallmentValue  float64
+			SalePrice         float64
+			RetomaEnabled     int
+			RetomaPrice       sql.NullFloat64
+			Notes             string
+			OwnerUserID       sql.NullInt64
 		}
 		if err := db.QueryRow(`
-			SELECT sku, nombre, linea, COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, COALESCE(anotaciones, ''), owner_user_id
+			SELECT sku, nombre, linea, COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, COALESCE(anotaciones, ''), owner_user_id
 			FROM productos
 			WHERE sku = ? OR id = ?
 			LIMIT 1
-		`, productID, productID).Scan(&previous.SKU, &previous.Name, &previous.Line, &previous.SalePrice, &previous.RetomaEnabled, &previous.RetomaPrice, &previous.Notes, &previous.OwnerUserID); err != nil {
+		`, productID, productID).Scan(&previous.SKU, &previous.Name, &previous.Line, &previous.CreditEnabled, &previous.DebtorName, &previous.InstallmentsTotal, &previous.InstallmentsPaid, &previous.TotalValue, &previous.InstallmentValue, &previous.SalePrice, &previous.RetomaEnabled, &previous.RetomaPrice, &previous.Notes, &previous.OwnerUserID); err != nil {
 			if err == sql.ErrNoRows {
 				writeJSONError(http.StatusNotFound, "Producto no encontrado.")
 				return
@@ -4526,6 +4899,12 @@ func main() {
 		finalName := previous.Name
 		finalLine := previous.Line
 		finalOwner := previous.OwnerUserID
+		finalCreditEnabled := previous.CreditEnabled == 1
+		finalDebtorName := previous.DebtorName
+		finalInstallmentsTotal := previous.InstallmentsTotal
+		finalInstallmentsPaid := previous.InstallmentsPaid
+		finalTotalValue := previous.TotalValue
+		finalInstallmentValue := previous.InstallmentValue
 		if currentUser.Role == "admin" {
 			if newName == "" {
 				writeJSONError(http.StatusBadRequest, "El nombre del producto es obligatorio.")
@@ -4573,6 +4952,43 @@ func main() {
 					return
 				}
 			}
+			finalCreditEnabled = creditEnabledValue
+			if finalCreditEnabled {
+				if debtorNameValue == "" {
+					writeJSONError(http.StatusBadRequest, "El nombre del deudor es obligatorio.")
+					return
+				}
+				parsedInstallmentsTotal, err := strconv.Atoi(installmentsTotalValue)
+				if err != nil || parsedInstallmentsTotal <= 0 {
+					writeJSONError(http.StatusBadRequest, "La cantidad total de cuotas debe ser mayor a 0.")
+					return
+				}
+				if previous.InstallmentsPaid > parsedInstallmentsTotal {
+					writeJSONError(http.StatusBadRequest, "Las cuotas pagadas actuales superan el total indicado.")
+					return
+				}
+				parsedTotalValue, err := parseCOPInteger(totalValueValue)
+				if err != nil || parsedTotalValue <= 0 {
+					writeJSONError(http.StatusBadRequest, "El valor total debe ser mayor a 0.")
+					return
+				}
+				parsedInstallmentValue, err := parseCOPInteger(installmentValueValue)
+				if err != nil || parsedInstallmentValue <= 0 {
+					writeJSONError(http.StatusBadRequest, "El valor por cuota debe ser mayor a 0.")
+					return
+				}
+				finalDebtorName = debtorNameValue
+				finalInstallmentsTotal = parsedInstallmentsTotal
+				finalInstallmentsPaid = previous.InstallmentsPaid
+				finalTotalValue = float64(parsedTotalValue)
+				finalInstallmentValue = float64(parsedInstallmentValue)
+			} else {
+				finalDebtorName = ""
+				finalInstallmentsTotal = 0
+				finalInstallmentsPaid = 0
+				finalTotalValue = 0
+				finalInstallmentValue = 0
+			}
 		}
 
 		tx, err := db.Begin()
@@ -4600,14 +5016,18 @@ func main() {
 				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el inventario asociado al ID.")
 				return
 			}
+			if _, err := tx.Exec(`UPDATE credit_installments SET product_id = ? WHERE product_id = ?`, newSKU, previous.SKU); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el historial de cuotas asociado al ID.")
+				return
+			}
 		}
 
 		if currentUser.Role == "admin" {
 			if _, err := tx.Exec(`
 				UPDATE productos
-				SET nombre = ?, linea = ?, owner_user_id = ?, precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?
+				SET nombre = ?, linea = ?, owner_user_id = ?, precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?
 				WHERE sku = ?
-			`, finalName, finalLine, finalOwner, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, newSKU); err != nil {
+			`, finalName, finalLine, finalOwner, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, boolToInt(finalCreditEnabled), finalDebtorName, finalInstallmentsTotal, finalInstallmentsPaid, finalTotalValue, finalInstallmentValue, newSKU); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el producto.")
 				return
 			}
@@ -4672,10 +5092,44 @@ func main() {
 				payload["previous_owner_user_id"] = prevOwner
 				payload["new_owner_user_id"] = newOwner
 			}
+			if (previous.CreditEnabled == 1) != finalCreditEnabled {
+				payload["previous_credit_enabled"] = previous.CreditEnabled == 1
+				payload["new_credit_enabled"] = finalCreditEnabled
+			}
+			if previous.DebtorName != finalDebtorName {
+				payload["previous_debtor_name"] = previous.DebtorName
+				payload["new_debtor_name"] = finalDebtorName
+			}
+			if previous.InstallmentsTotal != finalInstallmentsTotal {
+				payload["previous_installments_total"] = previous.InstallmentsTotal
+				payload["new_installments_total"] = finalInstallmentsTotal
+			}
+			if previous.TotalValue != finalTotalValue {
+				payload["previous_total_value"] = previous.TotalValue
+				payload["new_total_value"] = finalTotalValue
+			}
+			if previous.InstallmentValue != finalInstallmentValue {
+				payload["previous_installment_value"] = previous.InstallmentValue
+				payload["new_installment_value"] = finalInstallmentValue
+			}
 		}
 		if len(payload) > 0 {
 			if err := logAuditEvent(tx, currentUser, "product_updated", "product", newSKU, "web", payload); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del producto.")
+				return
+			}
+		}
+		if currentUser.Role == "admin" && ((previous.CreditEnabled == 1) || finalCreditEnabled) {
+			creditPayload := map[string]any{
+				"product_id":         newSKU,
+				"debtor_name":        finalDebtorName,
+				"installments_total": finalInstallmentsTotal,
+				"installments_paid":  finalInstallmentsPaid,
+				"total_value":        finalTotalValue,
+				"installment_value":  finalInstallmentValue,
+			}
+			if err := logAuditEvent(tx, currentUser, "credit_updated", "product", newSKU, "web", creditPayload); err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del crédito.")
 				return
 			}
 		}
@@ -4692,6 +5146,12 @@ func main() {
 				if currentUser.Role == "admin" {
 					products[idx].Name = finalName
 					products[idx].Line = finalLine
+					products[idx].CreditEnabled = finalCreditEnabled
+					products[idx].DebtorName = finalDebtorName
+					products[idx].InstallmentsTotal = finalInstallmentsTotal
+					products[idx].InstallmentsPaid = finalInstallmentsPaid
+					products[idx].TotalValue = finalTotalValue
+					products[idx].InstallmentValue = finalInstallmentValue
 					products[idx].HasOwner = finalOwner.Valid
 					if finalOwner.Valid {
 						products[idx].OwnerUserID = int(finalOwner.Int64)
@@ -4718,6 +5178,170 @@ func main() {
 			"ok":       true,
 			"producto": newSKU,
 			"mensaje":  "Producto actualizado correctamente.",
+		})
+	})
+
+	mux.HandleFunc("/inventario/cuota", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError := func(status int, message string) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+		}
+
+		if r.Method != http.MethodPost {
+			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.")
+			return
+		}
+		_, movementEnabledMap, err := loadMovementSettings(db)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo cargar la configuración de movimientos.")
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "credito") {
+			writeJSONError(http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			writeJSONError(http.StatusBadRequest, "No se pudo leer el formulario.")
+			return
+		}
+		creditSaleIDValue := strings.TrimSpace(r.FormValue("credit_sale_id"))
+		if creditSaleIDValue == "" {
+			writeJSONError(http.StatusBadRequest, "Crédito inválido.")
+			return
+		}
+		creditSaleID, err := strconv.Atoi(creditSaleIDValue)
+		if err != nil || creditSaleID <= 0 {
+			writeJSONError(http.StatusBadRequest, "Crédito inválido.")
+			return
+		}
+		var accessProductID string
+		if err := db.QueryRow(`SELECT product_id FROM credit_sales WHERE id = ?`, creditSaleID).Scan(&accessProductID); err != nil {
+			if err == sql.ErrNoRows {
+				writeJSONError(http.StatusNotFound, "Crédito no encontrado.")
+				return
+			}
+			writeJSONError(http.StatusInternalServerError, "No se pudo cargar el crédito.")
+			return
+		}
+		allowed, err := productAccessibleByID(db, userFromContext(r), accessProductID)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.")
+			return
+		}
+		if !allowed {
+			writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.")
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo iniciar la transacción.")
+			return
+		}
+		defer tx.Rollback()
+
+		var product struct {
+			CreditSaleID      int
+			SKU               string
+			Name              string
+			DebtorName        string
+			InstallmentsTotal int
+			InstallmentsPaid  int
+			TotalValue        float64
+			InterestPercent   float64
+			InstallmentValue  float64
+		}
+		if err := tx.QueryRow(`
+			SELECT cs.id, cs.product_id, p.nombre, COALESCE(cs.debtor_name, ''), COALESCE(cs.installments_total, 0), COALESCE(cs.installments_paid, 0), COALESCE(cs.total_value, 0), COALESCE(cs.interest_percent, 0), COALESCE(cs.installment_value, 0)
+			FROM credit_sales cs
+			JOIN productos p ON p.sku = cs.product_id
+			WHERE cs.id = ?
+			LIMIT 1
+		`, creditSaleID).Scan(&product.CreditSaleID, &product.SKU, &product.Name, &product.DebtorName, &product.InstallmentsTotal, &product.InstallmentsPaid, &product.TotalValue, &product.InterestPercent, &product.InstallmentValue); err != nil {
+			if err == sql.ErrNoRows {
+				writeJSONError(http.StatusNotFound, "Producto no encontrado.")
+				return
+			}
+			writeJSONError(http.StatusInternalServerError, "No se pudo cargar el producto.")
+			return
+		}
+		if product.InstallmentsTotal <= 0 {
+			writeJSONError(http.StatusBadRequest, "El crédito no tiene cuotas configuradas.")
+			return
+		}
+		if product.InstallmentsPaid >= product.InstallmentsTotal {
+			writeJSONError(http.StatusBadRequest, "Este crédito ya está completamente pagado.")
+			return
+		}
+		amountPaidValue := strings.TrimSpace(r.FormValue("amount_paid"))
+		amountPaid := product.InstallmentValue
+		if amountPaidValue != "" {
+			parsedAmountPaid, err := strconv.ParseFloat(amountPaidValue, 64)
+			if err != nil || parsedAmountPaid <= 0 {
+				writeJSONError(http.StatusBadRequest, "El valor abonado debe ser mayor a 0.")
+				return
+			}
+			amountPaid = parsedAmountPaid
+		}
+
+		nextInstallment := product.InstallmentsPaid + 1
+		now := time.Now().Format(time.RFC3339)
+		var createdBy any
+		if currentUser := userFromContext(r); currentUser != nil {
+			createdBy = currentUser.ID
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO credit_installments (product_id, installment_number, amount_paid, created_at, created_by)
+			VALUES (?, ?, ?, ?, ?)
+		`, product.SKU, nextInstallment, amountPaid, now, createdBy); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la cuota.")
+			return
+		}
+		if _, err := tx.Exec(`UPDATE credit_installments SET credit_sale_id = ? WHERE id = last_insert_rowid()`, product.CreditSaleID); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo vincular la cuota al crédito.")
+			return
+		}
+		if _, err := tx.Exec(`
+			UPDATE credit_sales
+			SET installments_paid = installments_paid + 1
+			WHERE id = ? AND installments_paid < installments_total
+		`, product.CreditSaleID); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el crédito.")
+			return
+		}
+		if err := logAuditEvent(tx, userFromContext(r), "credit_installment_added", "credit_sale", strconv.Itoa(product.CreditSaleID), "web", map[string]any{
+			"credit_sale_id":     product.CreditSaleID,
+			"product_id":         product.SKU,
+			"debtor_name":        product.DebtorName,
+			"installments_total": product.InstallmentsTotal,
+			"installments_paid":  nextInstallment,
+			"total_value":        product.TotalValue,
+			"interest_percent":   product.InterestPercent,
+			"installment_value":  product.InstallmentValue,
+			"amount_paid":        amountPaid,
+			"installment_number": nextInstallment,
+		}); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría de la cuota.")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la cuota.")
+			return
+		}
+
+		productsMu.Lock()
+		productsMu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":                 true,
+			"credit_sale_id":     product.CreditSaleID,
+			"producto_id":        product.SKU,
+			"amount_paid":        amountPaid,
+			"installment_number": nextInstallment,
+			"mensaje":            fmt.Sprintf("Cuota %d registrada correctamente.", nextInstallment),
 		})
 	})
 
@@ -5640,7 +6264,7 @@ func main() {
 		filtered := make([]productOption, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
 			if q != "" {
-				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line)
+				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line + " " + product.DebtorName)
 				if !strings.Contains(haystack, q) {
 					continue
 				}
@@ -5715,7 +6339,7 @@ func main() {
 		filtered := make([]productOption, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
 			if q != "" {
-				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line)
+				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line + " " + product.DebtorName)
 				if !strings.Contains(haystack, q) {
 					continue
 				}
@@ -5751,7 +6375,7 @@ func main() {
 		items := make([]map[string]any, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
 			if q != "" {
-				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line)
+				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line + " " + product.DebtorName)
 				if !strings.Contains(haystack, q) {
 					continue
 				}
@@ -6402,11 +7026,20 @@ func main() {
 		}
 
 		productID := r.FormValue("producto_id")
+		saleMode := strings.TrimSpace(r.FormValue("sale_mode"))
+		if saleMode == "" {
+			saleMode = "normal"
+		}
 		qtyValue := r.FormValue("cantidad")
 		precioValue := r.FormValue("precio_final_venta")
 		valorVentaFinalValue := r.FormValue("valor_venta_final")
 		metodoPago := r.FormValue("metodo_pago")
 		notas := r.FormValue("notas")
+		debtorName := strings.TrimSpace(r.FormValue("debtor_name"))
+		installmentsTotalValue := strings.TrimSpace(r.FormValue("installments_total"))
+		totalValueRaw := strings.TrimSpace(r.FormValue("total_value"))
+		interestPercentRaw := strings.TrimSpace(r.FormValue("interest_percent"))
+		installmentValueRaw := strings.TrimSpace(r.FormValue("installment_value"))
 		if allowed, accessErr := productAccessibleByID(db, currentUser, productID); accessErr != nil {
 			if wantsJSON {
 				writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
@@ -6423,12 +7056,11 @@ func main() {
 			return
 		}
 
+		errors := make(map[string]string)
 		selectedProduct, ok := findProduct(productsSnapshot, productID)
 		if !ok && len(productsSnapshot) > 0 {
 			selectedProduct = productsSnapshot[0]
 		}
-
-		errors := make(map[string]string)
 		cantidad, err := strconv.Atoi(qtyValue)
 		if err != nil || cantidad <= 0 {
 			errors["cantidad"] = "La cantidad debe ser un número positivo."
@@ -6438,41 +7070,89 @@ func main() {
 		}
 		precioParsed := 0.0
 		precioOk := false
-		if strings.TrimSpace(precioValue) != "" {
-			if parsed, err := strconv.ParseFloat(strings.TrimSpace(precioValue), 64); err == nil && parsed > 0 {
-				precioParsed = parsed
-				precioOk = true
-			} else {
-				errors["precio_final_venta"] = "El precio debe ser un número mayor a 0."
-			}
-		}
-
 		valorFinalParsed := 0.0
 		valorFinalOk := false
-		if strings.TrimSpace(valorVentaFinalValue) != "" {
-			if parsed, err := strconv.ParseFloat(strings.TrimSpace(valorVentaFinalValue), 64); err == nil && parsed > 0 {
-				valorFinalParsed = parsed
-				valorFinalOk = true
+		creditInstallmentsTotal := 0
+		creditTotalValue := 0
+		creditInterestPercent := 0.0
+		creditInstallmentValue := 0.0
+		if saleMode == "credit" {
+			if !movementEnabled(movementEnabledMap, "credito") {
+				errors["sale_mode"] = "La venta a crédito está deshabilitada en Configuración."
+			}
+			parsedInstallmentsTotal, parseErr := strconv.Atoi(installmentsTotalValue)
+			if parseErr != nil || parsedInstallmentsTotal <= 0 {
+				errors["installments_total"] = "La cantidad total de cuotas debe ser mayor a 0."
 			} else {
-				errors["valor_venta_final"] = "El valor final debe ser un número mayor a 0."
+				creditInstallmentsTotal = parsedInstallmentsTotal
 			}
-		}
+			parsedTotalValue, parseErr := parseCOPInteger(totalValueRaw)
+			if parseErr != nil || parsedTotalValue <= 0 {
+				errors["total_value"] = "El valor total debe ser mayor a 0."
+			} else {
+				creditTotalValue = parsedTotalValue
+			}
+			parsedInstallmentValue, parseErr := parseCOPInteger(installmentValueRaw)
+			if parseErr != nil || parsedInstallmentValue <= 0 {
+				errors["installment_value"] = "El valor por cuota debe ser mayor a 0."
+			} else {
+				creditInstallmentValue = float64(parsedInstallmentValue)
+			}
+			if debtorName == "" {
+				errors["debtor_name"] = "El nombre del deudor es obligatorio."
+			}
+			if interestPercentRaw != "" {
+				parsedInterest, parseErr := strconv.ParseFloat(interestPercentRaw, 64)
+				if parseErr != nil || parsedInterest < 0 {
+					errors["interest_percent"] = "El porcentaje de interés debe ser un número mayor o igual a 0."
+				} else {
+					creditInterestPercent = parsedInterest
+				}
+			}
+			if creditTotalValue > 0 && creditInstallmentsTotal > 0 {
+				financedTotal := float64(creditTotalValue) + (float64(creditTotalValue) * creditInterestPercent / 100)
+				creditInstallmentValue = math.Round((financedTotal/float64(creditInstallmentsTotal))*100) / 100
+				if strings.TrimSpace(installmentValueRaw) != "" {
+					if provided, parseErr := strconv.ParseFloat(strings.TrimSpace(installmentValueRaw), 64); parseErr != nil || provided < 0 {
+						errors["installment_value"] = "El valor por cuota calculado no es válido."
+					}
+				}
+			}
+		} else {
+			if strings.TrimSpace(precioValue) != "" {
+				if parsed, err := strconv.ParseFloat(strings.TrimSpace(precioValue), 64); err == nil && parsed > 0 {
+					precioParsed = parsed
+					precioOk = true
+				} else {
+					errors["precio_final_venta"] = "El precio debe ser un número mayor a 0."
+				}
+			}
 
-		if !valorFinalOk && !precioOk {
-			if _, ok := errors["precio_final_venta"]; !ok {
-				errors["precio_final_venta"] = "Ingresa el precio unitario o el valor final de la venta."
+			if strings.TrimSpace(valorVentaFinalValue) != "" {
+				if parsed, err := strconv.ParseFloat(strings.TrimSpace(valorVentaFinalValue), 64); err == nil && parsed > 0 {
+					valorFinalParsed = parsed
+					valorFinalOk = true
+				} else {
+					errors["valor_venta_final"] = "El valor final debe ser un número mayor a 0."
+				}
 			}
-		}
 
-		validMethod := false
-		for _, method := range paymentMethodOptions {
-			if metodoPago == method {
-				validMethod = true
-				break
+			if !valorFinalOk && !precioOk {
+				if _, ok := errors["precio_final_venta"]; !ok {
+					errors["precio_final_venta"] = "Ingresa el precio unitario o el valor final de la venta."
+				}
 			}
-		}
-		if !validMethod {
-			errors["metodo_pago"] = "Selecciona un método de pago válido."
+
+			validMethod := false
+			for _, method := range paymentMethodOptions {
+				if metodoPago == method {
+					validMethod = true
+					break
+				}
+			}
+			if !validMethod {
+				errors["metodo_pago"] = "Selecciona un método de pago válido."
+			}
 		}
 
 		if productID != "" && cantidad > 0 {
@@ -6485,7 +7165,7 @@ func main() {
 			if wantsJSON {
 				message := "Datos inválidos."
 				// Pick the first field error as a message for the modal.
-				for _, key := range []string{"producto_id", "cantidad", "valor_venta_final", "precio_final_venta", "metodo_pago"} {
+				for _, key := range []string{"producto_id", "cantidad", "sale_mode", "debtor_name", "installments_total", "total_value", "interest_percent", "installment_value", "valor_venta_final", "precio_final_venta", "metodo_pago"} {
 					if msg, ok := errors[key]; ok && msg != "" {
 						message = msg
 						break
@@ -6516,12 +7196,6 @@ func main() {
 			return
 		}
 
-		precioFinal := precioParsed
-		precioFinalText := precioValue
-		if valorFinalOk && cantidad > 0 {
-			precioFinal = valorFinalParsed / float64(cantidad)
-			precioFinalText = fmt.Sprintf("%.2f", precioFinal)
-		}
 		tx, err := db.Begin()
 		if err != nil {
 			if wantsJSON {
@@ -6570,7 +7244,20 @@ func main() {
 			return
 		}
 		now := time.Now().Format(time.RFC3339)
-		if err := logMovimientos(tx, productID, soldUnitIDs, "venta", notas, currentUser, now); err != nil {
+		movementType := "venta"
+		if saleMode == "credit" {
+			movementType = "venta_credito"
+		}
+		notaMovimiento := notas
+		if saleMode == "credit" {
+			creditSummary := fmt.Sprintf("VENTA A CREDITO | Deudor: %s | Cuotas: %d | Interes: %.2f%% | Valor cuota: %.2f", debtorName, creditInstallmentsTotal, creditInterestPercent, creditInstallmentValue)
+			if strings.TrimSpace(notaMovimiento) != "" {
+				notaMovimiento = creditSummary + " | " + strings.TrimSpace(notaMovimiento)
+			} else {
+				notaMovimiento = creditSummary
+			}
+		}
+		if err := logMovimientos(tx, productID, soldUnitIDs, movementType, notaMovimiento, currentUser, now); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback venta log: %v", rollbackErr)
 			}
@@ -6582,10 +7269,55 @@ func main() {
 			return
 		}
 
-		if _, err := tx.Exec(
+		if saleMode == "credit" {
+			result, err := tx.Exec(
+				`INSERT INTO credit_sales (product_id, quantity, debtor_name, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+				VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+				productID, cantidad, debtorName, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, now, nullableUserID(currentUser),
+			)
+			if err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					log.Printf("rollback credit sale insert: %v", rollbackErr)
+				}
+				if wantsJSON {
+					writeJSONError(http.StatusInternalServerError, "Error al registrar la venta a crédito.", nil)
+					return
+				}
+				http.Error(w, "Error al registrar la venta a crédito", http.StatusInternalServerError)
+				return
+			}
+			creditSaleID, _ := result.LastInsertId()
+			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "manual", map[string]any{
+				"credit_sale_id":     creditSaleID,
+				"product_id":         productID,
+				"debtor_name":        debtorName,
+				"installments_total": creditInstallmentsTotal,
+				"installments_paid":  0,
+				"total_value":        creditTotalValue,
+				"interest_percent":   creditInterestPercent,
+				"installment_value":  creditInstallmentValue,
+				"quantity":           cantidad,
+			}); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					log.Printf("rollback credit sale audit: %v", rollbackErr)
+				}
+				if wantsJSON {
+					writeJSONError(http.StatusInternalServerError, "Error al registrar la auditoría del crédito.", nil)
+					return
+				}
+				http.Error(w, "Error al registrar la auditoría del crédito", http.StatusInternalServerError)
+				return
+			}
+		} else if _, err := tx.Exec(
 			`INSERT INTO ventas (producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
 			VALUES (?, ?, ?, ?, ?, ?)`,
-			productID, cantidad, precioFinal, metodoPago, notas, now,
+			productID, cantidad, func() float64 {
+				precioFinal := precioParsed
+				if valorFinalOk && cantidad > 0 {
+					precioFinal = valorFinalParsed / float64(cantidad)
+				}
+				return precioFinal
+			}(), metodoPago, notas, now,
 		); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback venta insert: %v", rollbackErr)
@@ -6597,22 +7329,28 @@ func main() {
 			http.Error(w, "Error al registrar la venta", http.StatusInternalServerError)
 			return
 		}
-		if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", productID, "manual", map[string]any{
-			"producto_id": productID,
-			"producto":    selectedProduct.Name,
-			"cantidad":    cantidad,
-			"metodo_pago": metodoPago,
-			"total":       precioFinal * float64(cantidad),
-		}); err != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				log.Printf("rollback sale audit: %v", rollbackErr)
+		if saleMode != "credit" {
+			precioFinal := precioParsed
+			if valorFinalOk && cantidad > 0 {
+				precioFinal = valorFinalParsed / float64(cantidad)
 			}
-			if wantsJSON {
-				writeJSONError(http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
+			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", productID, "manual", map[string]any{
+				"producto_id": productID,
+				"producto":    selectedProduct.Name,
+				"cantidad":    cantidad,
+				"metodo_pago": metodoPago,
+				"total":       precioFinal * float64(cantidad),
+			}); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					log.Printf("rollback sale audit: %v", rollbackErr)
+				}
+				if wantsJSON {
+					writeJSONError(http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
+					return
+				}
+				http.Error(w, "Error al registrar la auditoría de la venta", http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "Error al registrar la auditoría de la venta", http.StatusInternalServerError)
-			return
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -6626,14 +7364,22 @@ func main() {
 
 		if wantsJSON {
 			w.Header().Set("Content-Type", "application/json")
+			message := "Venta registrada correctamente."
+			if saleMode == "credit" {
+				message = "Venta a crédito registrada correctamente."
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":           true,
 				"producto_id":  productID,
 				"producto_nom": selectedProduct.Name,
 				"cantidad":     cantidad,
-				"mensaje":      "Venta registrada correctamente.",
+				"mensaje":      message,
 			})
 			return
+		}
+		precioFinalText := precioValue
+		if saleMode != "credit" && valorFinalOk && cantidad > 0 {
+			precioFinalText = fmt.Sprintf("%.2f", valorFinalParsed/float64(cantidad))
 		}
 
 		confirmData := ventaConfirmData{
