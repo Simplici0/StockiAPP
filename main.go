@@ -3001,6 +3001,7 @@ func main() {
 		Subtitle          string
 		Flash             string
 		Error             string
+		VersionLabel      string
 		Settings          BusinessSettings
 		Lines             []BusinessLine
 		PaymentMethods    []PaymentMethod
@@ -3371,6 +3372,7 @@ func main() {
 			Subtitle:          "Separa branding general del negocio y catálogos operativos desde un único panel.",
 			Flash:             flash,
 			Error:             errText,
+			VersionLabel:      "Versión 0.9 22032026",
 			Settings:          currentBusinessSettings(),
 			Lines:             lines,
 			PaymentMethods:    paymentMethodsCfg,
@@ -5547,9 +5549,6 @@ func main() {
 			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la cuota.")
 			return
 		}
-
-		productsMu.Lock()
-		productsMu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
