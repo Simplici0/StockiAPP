@@ -106,36 +106,39 @@ type inventoryUnit struct {
 }
 
 type inventoryProduct struct {
-	EntryType         string
-	CreditSaleID      int
-	BaseProductID     string
-	ID                string
-	Name              string
-	Line              string
-	CreditEnabled     bool
-	InterestPercent   float64
-	DebtorName        string
-	InstallmentsTotal int
-	InstallmentsPaid  int
-	TotalValue        float64
-	InstallmentValue  float64
-	LastPaymentAmount float64
-	LastPaymentAt     string
-	Notes             string
-	EstadoLabel       string
-	EstadoClass       string
-	Disponible        int
-	Unidades          []inventoryUnit
-	DisabledSale      bool
-	FechaIngreso      string
-	MesesEnStock      int
-	AlertaPermanencia bool
-	SalePrice         float64
-	RetomaEnabled     bool
-	RetomaPrice       float64
-	HasRetomaPrice    bool
-	OwnerUserID       int
-	HasOwner          bool
+	EntryType            string
+	CreditSaleID         int
+	BaseProductID        string
+	ID                   string
+	Name                 string
+	Line                 string
+	CreditEnabled        bool
+	InterestPercent      float64
+	DebtorName           string
+	DebtorDocumentType   string
+	DebtorDocumentNumber string
+	DebtorPhone          string
+	InstallmentsTotal    int
+	InstallmentsPaid     int
+	TotalValue           float64
+	InstallmentValue     float64
+	LastPaymentAmount    float64
+	LastPaymentAt        string
+	Notes                string
+	EstadoLabel          string
+	EstadoClass          string
+	Disponible           int
+	Unidades             []inventoryUnit
+	DisabledSale         bool
+	FechaIngreso         string
+	MesesEnStock         int
+	AlertaPermanencia    bool
+	SalePrice            float64
+	RetomaEnabled        bool
+	RetomaPrice          float64
+	HasRetomaPrice       bool
+	OwnerUserID          int
+	HasOwner             bool
 }
 
 type productInventoryCounts struct {
@@ -2963,6 +2966,9 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		product_id TEXT NOT NULL,
 		quantity INTEGER NOT NULL DEFAULT 1,
 		debtor_name TEXT NOT NULL,
+		debtor_document_type TEXT NOT NULL DEFAULT '',
+		debtor_document_number TEXT NOT NULL DEFAULT '',
+		debtor_phone TEXT NOT NULL DEFAULT '',
 		installments_total INTEGER NOT NULL,
 		installments_paid INTEGER NOT NULL DEFAULT 0,
 		total_value REAL NOT NULL,
@@ -3062,6 +3068,9 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		definition string
 	}{
 		{name: "quantity", definition: "INTEGER NOT NULL DEFAULT 1"},
+		{name: "debtor_document_type", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "debtor_document_number", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "debtor_phone", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "interest_percent", definition: "REAL NOT NULL DEFAULT 0"},
 		{name: "notes", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "created_by", definition: "INTEGER"},
@@ -5512,7 +5521,7 @@ func main() {
 		}
 
 		creditRows, err := db.Query(`
-			SELECT id, product_id, quantity, debtor_name, installments_total, installments_paid, total_value, COALESCE(interest_percent, 0), installment_value, COALESCE(notes, ''), created_at
+			SELECT id, product_id, quantity, debtor_name, COALESCE(debtor_document_type, ''), COALESCE(debtor_document_number, ''), COALESCE(debtor_phone, ''), installments_total, installments_paid, total_value, COALESCE(interest_percent, 0), installment_value, COALESCE(notes, ''), created_at
 			FROM credit_sales
 			ORDER BY created_at DESC, id DESC
 		`)
@@ -5526,6 +5535,9 @@ func main() {
 			var productID string
 			var quantity int
 			var debtorName string
+			var debtorDocumentType string
+			var debtorDocumentNumber string
+			var debtorPhone string
 			var installmentsTotal int
 			var installmentsPaid int
 			var totalValue float64
@@ -5535,7 +5547,7 @@ func main() {
 			var lastPaymentAt string
 			var notes string
 			var createdAt string
-			if err := creditRows.Scan(&creditID, &productID, &quantity, &debtorName, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &createdAt); err != nil {
+			if err := creditRows.Scan(&creditID, &productID, &quantity, &debtorName, &debtorDocumentType, &debtorDocumentNumber, &debtorPhone, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &createdAt); err != nil {
 				http.Error(w, "Error al leer créditos", http.StatusInternalServerError)
 				return
 			}
@@ -5564,30 +5576,33 @@ func main() {
 				return
 			}
 			inventoryProducts = append(inventoryProducts, inventoryProduct{
-				EntryType:         "credit",
-				CreditSaleID:      creditID,
-				BaseProductID:     productID,
-				ID:                fmt.Sprintf("CR-%d", creditID),
-				Name:              creditName,
-				Line:              "Crédito",
-				CreditEnabled:     true,
-				InterestPercent:   interestPercent,
-				DebtorName:        debtorName,
-				InstallmentsTotal: installmentsTotal,
-				InstallmentsPaid:  installmentsPaid,
-				TotalValue:        totalValue,
-				InstallmentValue:  installmentValue,
-				LastPaymentAmount: lastPaymentAmount,
-				LastPaymentAt:     lastPaymentAt,
-				Notes:             notes,
-				EstadoLabel:       statusLabel,
-				EstadoClass:       statusClass,
-				Disponible:        0,
-				Unidades:          []inventoryUnit{},
-				DisabledSale:      true,
-				FechaIngreso:      formatDateWithSettings(createdAt),
-				SalePrice:         product.SalePrice,
-				RetomaEnabled:     false,
+				EntryType:            "credit",
+				CreditSaleID:         creditID,
+				BaseProductID:        productID,
+				ID:                   fmt.Sprintf("CR-%d", creditID),
+				Name:                 creditName,
+				Line:                 "Crédito",
+				CreditEnabled:        true,
+				InterestPercent:      interestPercent,
+				DebtorName:           debtorName,
+				DebtorDocumentType:   debtorDocumentType,
+				DebtorDocumentNumber: debtorDocumentNumber,
+				DebtorPhone:          debtorPhone,
+				InstallmentsTotal:    installmentsTotal,
+				InstallmentsPaid:     installmentsPaid,
+				TotalValue:           totalValue,
+				InstallmentValue:     installmentValue,
+				LastPaymentAmount:    lastPaymentAmount,
+				LastPaymentAt:        lastPaymentAt,
+				Notes:                notes,
+				EstadoLabel:          statusLabel,
+				EstadoClass:          statusClass,
+				Disponible:           0,
+				Unidades:             []inventoryUnit{},
+				DisabledSale:         true,
+				FechaIngreso:         formatDateWithSettings(createdAt),
+				SalePrice:            product.SalePrice,
+				RetomaEnabled:        false,
 			})
 		}
 		if err := creditRows.Err(); err != nil {
@@ -7224,6 +7239,9 @@ func main() {
 					COALESCE(p.nombre, cs.product_id),
 					cs.quantity,
 					COALESCE(cs.debtor_name, ''),
+					COALESCE(cs.debtor_document_type, ''),
+					COALESCE(cs.debtor_document_number, ''),
+					COALESCE(cs.debtor_phone, ''),
 					COALESCE(cs.installments_total, 0),
 					COALESCE(cs.installments_paid, 0),
 					COALESCE(cs.total_value, 0),
@@ -7248,9 +7266,9 @@ func main() {
 				LEFT JOIN productos p ON p.sku = cs.product_id
 				WHERE ` + visibilitySQL
 			if q != "" {
-				query += ` AND (LOWER(cs.product_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_name, '')) LIKE ?)`
+				query += ` AND (LOWER(cs.product_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_name, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_document_type, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_document_number, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_phone, '')) LIKE ?)`
 				qLike := "%" + strings.ToLower(q) + "%"
-				args = append(args, qLike, qLike, qLike)
+				args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
 			}
 			query += ` ORDER BY cs.created_at DESC, cs.id DESC LIMIT 100`
 
@@ -7270,6 +7288,9 @@ func main() {
 					productName       string
 					quantity          int
 					debtorName        string
+					debtorDocType     string
+					debtorDocNumber   string
+					debtorPhone       string
 					installmentsTotal int
 					installmentsPaid  int
 					totalValue        float64
@@ -7279,7 +7300,7 @@ func main() {
 					lastPaymentAmount float64
 					lastPaymentAt     string
 				)
-				if err := rows.Scan(&id, &createdAt, &productID, &productName, &quantity, &debtorName, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &lastPaymentAmount, &lastPaymentAt); err != nil {
+				if err := rows.Scan(&id, &createdAt, &productID, &productName, &quantity, &debtorName, &debtorDocType, &debtorDocNumber, &debtorPhone, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &lastPaymentAmount, &lastPaymentAt); err != nil {
 					writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer los créditos.", nil)
 					return
 				}
@@ -7288,20 +7309,23 @@ func main() {
 					status = "completed"
 				}
 				item := map[string]any{
-					"id":                   id,
-					"created_at":           formatDateWithSettings(createdAt),
-					"product_id":           productID,
-					"product":              productName,
-					"quantity":             quantity,
-					"debtor_name":          debtorName,
-					"installments_total":   installmentsTotal,
-					"installments_paid":    installmentsPaid,
-					"installments_pending": max(installmentsTotal-installmentsPaid, 0),
-					"total_value":          totalValue,
-					"interest_percent":     interestPercent,
-					"installment_value":    installmentValue,
-					"notes":                notes,
-					"status":               status,
+					"id":                     id,
+					"created_at":             formatDateWithSettings(createdAt),
+					"product_id":             productID,
+					"product":                productName,
+					"quantity":               quantity,
+					"debtor_name":            debtorName,
+					"debtor_document_type":   debtorDocType,
+					"debtor_document_number": debtorDocNumber,
+					"debtor_phone":           debtorPhone,
+					"installments_total":     installmentsTotal,
+					"installments_paid":      installmentsPaid,
+					"installments_pending":   max(installmentsTotal-installmentsPaid, 0),
+					"total_value":            totalValue,
+					"interest_percent":       interestPercent,
+					"installment_value":      installmentValue,
+					"notes":                  notes,
+					"status":                 status,
 				}
 				if lastPaymentAt != "" {
 					item["last_payment_at"] = formatDateWithSettings(lastPaymentAt)
@@ -7328,14 +7352,17 @@ func main() {
 				return
 			}
 			var payload struct {
-				ProductID         string   `json:"product_id"`
-				Quantity          int      `json:"quantity"`
-				DebtorName        string   `json:"debtor_name"`
-				InstallmentsTotal int      `json:"installments_total"`
-				TotalValue        float64  `json:"total_value"`
-				InterestPercent   float64  `json:"interest_percent"`
-				InstallmentValue  *float64 `json:"installment_value"`
-				Notes             string   `json:"notes"`
+				ProductID            string   `json:"product_id"`
+				Quantity             int      `json:"quantity"`
+				DebtorName           string   `json:"debtor_name"`
+				DebtorDocumentType   string   `json:"debtor_document_type"`
+				DebtorDocumentNumber string   `json:"debtor_document_number"`
+				DebtorPhone          string   `json:"debtor_phone"`
+				InstallmentsTotal    int      `json:"installments_total"`
+				TotalValue           float64  `json:"total_value"`
+				InterestPercent      float64  `json:"interest_percent"`
+				InstallmentValue     *float64 `json:"installment_value"`
+				Notes                string   `json:"notes"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
@@ -7343,6 +7370,9 @@ func main() {
 			}
 			payload.ProductID = strings.TrimSpace(payload.ProductID)
 			payload.DebtorName = strings.TrimSpace(payload.DebtorName)
+			payload.DebtorDocumentType = strings.TrimSpace(payload.DebtorDocumentType)
+			payload.DebtorDocumentNumber = strings.TrimSpace(payload.DebtorDocumentNumber)
+			payload.DebtorPhone = strings.TrimSpace(payload.DebtorPhone)
 			payload.Notes = strings.TrimSpace(payload.Notes)
 
 			productsMu.RLock()
@@ -7366,6 +7396,17 @@ func main() {
 			}
 			if payload.DebtorName == "" {
 				fields["debtor_name"] = "El nombre del deudor es obligatorio."
+			}
+			switch payload.DebtorDocumentType {
+			case "CC", "C Extranjeria", "Pasaporte":
+			default:
+				fields["debtor_document_type"] = "Selecciona un tipo de documento válido."
+			}
+			if payload.DebtorDocumentNumber == "" {
+				fields["debtor_document_number"] = "El número de documento del deudor es obligatorio."
+			}
+			if payload.DebtorPhone == "" {
+				fields["debtor_phone"] = "El teléfono del deudor es obligatorio."
 			}
 			if payload.InstallmentsTotal <= 0 {
 				fields["installments_total"] = "La cantidad total de cuotas debe ser mayor a 0."
@@ -7439,9 +7480,9 @@ func main() {
 				return
 			}
 			result, err := tx.Exec(
-				`INSERT INTO credit_sales (product_id, quantity, debtor_name, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
-				VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-				payload.ProductID, payload.Quantity, payload.DebtorName, payload.InstallmentsTotal, payload.TotalValue, payload.InterestPercent, installmentValue, movementNote, now, nullableUserID(currentUser),
+				`INSERT INTO credit_sales (product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+				payload.ProductID, payload.Quantity, payload.DebtorName, payload.DebtorDocumentType, payload.DebtorDocumentNumber, payload.DebtorPhone, payload.InstallmentsTotal, payload.TotalValue, payload.InterestPercent, installmentValue, movementNote, now, nullableUserID(currentUser),
 			)
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta a crédito.", nil)
@@ -7449,16 +7490,19 @@ func main() {
 			}
 			creditSaleID, _ := result.LastInsertId()
 			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "api", withAPIAuditMetadata(r, map[string]any{
-				"credit_sale_id":     creditSaleID,
-				"product_id":         payload.ProductID,
-				"producto":           selectedProduct.Name,
-				"debtor_name":        payload.DebtorName,
-				"installments_total": payload.InstallmentsTotal,
-				"installments_paid":  0,
-				"total_value":        payload.TotalValue,
-				"interest_percent":   payload.InterestPercent,
-				"installment_value":  installmentValue,
-				"quantity":           payload.Quantity,
+				"credit_sale_id":         creditSaleID,
+				"product_id":             payload.ProductID,
+				"producto":               selectedProduct.Name,
+				"debtor_name":            payload.DebtorName,
+				"debtor_document_type":   payload.DebtorDocumentType,
+				"debtor_document_number": payload.DebtorDocumentNumber,
+				"debtor_phone":           payload.DebtorPhone,
+				"installments_total":     payload.InstallmentsTotal,
+				"installments_paid":      0,
+				"total_value":            payload.TotalValue,
+				"interest_percent":       payload.InterestPercent,
+				"installment_value":      installmentValue,
+				"quantity":               payload.Quantity,
 			})); err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del crédito.", nil)
 				return
@@ -8205,6 +8249,9 @@ func main() {
 		metodoPago := r.FormValue("metodo_pago")
 		notas := r.FormValue("notas")
 		debtorName := strings.TrimSpace(r.FormValue("debtor_name"))
+		debtorDocumentType := strings.TrimSpace(r.FormValue("debtor_document_type"))
+		debtorDocumentNumber := strings.TrimSpace(r.FormValue("debtor_document_number"))
+		debtorPhone := strings.TrimSpace(r.FormValue("debtor_phone"))
 		installmentsTotalValue := strings.TrimSpace(r.FormValue("installments_total"))
 		totalValueRaw := strings.TrimSpace(r.FormValue("total_value"))
 		interestPercentRaw := strings.TrimSpace(r.FormValue("interest_percent"))
@@ -8270,6 +8317,17 @@ func main() {
 			if debtorName == "" {
 				errors["debtor_name"] = "El nombre del deudor es obligatorio."
 			}
+			switch debtorDocumentType {
+			case "CC", "C Extranjeria", "Pasaporte":
+			default:
+				errors["debtor_document_type"] = "Selecciona un tipo de documento válido."
+			}
+			if debtorDocumentNumber == "" {
+				errors["debtor_document_number"] = "El número de documento del deudor es obligatorio."
+			}
+			if debtorPhone == "" {
+				errors["debtor_phone"] = "El teléfono del deudor es obligatorio."
+			}
 			if interestPercentRaw != "" {
 				parsedInterest, parseErr := strconv.ParseFloat(interestPercentRaw, 64)
 				if parseErr != nil || parsedInterest < 0 {
@@ -8334,7 +8392,7 @@ func main() {
 			if wantsJSON {
 				message := "Datos inválidos."
 				// Pick the first field error as a message for the modal.
-				for _, key := range []string{"producto_id", "cantidad", "sale_mode", "debtor_name", "installments_total", "total_value", "interest_percent", "installment_value", "valor_venta_final", "precio_final_venta", "metodo_pago"} {
+				for _, key := range []string{"producto_id", "cantidad", "sale_mode", "debtor_name", "debtor_document_type", "debtor_document_number", "debtor_phone", "installments_total", "total_value", "interest_percent", "installment_value", "valor_venta_final", "precio_final_venta", "metodo_pago"} {
 					if msg, ok := errors[key]; ok && msg != "" {
 						message = msg
 						break
@@ -8440,9 +8498,9 @@ func main() {
 
 		if saleMode == "credit" {
 			result, err := tx.Exec(
-				`INSERT INTO credit_sales (product_id, quantity, debtor_name, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
-				VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-				productID, cantidad, debtorName, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, now, nullableUserID(currentUser),
+				`INSERT INTO credit_sales (product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+				productID, cantidad, debtorName, debtorDocumentType, debtorDocumentNumber, debtorPhone, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, now, nullableUserID(currentUser),
 			)
 			if err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
@@ -8457,15 +8515,18 @@ func main() {
 			}
 			creditSaleID, _ := result.LastInsertId()
 			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "manual", map[string]any{
-				"credit_sale_id":     creditSaleID,
-				"product_id":         productID,
-				"debtor_name":        debtorName,
-				"installments_total": creditInstallmentsTotal,
-				"installments_paid":  0,
-				"total_value":        creditTotalValue,
-				"interest_percent":   creditInterestPercent,
-				"installment_value":  creditInstallmentValue,
-				"quantity":           cantidad,
+				"credit_sale_id":         creditSaleID,
+				"product_id":             productID,
+				"debtor_name":            debtorName,
+				"debtor_document_type":   debtorDocumentType,
+				"debtor_document_number": debtorDocumentNumber,
+				"debtor_phone":           debtorPhone,
+				"installments_total":     creditInstallmentsTotal,
+				"installments_paid":      0,
+				"total_value":            creditTotalValue,
+				"interest_percent":       creditInterestPercent,
+				"installment_value":      creditInstallmentValue,
+				"quantity":               cantidad,
 			}); err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					log.Printf("rollback credit sale audit: %v", rollbackErr)

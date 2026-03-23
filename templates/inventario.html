@@ -47,52 +47,6 @@
       flex-wrap: wrap;
     }
 
-    .inventory-overview {
-      display: grid;
-      gap: 14px;
-      margin: 0 0 var(--section-gap);
-    }
-
-    .inventory-intro {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 16px;
-      flex-wrap: wrap;
-      padding: 16px 18px;
-      border-radius: 18px;
-      border: 1px solid rgba(15, 40, 80, 0.08);
-      background:
-        linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(244,248,252,0.92) 100%);
-      box-shadow: 0 18px 30px rgba(12, 28, 52, 0.06);
-    }
-
-    .inventory-intro-copy {
-      display: grid;
-      gap: 4px;
-      min-width: min(100%, 420px);
-    }
-
-    .inventory-kicker {
-      margin: 0;
-      font-size: 10.5px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-weight: 800;
-      color: #0ea5c9;
-    }
-
-    .inventory-intro-copy strong {
-      font-size: 15px;
-      line-height: 1.2;
-      letter-spacing: -0.02em;
-      color: #0d2b55;
-    }
-
-    .inventory-intro-copy span {
-      font-size: 12.5px;
-      color: #5f7694;
-    }
 
     .actions input[type="number"] {
       width: 66px;
@@ -195,7 +149,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 8px;
+      margin-top: 10px;
       padding: 0;
       background: transparent;
       border: 0;
@@ -225,7 +179,6 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      margin-left: 8px;
       padding: 4px 10px;
       border-radius: 999px;
       background: #fff7ed;
@@ -235,6 +188,41 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+    }
+
+    .credit-details {
+      display: inline-grid;
+      gap: 0;
+      margin-top: 8px;
+    }
+
+    .credit-details summary {
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .credit-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .credit-caret {
+      width: 8px;
+      height: 8px;
+      border-right: 1.5px solid #9a3412;
+      border-bottom: 1.5px solid #9a3412;
+      transform: rotate(45deg);
+      transition: transform 0.14s ease;
+      opacity: 0.72;
+      margin-top: -2px;
+    }
+
+    .credit-details[open] .credit-caret {
+      transform: rotate(225deg);
+      margin-top: 2px;
     }
 
     .status.credit_active {
@@ -432,6 +420,9 @@
       overflow: hidden;
       animation: modalIn 0.16s ease-out;
       backdrop-filter: blur(14px);
+      max-height: calc(100dvh - 24px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
     }
 
     @keyframes modalIn {
@@ -464,20 +455,25 @@
     }
 
     .modal-close {
-      width: 30px;
-      min-height: 30px;
+      width: 44px;
+      min-height: 44px;
       padding: 0;
       border-radius: 999px;
       border: 1px solid rgba(15, 40, 80, 0.1);
       background: #ffffff;
       color: #7a93ae;
-      font-size: 14px;
+      font-size: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .modal-body {
       padding: 18px 20px 20px;
       display: grid;
       gap: 14px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     .modal-loading,
@@ -518,7 +514,14 @@
       gap: 8px;
       flex-wrap: wrap;
       align-items: center;
-      padding-top: 8px;
+      padding: 12px 20px;
+      margin: 2px -20px -20px;
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      background: rgba(255, 255, 255, 0.98);
+      border-top: 1px solid rgba(15, 40, 80, 0.08);
+      backdrop-filter: blur(8px);
     }
 
     .modal-error {
@@ -543,9 +546,22 @@
     }
 
     .checkline {
-      min-height: 20px;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
       font-size: 13.5px;
       font-weight: 600;
+    }
+
+    .checkline input[type="checkbox"] {
+      width: 22px;
+      height: 22px;
+      min-height: 22px;
+      margin: 0 10px 0 0;
+      padding: 0;
+      flex: 0 0 auto;
+      accent-color: #0ea5c9;
+      cursor: pointer;
     }
 
     .modal-row {
@@ -555,9 +571,37 @@
       align-items: end;
     }
 
+    @media (max-width: 900px) {
+      .modal-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
     @media (max-width: 720px) {
-      .filters,
-      .inventory-intro {
+      .modal-backdrop {
+        padding: 8px;
+      }
+
+      .modal {
+        width: 100%;
+        max-height: calc(100dvh - 12px);
+        border-radius: 16px;
+      }
+
+      .modal-header {
+        padding: 14px 14px;
+      }
+
+      .modal-body {
+        padding: 14px 14px 16px;
+      }
+
+      .modal-actions {
+        margin: 2px -14px -16px;
+        padding: 10px 14px;
+      }
+
+      .filters {
         padding: 14px;
       }
     }
@@ -570,17 +614,7 @@
     {{if .Flash}}
       <div class="flash">{{.Flash}}</div>
     {{end}}
-    <section class="inventory-overview">
-      <div class="inventory-intro">
-        <div class="inventory-intro-copy">
-          <p class="inventory-kicker">Control de inventario</p>
-          <strong>Consulta stock, filtra rapidamente y entra a cada operación sin perder contexto.</strong>
-          <span>La vista prioriza lectura operativa y acciones frecuentes desde tablet.</span>
-        </div>
-        <span class="range-pill">Inventario visible en tiempo real</span>
-      </div>
-
-      <section class="filters">
+    <section class="filters">
       <div class="filter-group">
         <label for="statusFilter">Estado</label>
         <select id="statusFilter">
@@ -601,7 +635,7 @@
       </div>
       <div class="filter-group">
         <label for="searchFilter">Búsqueda</label>
-        <input id="searchFilter" type="search" placeholder="Nombre, ID, línea o deudor" />
+        <input id="searchFilter" type="search" placeholder="Nombre, ID, línea, deudor o documento" />
       </div>
       <div class="filter-group">
         <label>Caducidad</label>
@@ -610,7 +644,6 @@
           <span>Próximos 45 días</span>
         </div>
       </div>
-      </section>
     </section>
 
   <section id="summary" class="summary" aria-live="polite"></section>
@@ -732,15 +765,6 @@
         <form id="sale-form" class="modal-grid">
           <div id="sale-error" class="modal-error" hidden></div>
 
-          {{if .CanCredit}}
-          <div>
-            <label class="checkline">
-              <input id="sale-credit-toggle" name="sale_credit_enabled" type="checkbox" />
-              Registrar esta venta como crédito
-            </label>
-          </div>
-          {{end}}
-
           <div class="modal-row">
             <div>
               <label for="sale-qty">Cantidad</label>
@@ -773,12 +797,41 @@
             <input id="sale-final" name="valor_venta_final" type="text" inputmode="numeric" placeholder="0" />
             <div class="modal-hint">Si lo llenas, este valor reemplaza (Precio unitario x Cantidad).</div>
           </div>
+
           </div>
+
+          {{if .CanCredit}}
+          <div>
+            <label class="checkline">
+              <input id="sale-credit-toggle" name="sale_credit_enabled" type="checkbox" />
+              Registrar esta venta como crédito
+            </label>
+          </div>
+          {{end}}
 
           <div id="sale-credit-fields" class="modal-grid" hidden>
             <div>
               <label for="sale-debtor-name">Nombre del deudor</label>
               <input id="sale-debtor-name" name="debtor_name" type="text" placeholder="Nombre del deudor" />
+            </div>
+            <div class="modal-row">
+              <div>
+                <label for="sale-debtor-document-type">Tipo de documento</label>
+                <select id="sale-debtor-document-type" name="debtor_document_type">
+                  <option value="">Selecciona</option>
+                  <option value="CC">CC</option>
+                  <option value="C Extranjeria">C Extranjeria</option>
+                  <option value="Pasaporte">Pasaporte</option>
+                </select>
+              </div>
+              <div>
+                <label for="sale-debtor-document-number">Número de documento</label>
+                <input id="sale-debtor-document-number" name="debtor_document_number" type="text" inputmode="numeric" placeholder="Ej. 1234567890" />
+              </div>
+            </div>
+            <div>
+              <label for="sale-debtor-phone">Teléfono</label>
+              <input id="sale-debtor-phone" name="debtor_phone" type="text" inputmode="tel" placeholder="Ej. 3001234567" />
             </div>
             <div class="modal-row">
               <div>
@@ -1005,6 +1058,7 @@
         name: "{{js .Name}}",
         line: "{{js .Line}}",
         debtorName: "{{js .DebtorName}}",
+        debtorDocumentNumber: "{{js .DebtorDocumentNumber}}",
         installmentsTotal: {{.InstallmentsTotal}},
         installmentsPaid: {{.InstallmentsPaid}},
         totalValue: {{printf "%.0f" .TotalValue}},
@@ -1188,12 +1242,14 @@
 
       const filtered = products.filter((product) => {
         const debtorName = String(product.debtorName || "").toLowerCase();
+        const debtorDocumentNumber = String(product.debtorDocumentNumber || "").toLowerCase();
         const matchesSearch =
           product.name.toLowerCase().includes(query) ||
           product.id.toLowerCase().includes(query) ||
           String(product.baseProductId || "").toLowerCase().includes(query) ||
           normalizeLine(product.line).toLowerCase().includes(query) ||
-          debtorName.includes(query);
+          debtorName.includes(query) ||
+          debtorDocumentNumber.includes(query);
         const matchesStatus = statusValue === "all" || product.statusClass === statusValue;
         const matchesLine = lineValue === "all" || normalizeLine(product.line) === lineValue;
         const matchesExpiry =
@@ -1225,11 +1281,23 @@
           <td>
             <div class="product-name" data-product="${product.id}">
               ${product.name}
-              ${product.entryType === "credit" ? `<span class="credit-badge">Crédito</span>` : ``}
               ${product.ageAlert ? `<span class="age-pill" title="En stock ${product.ageMonths} meses (fecha ingreso: ${product.ingreso || '-'})">+6 meses</span>` : ``}
             </div>
             <div class="fifo-note">${product.entryType === "credit" ? `Crédito ${product.id} · Producto ${product.baseProductId || "-"}` : `ID ${product.id} · ${product.available} disponibles`}</div>
-            ${product.entryType === "credit" ? `<div class="credit-meta"><span class="credit-meta-item"><strong>Deudor:</strong><span>${product.debtorName || "Sin definir"}</span></span><span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.installmentsPaid}/${product.installmentsTotal}</span></span><span class="credit-meta-item"><strong>Ultimo abono:</strong><span>${product.lastPaymentAmount > 0 ? formatCOP(product.lastPaymentAmount) : "Sin registro"}</span></span><span class="credit-meta-item"><strong>Ultima cuota:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span></div>` : ``}
+            ${product.entryType === "credit"
+              ? `<details class="credit-details">
+                  <summary>
+                    <span class="credit-badge">Crédito</span>
+                    <span class="credit-caret" aria-hidden="true"></span>
+                  </summary>
+                  <div class="credit-meta">
+                    <span class="credit-meta-item"><strong>Deudor:</strong><span>${product.debtorName || "Sin definir"}</span></span>
+                    <span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.installmentsPaid}/${product.installmentsTotal}</span></span>
+                    <span class="credit-meta-item"><strong>Ultimo abono:</strong><span>${product.lastPaymentAmount > 0 ? formatCOP(product.lastPaymentAmount) : "Sin registro"}</span></span>
+                    <span class="credit-meta-item"><strong>Ultima cuota:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span>
+                  </div>
+                </details>`
+              : ``}
           </td>
           <td>${normalizeLine(product.line)}</td>
           <td>
@@ -1401,6 +1469,9 @@
     const saleMethod = document.getElementById("sale-method");
     const saleCreditFields = document.getElementById("sale-credit-fields");
     const saleDebtorName = document.getElementById("sale-debtor-name");
+    const saleDebtorDocumentType = document.getElementById("sale-debtor-document-type");
+    const saleDebtorDocumentNumber = document.getElementById("sale-debtor-document-number");
+    const saleDebtorPhone = document.getElementById("sale-debtor-phone");
     const saleInstallmentsTotal = document.getElementById("sale-installments-total");
     const saleTotalValue = document.getElementById("sale-total-value");
     const saleInterestPercent = document.getElementById("sale-interest-percent");
@@ -1779,8 +1850,14 @@
 
     const syncSaleMode = () => {
       const isCredit = !!saleCreditToggle?.checked;
-      if (saleNormalFields) saleNormalFields.hidden = isCredit;
-      if (saleCreditFields) saleCreditFields.hidden = !isCredit;
+      if (saleNormalFields) {
+        saleNormalFields.hidden = isCredit;
+        saleNormalFields.style.display = isCredit ? "none" : "grid";
+      }
+      if (saleCreditFields) {
+        saleCreditFields.hidden = !isCredit;
+        saleCreditFields.style.display = isCredit ? "grid" : "none";
+      }
       if (saleMethod) saleMethod.disabled = isCredit;
       if (salePrice) salePrice.disabled = isCredit;
       if (saleFinal) saleFinal.disabled = isCredit;
@@ -1790,6 +1867,8 @@
       }
     };
     if (saleCreditToggle) saleCreditToggle.addEventListener("change", syncSaleMode);
+    if (saleCreditToggle) saleCreditToggle.addEventListener("input", syncSaleMode);
+    syncSaleMode();
     if (saleInstallmentsTotal) saleInstallmentsTotal.addEventListener("input", computeSaleInstallmentValue);
     if (saleInterestPercent) saleInterestPercent.addEventListener("input", computeSaleInstallmentValue);
     if (saleTotalValue) {
@@ -1961,6 +2040,9 @@
       if (salePrice) salePrice.value = "";
       if (saleFinal) saleFinal.value = "";
       if (saleDebtorName) saleDebtorName.value = "";
+      if (saleDebtorDocumentType) saleDebtorDocumentType.value = "";
+      if (saleDebtorDocumentNumber) saleDebtorDocumentNumber.value = "";
+      if (saleDebtorPhone) saleDebtorPhone.value = "";
       if (saleInstallmentsTotal) saleInstallmentsTotal.value = "1";
       if (saleInterestPercent) saleInterestPercent.value = "";
       if (saleTotalValue) saleTotalValue.value = "";
@@ -2233,6 +2315,9 @@
         const saleMode = saleCreditToggle?.checked ? "credit" : "normal";
         const notes = String(saleNotes?.value || "").trim();
         const debtorName = String(saleDebtorName?.value || "").trim();
+        const debtorDocumentType = String(saleDebtorDocumentType?.value || "").trim();
+        const debtorDocumentNumber = String(saleDebtorDocumentNumber?.value || "").trim();
+        const debtorPhone = String(saleDebtorPhone?.value || "").trim();
         const installmentsTotal = parseInt(saleInstallmentsTotal?.value || "0", 10);
         const totalValue = parseCOP(saleTotalValue?.value || "");
         const interestPercent = Number.parseFloat(String(saleInterestPercent?.value || "0").trim() || "0");
@@ -2248,6 +2333,18 @@
         if (saleMode === "credit") {
           if (!debtorName) {
             setSaleError("Ingresa el nombre del deudor.");
+            return;
+          }
+          if (!["CC", "C Extranjeria", "Pasaporte"].includes(debtorDocumentType)) {
+            setSaleError("Selecciona un tipo de documento válido.");
+            return;
+          }
+          if (!debtorDocumentNumber) {
+            setSaleError("Ingresa el número de documento del deudor.");
+            return;
+          }
+          if (!debtorPhone) {
+            setSaleError("Ingresa el teléfono del deudor.");
             return;
           }
           if (!Number.isFinite(installmentsTotal) || installmentsTotal < 1) {
@@ -2292,6 +2389,9 @@
           });
           if (saleMode === "credit") {
             body.set("debtor_name", debtorName);
+            body.set("debtor_document_type", debtorDocumentType);
+            body.set("debtor_document_number", debtorDocumentNumber);
+            body.set("debtor_phone", debtorPhone);
             body.set("installments_total", String(installmentsTotal));
             body.set("total_value", String(totalValue));
             body.set("interest_percent", String(interestPercent));
