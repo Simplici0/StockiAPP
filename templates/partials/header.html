@@ -1,13 +1,15 @@
 {{define "header"}}
-  <style>
+<style>
     /* ── Topbar ── */
     .topbar {
       position: sticky;
       top: 0;
       z-index: 100;
-      background: var(--bg-nav);
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      box-shadow: 0 2px 12px rgba(8,18,40,0.2);
+      background:
+        linear-gradient(180deg, rgba(9, 23, 43, 0.98) 0%, rgba(11, 29, 54, 0.96) 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 12px 28px rgba(8, 18, 40, 0.18);
+      backdrop-filter: blur(14px);
     }
 
     .topbar-inner {
@@ -15,8 +17,9 @@
       margin: 0 auto;
       display: flex;
       align-items: center;
-      gap: 0;
-      height: 56px;
+      gap: 10px;
+      min-height: 62px;
+      padding: 10px 0;
     }
 
     /* Marca */
@@ -26,24 +29,27 @@
       gap: 10px;
       text-decoration: none;
       flex-shrink: 0;
-      padding-right: 20px;
-      margin-right: 4px;
+      padding-right: 18px;
+      margin-right: 2px;
       border-right: 1px solid rgba(255,255,255,0.08);
     }
 
     .topbar-logo {
-      width: 28px;
-      height: 28px;
-      border-radius: 8px;
-      background: rgba(255,255,255,0.96);
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(235,242,249,0.96) 100%);
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.85),
+        0 10px 20px rgba(4, 12, 26, 0.22);
     }
 
     .topbar-logo img {
-      height: 18px;
+      height: 20px;
       width: auto;
       display: block;
     }
@@ -60,9 +66,9 @@
     .topbar-nav {
       display: flex;
       align-items: center;
-      gap: 2px;
+      gap: 4px;
       flex: 1;
-      padding: 0 8px;
+      padding: 0 4px 0 0;
       overflow: visible;
       scrollbar-width: none;
     }
@@ -70,10 +76,10 @@
     .topbar-admin-nav {
       display: flex;
       align-items: center;
-      gap: 2px;
+      gap: 4px;
       flex-shrink: 0;
       margin-left: auto;
-      padding-right: 12px;
+      padding-right: 10px;
     }
 
     .topbar-nav::-webkit-scrollbar {
@@ -83,27 +89,31 @@
     .topbar-link {
       display: inline-flex;
       align-items: center;
-      padding: 0 12px;
-      height: 32px;
-      border-radius: 6px;
+      justify-content: center;
+      padding: 0 14px;
+      min-height: 36px;
+      border-radius: 999px;
       font-size: 13px;
-      font-weight: 500;
-      color: rgba(255,255,255,0.62);
+      font-weight: 650;
+      color: rgba(255,255,255,0.68);
       text-decoration: none;
       white-space: nowrap;
-      transition: color 0.15s ease, background 0.15s ease;
-      border: 1px solid transparent;
+      transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+      border: 1px solid rgba(255,255,255,0.02);
     }
 
     .topbar-link:hover {
-      color: rgba(255,255,255,0.9);
-      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.96);
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.08);
+      transform: translateY(-1px);
     }
 
     .topbar-link.active {
       color: #ffffff;
-      background: rgba(14, 165, 201, 0.16);
-      border-color: rgba(14, 165, 201, 0.2);
+      background: linear-gradient(180deg, rgba(14, 165, 201, 0.22) 0%, rgba(14, 165, 201, 0.14) 100%);
+      border-color: rgba(14, 165, 201, 0.28);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
     }
 
     .topbar-menu {
@@ -116,15 +126,16 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 0 12px;
-      height: 32px;
-      border-radius: 6px;
+      justify-content: center;
+      padding: 0 14px;
+      min-height: 36px;
+      border-radius: 999px;
       font-size: 13px;
-      font-weight: 500;
-      color: rgba(255,255,255,0.62);
-      border: 1px solid transparent;
+      font-weight: 650;
+      color: rgba(255,255,255,0.68);
+      border: 1px solid rgba(255,255,255,0.02);
       cursor: pointer;
-      transition: color 0.15s ease, background 0.15s ease;
+      transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
       white-space: nowrap;
     }
 
@@ -135,13 +146,15 @@
     .topbar-menu summary:hover,
     .topbar-menu[open] summary,
     .topbar-menu.active summary {
-      color: rgba(255,255,255,0.95);
-      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.96);
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.08);
+      transform: translateY(-1px);
     }
 
     .topbar-menu.active summary {
       border-color: rgba(14, 165, 201, 0.2);
-      background: rgba(14, 165, 201, 0.16);
+      background: linear-gradient(180deg, rgba(14, 165, 201, 0.22) 0%, rgba(14, 165, 201, 0.14) 100%);
       color: #ffffff;
     }
 
@@ -159,14 +172,15 @@
       position: absolute;
       top: calc(100% + 8px);
       left: 0;
-      min-width: 220px;
-      padding: 6px;
-      border-radius: 12px;
-      border: 1px solid rgba(15, 40, 80, 0.12);
-      background: #ffffff;
-      box-shadow: 0 12px 28px rgba(10, 25, 55, 0.16);
+      min-width: 236px;
+      padding: 8px;
+      border-radius: 16px;
+      border: 1px solid rgba(15, 40, 80, 0.1);
+      background: rgba(255,255,255,0.96);
+      box-shadow: 0 20px 40px rgba(10, 25, 55, 0.16);
+      backdrop-filter: blur(14px);
       display: none;
-      gap: 2px;
+      gap: 4px;
       z-index: 120;
     }
 
@@ -176,9 +190,9 @@
 
     .topbar-menu-panel a {
       display: grid;
-      gap: 2px;
-      padding: 10px 12px;
-      border-radius: 8px;
+      gap: 3px;
+      padding: 12px 13px;
+      border-radius: 12px;
       color: var(--text);
       font-size: 13px;
       font-weight: 600;
@@ -200,8 +214,8 @@
     /* Separador de sección admin */
     .topbar-sep {
       width: 1px;
-      height: 20px;
-      background: rgba(255,255,255,0.1);
+      height: 24px;
+      background: rgba(255,255,255,0.12);
       margin: 0 6px;
       flex-shrink: 0;
     }
@@ -210,16 +224,22 @@
     .topbar-user {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex-shrink: 0;
       padding-left: 16px;
       border-left: 1px solid rgba(255,255,255,0.08);
     }
 
+    .topbar-user-copy {
+      display: grid;
+      gap: 1px;
+      min-width: 0;
+    }
+
     .topbar-username {
-      font-size: 12.5px;
-      font-weight: 600;
-      color: rgba(255,255,255,0.75);
+      font-size: 12px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.88);
       white-space: nowrap;
     }
 
@@ -237,24 +257,25 @@
     }
 
     .topbar-logout {
-      min-height: 30px;
+      min-height: 34px;
       padding: 0 12px;
-      border-radius: 6px;
+      border-radius: 999px;
       border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.06);
-      color: rgba(255,255,255,0.75);
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.82);
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
-      transition: background 0.15s ease, color 0.15s ease;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
       white-space: nowrap;
     }
 
     .topbar-logout:hover {
-      background: rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.2);
       color: #ffffff;
     }
 
@@ -266,14 +287,27 @@
     .page-header {
       width: min(1280px, calc(100% - (var(--page-gutter) * 2)));
       margin: var(--space-5) auto 0;
-      padding: var(--surface-padding-compact) var(--surface-padding);
+      padding: 16px 20px 18px;
       display: flex;
       flex-direction: column;
-      gap: var(--space-2);
-      background: #ffffff;
-      border: 1px solid rgba(15, 40, 80, 0.1);
-      border-radius: 12px;
-      box-shadow: 0 1px 3px rgba(10, 25, 55, 0.06);
+      gap: 10px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(244,248,252,0.94) 100%);
+      border: 1px solid rgba(15, 40, 80, 0.08);
+      border-radius: 18px;
+      box-shadow: 0 22px 36px rgba(12, 28, 52, 0.08);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .page-header::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: min(240px, 42%);
+      height: 100%;
+      background: linear-gradient(90deg, rgba(14, 165, 201, 0.08) 0%, rgba(14, 165, 201, 0) 100%);
+      pointer-events: none;
     }
 
     .page-header-top {
@@ -282,12 +316,24 @@
       justify-content: space-between;
       gap: 16px;
       flex-wrap: wrap;
+      position: relative;
+      z-index: 1;
     }
 
     .page-header-title {
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .page-header-kicker {
+      margin: 0;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-weight: 800;
+      color: var(--secondary);
     }
 
     .page-header-title h1 {
@@ -297,6 +343,8 @@
     .page-header-title p {
       margin: 0;
       font-size: 13px;
+      max-width: 72ch;
+      color: var(--text-muted);
     }
 
     @media (max-width: 767px) {
@@ -310,7 +358,8 @@
       }
 
       .topbar-inner {
-        height: 48px;
+        min-height: 54px;
+        padding: 8px 0;
       }
 
       .topbar-name {
@@ -331,122 +380,132 @@
         margin-top: var(--space-3);
       }
     }
-  </style>
+</style>
 
-  <header class="topbar">
+<header class="topbar">
     <div class="topbar-inner">
-      <a class="topbar-brand" href="/inventario" aria-label="Inicio Stocki App">
-        <div class="topbar-logo">
-          <img src="{{businessLogoPath}}" alt="Logo" />
+        <a
+            class="topbar-brand"
+            href="/inventario"
+            aria-label="Inicio Stocki App"
+        >
+            <div class="topbar-logo">
+                <img src="{{businessLogoPath}}" alt="Logo" />
+            </div>
+            <span class="topbar-name">{{businessName}}</span>
+        </a>
+
+        <nav class="topbar-nav" aria-label="Navegación principal">
+            <a href="/dashboard" class="topbar-link">Dashboard</a>
+            <a href="/inventario" class="topbar-link">Inventario</a>
+        </nav>
+
+        <div class="topbar-admin-nav" aria-label="Menús administrativos">
+            {{if .CurrentUser}} {{if eq .CurrentUser.Role "admin"}}
+            <details class="topbar-menu">
+                <summary>
+                    Productos
+                    <span class="topbar-menu-caret" aria-hidden="true">▾</span>
+                </summary>
+                <div class="topbar-menu-panel">
+                    <a href="/productos/new">
+                        <span>Nuevo producto</span>
+                        <small>Alta manual de productos</small>
+                    </a>
+                    <a href="/csv/template" target="_blank" rel="noreferrer">
+                        <span>Importar</span>
+                        <small>Plantilla y carga de productos</small>
+                    </a>
+                </div>
+            </details>
+            <details class="topbar-menu">
+                <summary>
+                    Admin
+                    <span class="topbar-menu-caret" aria-hidden="true">▾</span>
+                </summary>
+                <div class="topbar-menu-panel">
+                    <a href="/configuracion">
+                        <span>Configuración</span>
+                        <small>Branding, catálogos y movimientos</small>
+                    </a>
+                    <a href="/admin/users">
+                        <span>Usuarios</span>
+                        <small>Accesos y administración</small>
+                    </a>
+                    <a href="/auditoria">
+                        <span>Auditoría</span>
+                        <small>Trazabilidad de eventos</small>
+                    </a>
+                    <a href="/csv/export" target="_blank" rel="noreferrer">
+                        <span>Exportar</span>
+                        <small>Descargas operativas</small>
+                    </a>
+                </div>
+            </details>
+            {{end}} {{end}}
         </div>
-        <span class="topbar-name">{{businessName}}</span>
-      </a>
 
-      <nav class="topbar-nav" aria-label="Navegación principal">
-        <a href="/dashboard" class="topbar-link">Dashboard</a>
-        <a href="/inventario" class="topbar-link">Inventario</a>
-      </nav>
-
-      <div class="topbar-admin-nav" aria-label="Menús administrativos">
         {{if .CurrentUser}}
-          {{if eq .CurrentUser.Role "admin"}}
-            <details class="topbar-menu">
-              <summary>
-                Productos
-                <span class="topbar-menu-caret" aria-hidden="true">▾</span>
-              </summary>
-              <div class="topbar-menu-panel">
-                <a href="/productos/new">
-                  <span>Nuevo producto</span>
-                  <small>Alta manual de productos</small>
-                </a>
-                <a href="/csv/template" target="_blank" rel="noreferrer">
-                  <span>Importar</span>
-                  <small>Plantilla y carga de productos</small>
-                </a>
-              </div>
-            </details>
-            <details class="topbar-menu">
-              <summary>
-                Admin
-                <span class="topbar-menu-caret" aria-hidden="true">▾</span>
-              </summary>
-              <div class="topbar-menu-panel">
-                <a href="/configuracion">
-                  <span>Configuración</span>
-                  <small>Branding, catálogos y movimientos</small>
-                </a>
-                <a href="/admin/users">
-                  <span>Usuarios</span>
-                  <small>Accesos y administración</small>
-                </a>
-                <a href="/auditoria">
-                  <span>Auditoría</span>
-                  <small>Trazabilidad de eventos</small>
-                </a>
-                <a href="/csv/export" target="_blank" rel="noreferrer">
-                  <span>Exportar</span>
-                  <small>Descargas operativas</small>
-                </a>
-              </div>
-            </details>
-          {{end}}
+        <div class="topbar-user">
+            <div class="topbar-user-copy">
+                <span class="topbar-username">{{.CurrentUser.Username}}</span>
+                <span class="topbar-role admin-muted"
+                    >{{if eq .CurrentUser.Role
+                    "admin"}}Panel{{else}}{{.CurrentUser.Role}}{{end}}</span
+                >
+            </div>
+            <form class="topbar-logout-form" method="POST" action="/logout">
+                <button class="topbar-logout" type="submit">Salir</button>
+            </form>
+        </div>
         {{end}}
-      </div>
-
-      {{if .CurrentUser}}
-      <div class="topbar-user">
-        <span class="topbar-username">{{.CurrentUser.Username}}</span>
-        <span class="topbar-role admin-muted">{{if eq .CurrentUser.Role "admin"}}Panel{{else}}{{.CurrentUser.Role}}{{end}}</span>
-        <form class="topbar-logout-form" method="POST" action="/logout">
-          <button class="topbar-logout" type="submit">Salir</button>
-        </form>
-      </div>
-      {{end}}
     </div>
-  </header>
+</header>
 
-  <div class="page-header">
+<div class="page-header">
     <div class="page-header-top">
-      <div class="page-header-title">
-        <h1>{{.Title}}</h1>
-        {{if .Subtitle}}<p>{{.Subtitle}}</p>{{end}}
-      </div>
+        <div class="page-header-title">
+            <p class="page-header-kicker">Panel operativo</p>
+            <h1>{{.Title}}</h1>
+            {{if .Subtitle}}
+            <p>{{.Subtitle}}</p>
+            {{end}}
+        </div>
     </div>
-  </div>
-  <script>
+</div>
+<script>
     (function () {
-      const path = window.location.pathname;
-      const directLinks = document.querySelectorAll(".topbar-link");
-      directLinks.forEach((link) => {
-        const href = link.getAttribute("href");
-        if (!href) return;
-        if (href === path) link.classList.add("active");
-      });
-
-      document.querySelectorAll(".topbar-menu").forEach((menu) => {
-        const links = menu.querySelectorAll(".topbar-menu-panel a");
-        let hasActiveChild = false;
-        links.forEach((link) => {
-          const href = link.getAttribute("href");
-          if (!href) return;
-          const cleanHref = href.replace(window.location.origin, "");
-          if (cleanHref === path) {
-            link.classList.add("active");
-            hasActiveChild = true;
-          }
+        const path = window.location.pathname;
+        const directLinks = document.querySelectorAll(".topbar-link");
+        directLinks.forEach((link) => {
+            const href = link.getAttribute("href");
+            if (!href) return;
+            if (href === path) link.classList.add("active");
         });
-        if (hasActiveChild) {
-          menu.classList.add("active");
-          menu.open = true;
-        }
-      });
 
-      document.addEventListener("click", (event) => {
-        document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
-          if (!menu.contains(event.target)) menu.open = false;
+        document.querySelectorAll(".topbar-menu").forEach((menu) => {
+            const links = menu.querySelectorAll(".topbar-menu-panel a");
+            let hasActiveChild = false;
+            links.forEach((link) => {
+                const href = link.getAttribute("href");
+                if (!href) return;
+                const cleanHref = href.replace(window.location.origin, "");
+                if (cleanHref === path) {
+                    link.classList.add("active");
+                    hasActiveChild = true;
+                }
+            });
+            if (hasActiveChild) {
+                menu.classList.add("active");
+                menu.open = true;
+            }
         });
-      });
+
+        document.addEventListener("click", (event) => {
+            document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
+                if (!menu.contains(event.target)) menu.open = false;
+            });
+        });
     })();
-  </script>
+</script>
 {{end}}

@@ -148,11 +148,13 @@ Respuesta con error típica:
 }
 ```
 
-## Endpoints
+## API General
+
+## Salud
 
 ### GET /api/health
 
-Healthcheck JSON de la API. Requiere sesión o Bearer token válido.
+Healthcheck JSON de la API. Requiere Bearer token válido.
 
 Ejemplo con API key:
 
@@ -169,9 +171,16 @@ Respuesta:
 }
 ```
 
+## Productos e Inventario
+
 ### GET /api/products
 
 Lista productos visibles para el usuario autenticado.
+
+Uso recomendado:
+- sincronizar catálogo visible
+- validar `owner_user_id`
+- obtener `sale_price` y configuración de `retoma`
 
 Respuesta:
 
@@ -201,6 +210,10 @@ curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/products
 ### GET /api/products/search?q=
 
 Busca productos visibles por `id`, nombre o línea.
+
+Uso recomendado:
+- búsquedas desde agentes
+- validación previa antes de vender, cambiar o registrar retoma
 
 ```bash
 curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/products/search?q=crema"
@@ -265,6 +278,11 @@ Respuesta:
 ### GET /api/inventory
 
 Devuelve resumen de inventario por producto visible.
+
+Uso recomendado:
+- consulta operativa de stock
+- monitoreo desde n8n
+- validación previa antes de automatizar ajustes o ventas
 
 Respuesta:
 
@@ -352,11 +370,18 @@ Respuesta:
 }
 ```
 
+## Retomas
+
 ### GET /api/retomas
 
 Lista retomas visibles para el usuario autenticado.
 
 Puedes filtrar con `?q=` por producto, estado recibido o notas.
+
+Uso recomendado:
+- seguimiento de retomas registradas
+- conciliación operativa
+- consulta desde agentes o flujos n8n
 
 Ejemplo:
 
@@ -412,6 +437,7 @@ Notas:
 - `received_state` debe ser uno de: `Nuevo`, `Usado`, `Dañado`, `Para repuestos`, `Otro`.
 - `final_sale_price` es opcional y solo se aplica cuando `publish_to_stock=true`.
 - Si `publish_to_stock=true`, se crean unidades disponibles y se registra movimiento `retoma_stock`.
+- El evento de auditoría asociado es `retoma_registered`.
 
 Ejemplo:
 
@@ -447,9 +473,30 @@ Respuesta:
 }
 ```
 
+## Ventas
+
+La API expone dos vistas para ventas:
+
+- `GET /api/sales/recent`: vista rápida, compacta y compatible con el formato histórico del proyecto
+- `GET /api/sales`: listado más completo para integraciones como n8n, con filtros y campos extendidos
+
+La escritura sigue entrando por:
+
+- `POST /api/sales`
+
 ### GET /api/sales/recent
 
 Devuelve las ventas recientes visibles para el usuario autenticado.
+
+Uso recomendado:
+- consultas rápidas
+- compatibilidad con integraciones ya existentes
+- consumo liviano sin filtros
+
+Diferencias frente a `GET /api/sales`:
+- devuelve solo las ventas más recientes
+- conserva nombres históricos del modelo de salida como `producto_id`, `producto`, `cantidad`, `precio_final`, `metodo_pago`
+- no soporta filtros `q`, `from`, `to`
 
 ```bash
 curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/sales/recent
@@ -476,6 +523,60 @@ Respuesta:
 }
 ```
 
+### GET /api/sales
+
+Lista ventas visibles para el usuario autenticado.
+
+Uso recomendado:
+- integraciones con n8n
+- agentes
+- búsquedas y filtros operativos
+- listados con contrato más explícito y estable para automatización
+
+Formato de salida:
+- usa nombres orientados a integración como `product_id`, `product_name`, `sale_price`, `channel`, `sold_by`
+- incluye también `payment_method` para no perder el dato canónico del sistema
+
+Filtros opcionales:
+- `q` busca por `product_id`, nombre del producto, `channel`, `sold_by`, `notes` y `payment_method`
+- `from` en formato `YYYY-MM-DD`
+- `to` en formato `YYYY-MM-DD`
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/sales"
+```
+
+Ejemplo con filtros:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/sales?q=tienda&from=2026-03-01&to=2026-03-31"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 2,
+  "items": [
+    {
+      "id": 15,
+      "fecha": "2026-03-22",
+      "product_id": "P-001",
+      "product_name": "Nombre del producto",
+      "quantity": 1,
+      "sale_price": 25000,
+      "channel": "Tienda",
+      "sold_by": "Mauro",
+      "notes": "",
+      "payment_method": "Efectivo"
+    }
+  ]
+}
+```
+
 ### POST /api/sales
 
 Registra una venta. Respeta:
@@ -484,19 +585,40 @@ Registra una venta. Respeta:
 - métodos de pago activos
 - tipo de movimiento `venta` habilitado
 
+Compatibilidad:
+- sigue aceptando `payment_method`
+- sigue aceptando `unit_price`
+- sigue aceptando `total`
+- añade soporte para `sale_price`, `channel` y `sold_by`
+
 Payload:
 
 ```json
 {
   "product_id": "P-001",
   "quantity": 1,
-  "payment_method": "Efectivo",
-  "unit_price": 25000,
-  "notes": "Venta desde API"
+  "sale_price": 25000,
+  "channel": "Tienda",
+  "sold_by": "Mauro",
+  "notes": "Venta desde agente"
 }
 ```
 
-También puedes enviar `total` en lugar de `unit_price`, o junto con él. Si ambos van presentes y `total > 0`, el backend usa `total / quantity` como precio unitario.
+Notas:
+- `quantity` es opcional. Si no llega, el backend usa `1`.
+- `sale_price` es opcional. Si no llega, el backend usa el `precio_venta` actual del producto cuando sea válido.
+- `channel` es opcional.
+- `sold_by` es opcional.
+- `payment_method` sigue siendo compatible y se mantiene como campo canónico del medio de pago.
+- También puedes enviar `unit_price` o `total`. Si `total > 0`, el backend usa `total / quantity` como precio unitario final.
+- Si no envías `payment_method`, el backend usa el primer método de pago activo configurado.
+- El evento de auditoría asociado es `sale_registered`.
+
+Prioridad del precio aplicado:
+1. `total / quantity` si `total > 0`
+2. `sale_price` si fue enviado
+3. `unit_price` si fue enviado
+4. `precio_venta` actual del producto
 
 Ejemplo:
 
@@ -507,9 +629,10 @@ curl -X POST https://login.stockiapp.co/api/sales \
   -d '{
     "product_id": "P-001",
     "quantity": 1,
-    "payment_method": "Efectivo",
-    "unit_price": 25000,
-    "notes": "Venta desde API"
+    "sale_price": 25000,
+    "channel": "Tienda",
+    "sold_by": "Mauro",
+    "notes": "Venta desde agente"
   }'
 ```
 
@@ -518,12 +641,16 @@ Respuesta:
 ```json
 {
   "ok": true,
+  "sale_id": 15,
   "product_id": "P-001",
-  "product_name": "P-001",
+  "product_name": "Nombre del producto",
   "quantity": 1,
+  "sale_price": 25000,
   "message": "Venta registrada correctamente."
 }
 ```
+
+## Cambios
 
 ### POST /api/swaps
 
@@ -599,6 +726,8 @@ Respuesta:
   "message": "Cambio registrado correctamente."
 }
 ```
+
+## Créditos
 
 ### GET /api/credits
 
@@ -743,6 +872,8 @@ Respuesta:
 }
 ```
 
+## Configuración
+
 ### GET /api/settings/business
 
 Devuelve la configuración general del negocio.
@@ -778,14 +909,6 @@ Ejemplo:
 curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/settings/lines
 ```
 
-Ejemplo con URL oficial:
-
-```bash
-curl -X GET "https://login.stockiapp.co/api/settings/lines" \
-  -H "Authorization: Bearer TU_TOKEN" \
-  -H "Accept: application/json"
-```
-
 Respuesta:
 
 ```json
@@ -816,14 +939,6 @@ Ejemplo:
 curl -H "Authorization: Bearer TU_TOKEN" https://login.stockiapp.co/api/settings/owners
 ```
 
-Ejemplo con URL oficial:
-
-```bash
-curl -X GET "https://login.stockiapp.co/api/settings/owners" \
-  -H "Authorization: Bearer TU_TOKEN" \
-  -H "Accept: application/json"
-```
-
 Respuesta:
 
 ```json
@@ -843,7 +958,7 @@ Respuesta:
 }
 ```
 
-## Endpoints para agente
+## Endpoints para Agente
 
 Estos endpoints complementan la API general con respuestas más compactas para automatización y agentes tipo n8n.
 
@@ -963,6 +1078,8 @@ Respuesta:
 }
 ```
 
+## Compatibilidad / Legado
+
 ### GET /api/productos/precio
 
 Endpoint legado para consultar el precio de venta de un producto por ID.
@@ -1011,6 +1128,9 @@ Las escrituras por API generan eventos en `audit_events` con:
 Eventos actuales:
 - `product_created`
 - `product_assigned`
+- `product_updated`
+- `inventory_adjusted`
+- `retoma_registered`
 - `sale_registered`
 - `credit_sale_created`
 - `credit_installment_added`
@@ -1018,8 +1138,8 @@ Eventos actuales:
 
 ## Recomendaciones para futuras integraciones
 
-- Para pruebas rápidas, puedes seguir usando cookies.
 - Para integraciones reales, usa API key con `Authorization: Bearer`.
 - Usa siempre `GET /api/products/search` antes de vender o cambiar un producto si dependes de búsqueda externa.
+- Usa `GET /api/settings/lines` y `GET /api/settings/owners` antes de crear productos desde agentes o n8n.
 - Consulta `/api/settings/business` para adaptar moneda, nombre y branding en integraciones externas.
 - Si vas a integrar n8n, este documento puede convertirse luego en la base de una colección Postman o un OpenAPI.

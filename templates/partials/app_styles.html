@@ -1,40 +1,40 @@
 {{define "app_styles"}}
-  <style>
+<style>
     :root {
       color-scheme: light;
       --font-sans: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
 
-      /* Paleta: azul profundo + turquesa, menos saturación */
-      --bg-page:        #f0f4f8;
-      --bg-card:        #ffffff;
-      --bg-card-muted:  #f8fafc;
-      --bg-nav:         #0d1f3c;
+      --bg-page:        #edf2f6;
+      --bg-page-accent: #dce8f4;
+      --bg-card:        rgba(255, 255, 255, 0.94);
+      --bg-card-muted:  #f6f9fc;
+      --bg-nav:         #0b1d36;
 
-      --text:           #0f1d2e;
-      --text-muted:     #4a6080;
-      --text-soft:      #7a93ae;
+      --text:           #102133;
+      --text-muted:     #4f627e;
+      --text-soft:      #7f92aa;
 
       --primary:        {{businessPrimaryColor}};
       --primary-strong: {{businessPrimaryStrong}};
       --primary-soft:   {{businessPrimarySoft}};
 
-      --secondary:      #0d2b55;
-      --secondary-soft: #eaf0f9;
+      --secondary:      #102a4c;
+      --secondary-soft: #e7eef7;
 
       --success:        #059669;
       --warning:        #d97706;
       --danger:         #dc2626;
 
-      --border:         rgba(15, 40, 80, 0.1);
-      --border-strong:  rgba(15, 40, 80, 0.18);
+      --border:         rgba(16, 42, 76, 0.1);
+      --border-strong:  rgba(16, 42, 76, 0.18);
 
-      --shadow-xs:  0 1px 3px rgba(10, 25, 55, 0.06), 0 4px 12px rgba(10, 25, 55, 0.04);
-      --shadow-sm:  0 2px 8px rgba(10, 25, 55, 0.08), 0 8px 24px rgba(10, 25, 55, 0.05);
-      --shadow-md:  0 4px 16px rgba(10, 25, 55, 0.1), 0 16px 40px rgba(10, 25, 55, 0.07);
+      --shadow-xs:  0 1px 2px rgba(9, 20, 40, 0.04), 0 10px 24px rgba(9, 20, 40, 0.04);
+      --shadow-sm:  0 2px 10px rgba(9, 20, 40, 0.06), 0 18px 36px rgba(9, 20, 40, 0.05);
+      --shadow-md:  0 8px 24px rgba(9, 20, 40, 0.08), 0 24px 50px rgba(9, 20, 40, 0.08);
 
-      --radius-sm:  8px;
-      --radius-md:  12px;
-      --radius-lg:  16px;
+      --radius-sm:  10px;
+      --radius-md:  16px;
+      --radius-lg:  22px;
 
       /* Tablet-first spacing scale */
       --space-1: 8px;
@@ -44,9 +44,9 @@
       --space-5: 24px;
       --space-6: 32px;
       --page-gutter: 24px;
-      --surface-padding: 20px;
+      --surface-padding: 22px;
       --surface-padding-compact: 18px;
-      --section-gap: 16px;
+      --section-gap: 18px;
     }
 
     * {
@@ -55,14 +55,19 @@
     }
 
     html {
-      background: var(--bg-page);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.9) 0, rgba(255, 255, 255, 0) 28rem),
+        linear-gradient(180deg, var(--bg-page-accent) 0%, var(--bg-page) 28%, var(--bg-page) 100%);
     }
 
     body {
       margin: 0;
       min-height: 100vh;
       color: var(--text);
-      background: var(--bg-page);
+      background:
+        radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 32rem),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 22rem),
+        var(--bg-page);
     }
 
     a {
@@ -74,7 +79,8 @@
     .page-content {
       width: min(1280px, calc(100% - (var(--page-gutter) * 2)));
       margin: 0 auto;
-      padding: var(--space-5) 0 var(--space-6);
+      padding: var(--space-5) 0 calc(var(--space-6) + 10px);
+      animation: page-enter 280ms ease-out;
     }
 
     /* ── Tarjetas y superficies ── */
@@ -91,6 +97,7 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       box-shadow: var(--shadow-xs);
+      backdrop-filter: blur(10px);
     }
 
     .card,
@@ -114,30 +121,32 @@
     .export-panel,
     .export-section {
       padding: var(--surface-padding);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
     }
 
     .filters {
       padding: var(--surface-padding-compact) var(--surface-padding);
       gap: var(--space-3);
       border-color: var(--border);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 249, 252, 0.98) 100%);
     }
 
     /* ── Tipografía ── */
     h1 {
       margin: 0;
       color: var(--secondary);
-      font-size: clamp(1.4rem, 2.2vw, 1.9rem);
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.1;
+      font-size: clamp(1.45rem, 2.3vw, 2.05rem);
+      font-weight: 760;
+      letter-spacing: -0.045em;
+      line-height: 1.02;
     }
 
     h2 {
       margin: 0;
       color: var(--secondary);
-      font-size: 1rem;
-      font-weight: 700;
-      letter-spacing: -0.01em;
+      font-size: 1.02rem;
+      font-weight: 740;
+      letter-spacing: -0.02em;
     }
 
     h3 {
@@ -151,9 +160,9 @@
 
     p {
       color: var(--text-muted);
-      line-height: 1.6;
+      line-height: 1.55;
       margin: 0;
-      font-size: 0.9rem;
+      font-size: 0.92rem;
     }
 
     label {
@@ -174,14 +183,14 @@
     input[type="search"],
     input[type="number"] {
       width: 100%;
-      min-height: 42px;
-      padding: 9px 12px;
+      min-height: 44px;
+      padding: 10px 12px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border);
-      background: #ffffff;
+      background: rgba(255, 255, 255, 0.9);
       color: var(--text);
       font-size: 14px;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
     }
 
     textarea {
@@ -193,6 +202,7 @@
     select:hover,
     textarea:hover {
       border-color: var(--primary);
+      background: #ffffff;
     }
 
     input:focus,
@@ -201,6 +211,7 @@
       outline: none;
       border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(14, 165, 201, 0.14);
+      background: #ffffff;
     }
 
     .toggle,
@@ -240,13 +251,13 @@
       padding: 0 14px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border);
-      background: var(--bg-card);
+      background: rgba(255, 255, 255, 0.9);
       color: var(--secondary);
       font-size: 13px;
-      font-weight: 600;
+      font-weight: 700;
       text-decoration: none;
       cursor: pointer;
-      transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
       white-space: nowrap;
     }
 
@@ -255,6 +266,7 @@
     a.button:hover {
       background: var(--secondary-soft);
       border-color: var(--border-strong);
+      transform: translateY(-1px);
     }
 
     button.primary,
@@ -263,7 +275,7 @@
       background: var(--primary);
       border-color: var(--primary-strong);
       color: #ffffff;
-      box-shadow: 0 2px 8px rgba(14, 165, 201, 0.24);
+      box-shadow: 0 8px 18px rgba(14, 165, 201, 0.22);
     }
 
     button.primary:hover,
@@ -309,15 +321,16 @@
       padding: 4px;
       width: fit-content;
       max-width: 100%;
-      border-radius: var(--radius-md);
+      border-radius: 999px;
       border: 1px solid var(--border);
-      background: var(--bg-card-muted);
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
     }
 
     .nav-button {
       min-height: 34px;
       padding: 0 14px;
-      border-radius: 8px;
+      border-radius: 999px;
       border: 1px solid transparent;
       background: transparent;
       color: var(--text-muted);
@@ -341,6 +354,7 @@
     /* ── Tabla ── */
     .table-wrap {
       overflow: auto;
+      background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(248,250,252,0.96) 100%);
     }
 
     table {
@@ -349,7 +363,7 @@
     }
 
     thead {
-      background: var(--bg-card-muted);
+      background: rgba(246, 249, 252, 0.96);
       border-bottom: 1px solid var(--border);
     }
 
@@ -362,6 +376,10 @@
       text-transform: uppercase;
       text-align: left;
       white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      backdrop-filter: blur(8px);
     }
 
     td {
@@ -378,7 +396,7 @@
     }
 
     tbody tr:hover {
-      background: var(--secondary-soft);
+      background: rgba(231, 238, 247, 0.7);
     }
 
     tbody tr:last-child td {
@@ -517,6 +535,19 @@
     .summary-block {
       padding: 16px;
       border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.72);
+      border: 1px solid rgba(16, 42, 76, 0.08);
+    }
+
+    @keyframes page-enter {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .state-list {
@@ -716,31 +747,45 @@
         border-radius: var(--radius-sm);
       }
     }
-  </style>
-  <script>
-    document.addEventListener('DOMContentLoaded', function () {
-      function dismissMsg(el) {
-        el.classList.add('msg-dismissing');
-        el.addEventListener('animationend', function () { el.remove(); }, { once: true });
-      }
-      function addCloseBtn(el) {
-        var btn = document.createElement('button');
-        btn.className = 'msg-close';
-        btn.type = 'button';
-        btn.setAttribute('aria-label', 'Cerrar');
-        btn.innerHTML = '&times;';
-        btn.addEventListener('click', function () { dismissMsg(el); });
-        el.appendChild(btn);
-      }
-      // Flash: close button + auto-dismiss after 6s
-      document.querySelectorAll('.flash:not([data-persistent])').forEach(function (el) {
-        addCloseBtn(el);
-        setTimeout(function () { if (el.isConnected) dismissMsg(el); }, 6000);
-      });
-      // Alert (info): close button only, no auto-dismiss
-      document.querySelectorAll('.alert:not([data-persistent])').forEach(function (el) {
-        addCloseBtn(el);
-      });
+</style>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        function dismissMsg(el) {
+            el.classList.add("msg-dismissing");
+            el.addEventListener(
+                "animationend",
+                function () {
+                    el.remove();
+                },
+                { once: true },
+            );
+        }
+        function addCloseBtn(el) {
+            var btn = document.createElement("button");
+            btn.className = "msg-close";
+            btn.type = "button";
+            btn.setAttribute("aria-label", "Cerrar");
+            btn.innerHTML = "&times;";
+            btn.addEventListener("click", function () {
+                dismissMsg(el);
+            });
+            el.appendChild(btn);
+        }
+        // Flash: close button + auto-dismiss after 6s
+        document
+            .querySelectorAll(".flash:not([data-persistent])")
+            .forEach(function (el) {
+                addCloseBtn(el);
+                setTimeout(function () {
+                    if (el.isConnected) dismissMsg(el);
+                }, 6000);
+            });
+        // Alert (info): close button only, no auto-dismiss
+        document
+            .querySelectorAll(".alert:not([data-persistent])")
+            .forEach(function (el) {
+                addCloseBtn(el);
+            });
     });
-  </script>
+</script>
 {{end}}

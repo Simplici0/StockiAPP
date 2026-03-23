@@ -138,12 +138,76 @@ Todos los endpoints `/api/*` deben:
 - usar errores claros
 - usar códigos HTTP adecuados
 
+Patrón real del proyecto:
+- la API vive principalmente en `main.go`
+- no crear una arquitectura paralela `/api/...` separada si la app actual no la usa
+- al extender endpoints existentes, seguir el mismo estilo de `mux.HandleFunc(...)`, switch por método y helpers compartidos
+
+Helpers canónicos a reutilizar:
+- `writeAPIJSON(...)`
+- `writeAPIError(...)`
+- `withAPIAuditMetadata(...)`
+- `productVisibilityPredicate(...)`
+- `productAccessibleByID(...)`
+- `availableCountsByProduct(...)`
+- `loadMovementSettings(...)`
+- `movementEnabled(...)`
+- `logAuditEvent(...)`
+
 ### 14. Auth de integraciones
 Las integraciones externas deben usar:
 - sesión web solo temporalmente en desarrollo, o
 - Bearer token / API key para producción
 
 No asumir cookies como solución final para n8n.
+
+### 14.1 Endpoints ya consolidados
+Antes de proponer endpoints nuevos, revisar si ya existe soporte real para el caso de uso en `main.go`.
+
+Endpoints generales ya disponibles:
+- `GET /api/inventory`
+- `POST /api/inventory/adjust`
+- `GET /api/retomas`
+- `POST /api/retomas`
+- `GET /api/sales/recent`
+- `GET /api/sales`
+- `POST /api/sales`
+- `GET /api/settings/lines`
+- `GET /api/settings/owners`
+
+Regla:
+- no duplicar endpoints ya existentes
+- si un contrato necesita ampliarse para n8n/agentes, ajustar el handler existente antes de crear otro
+
+### 14.2 Auditoría de integraciones
+Toda operación relevante vía API debe dejar auditoría consistente.
+
+Eventos que hoy ya forman parte del flujo operativo:
+- `product_updated`
+- `inventory_adjusted`
+- `retoma_registered`
+- `sale_registered`
+
+Regla:
+- para llamadas API usar `source = "api"` salvo que exista una capa explícita `n8n` o `agent`
+- incluir metadata con `withAPIAuditMetadata(...)`
+- no registrar auditoría manual ad hoc si ya existe helper o patrón equivalente
+
+### 14.3 Contratos para n8n y agentes
+Cuando una tarea esté orientada a automatización:
+- priorizar payloads simples, explícitos y compatibles con `HttpRequest`
+- mantener nombres canónicos internos aunque la salida exponga aliases más cómodos
+- documentar ejemplos de `curl` con la URL oficial de producción
+- asumir `https://login.stockiapp.co` como base pública documentada mientras no se indique otra
+
+### 14.4 Documentación viva
+La fuente operativa para integraciones es `docs/api.md`.
+
+Reglas:
+- si cambias o agregas endpoints API, actualiza `docs/api.md` en la misma tarea
+- incluir ejemplos `curl` orientados a producción/n8n
+- aclarar diferencias entre endpoints parecidos, por ejemplo listados compactos vs listados completos
+- documentar filtros, validaciones, campos opcionales y supuestos de compatibilidad
 
 ---
 
@@ -178,6 +242,17 @@ Toda tarea debe, cuando sea posible, incluir:
 - compatibilidad hacia atrás
 - criterios de aceptación
 - prueba manual mínima
+
+### 19. Si la tarea es visual
+Cuando el objetivo sea solo UI:
+- limitar cambios a templates, estilos y jerarquía visual
+- no tocar handlers, queries, validaciones, auditoría ni contratos API
+- preservar tablet-first y SSR
+- mejorar claridad operativa antes que “embellecer” de forma gratuita
+
+Regla práctica:
+- una mejora visual puede reorganizar bloques, headers, contenedores, spacing y énfasis
+- si una mejora exige cambiar lógica o backend, dejarla como recomendación aparte y no implementarla en esa tarea
 
 ---
 

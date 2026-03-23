@@ -1,1234 +1,1603 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{{.Title}}</title>
-  <style>
-    /* ── Dashboard: estilos locales complementarios ── */
-
-    .dashboard-toolbar {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
-
-    details.range-picker {
-      position: relative;
-    }
-
-    details.range-picker summary {
-      list-style: none;
-      cursor: pointer;
-      border: 1px solid rgba(15, 40, 80, 0.1);
-      background: #ffffff;
-      border-radius: 8px;
-      padding: 0 12px;
-      min-height: 36px;
-      font-size: 12.5px;
-      font-weight: 600;
-      color: #4a6080;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      user-select: none;
-      transition: border-color 0.15s ease;
-    }
-
-    details.range-picker summary::-webkit-details-marker {
-      display: none;
-    }
-
-    details.range-picker summary:hover {
-      border-color: #0ea5c9;
-      color: #0d2b55;
-    }
-
-    .range-popover {
-      position: absolute;
-      right: 0;
-      top: calc(100% + 8px);
-      width: min(400px, 90vw);
-      background: #ffffff;
-      border: 1px solid rgba(15, 40, 80, 0.1);
-      border-radius: 12px;
-      box-shadow: 0 8px 24px rgba(10, 25, 55, 0.12);
-      padding: 14px;
-      z-index: 30;
-    }
-
-    .range-form {
-      display: grid;
-      gap: 10px;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      align-items: end;
-    }
-
-    /* Dashboard grid */
-    .grid {
-      display: grid;
-      gap: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    }
-
-    .span-full {
-      grid-column: 1 / -1;
-    }
-
-    .card {
-      background: #ffffff;
-      border-radius: 12px;
-      padding: 18px;
-      border: 1px solid rgba(15, 40, 80, 0.1);
-      box-shadow: 0 1px 3px rgba(10, 25, 55, 0.06);
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .card h2 {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 700;
-      color: #0d2b55;
-    }
-
-    .card-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .dashboard-panel {
-      padding: 0;
-      overflow: hidden;
-    }
-
-    .dashboard-panel summary {
-      list-style: none;
-      cursor: pointer;
-      padding: 16px 18px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      user-select: none;
-    }
-
-    .dashboard-panel summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .dashboard-panel summary:hover {
-      background: #f8fafc;
-    }
-
-    .panel-title-wrap {
-      min-width: 0;
-      display: grid;
-      gap: 4px;
-    }
-
-    .panel-kicker {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #7a93ae;
-      font-weight: 800;
-    }
-
-    .panel-title {
-      margin: 0;
-      font-size: 15px;
-      line-height: 1.2;
-      color: #0d2b55;
-      font-weight: 800;
-    }
-
-    .panel-subtitle {
-      font-size: 12px;
-      color: #7a93ae;
-    }
-
-    .panel-summary-meta {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      margin-left: auto;
-      color: #4a6080;
-      font-size: 12px;
-      font-weight: 700;
-      flex-shrink: 0;
-    }
-
-    .panel-summary-pill {
-      display: inline-flex;
-      align-items: center;
-      min-height: 30px;
-      padding: 0 10px;
-      border-radius: 999px;
-      background: #f8fafc;
-      border: 1px solid rgba(15, 40, 80, 0.08);
-      white-space: nowrap;
-    }
-
-    .panel-chevron {
-      width: 18px;
-      height: 18px;
-      border-right: 2px solid #7a93ae;
-      border-bottom: 2px solid #7a93ae;
-      transform: rotate(45deg);
-      transition: transform 0.16s ease, border-color 0.16s ease;
-      margin-bottom: 4px;
-      flex-shrink: 0;
-    }
-
-    .dashboard-panel[open] .panel-chevron {
-      transform: rotate(225deg);
-      margin-bottom: -4px;
-      border-color: #0ea5c9;
-    }
-
-    .panel-body {
-      padding: 0 18px 18px;
-      display: grid;
-      gap: 14px;
-      border-top: 1px solid rgba(15, 40, 80, 0.08);
-      background: linear-gradient(180deg, rgba(248, 250, 252, 0.7) 0%, rgba(255, 255, 255, 1) 28%);
-    }
-
-    .panel-section {
-      display: grid;
-      gap: 12px;
-      padding-top: 14px;
-    }
-
-    .panel-section:first-child {
-      padding-top: 0;
-    }
-
-    @media (max-width: 720px) {
-      .dashboard-panel summary {
-        align-items: flex-start;
-      }
-
-      .panel-summary-meta {
-        width: 100%;
-        justify-content: space-between;
-        margin-left: 0;
-      }
-    }
-
-    /* KPI */
-    .kpi {
-      display: grid;
-      gap: 2px;
-    }
-
-    .kpi-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: #4a6080;
-      font-weight: 700;
-    }
-
-    .kpi-value {
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: #0d2b55;
-    }
-
-    .kpi-sub {
-      font-size: 12px;
-      color: #7a93ae;
-      font-weight: 500;
-    }
-
-    /* Chart */
-    .line-chart {
-      width: 100%;
-      height: auto;
-      background: #f8fafc;
-      border-radius: 10px;
-      border: 1px solid rgba(15, 40, 80, 0.08);
-    }
-
-    .timeline-grid {
-      display: flex;
-      gap: 16px;
-      font-size: 12px;
-      color: #7a93ae;
-      flex-wrap: wrap;
-    }
-
-    .chart-note {
-      font-size: 12px;
-      color: #7a93ae;
-    }
-
-    .chart-legend {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    .chart-legend-item {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: #f8fafc;
-      border: 1px solid rgba(15, 40, 80, 0.08);
-      font-size: 12px;
-      color: #4a6080;
-    }
-
-    .chart-legend-item strong {
-      color: #0d2b55;
-      font-size: 12.5px;
-    }
-
-    .legend-swatch {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .empty-chart {
-      min-height: 120px;
-      display: grid;
-      place-items: center;
-      text-align: center;
-      padding: 18px;
-      border-radius: 10px;
-      border: 1px dashed rgba(15, 40, 80, 0.16);
-      background: #f8fafc;
-      color: #7a93ae;
-      font-size: 12.5px;
-    }
-
-    /* State list */
-    .state-list {
-      display: grid;
-      gap: 6px;
-    }
-
-    .state-list a {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      text-decoration: none;
-      color: #0f1d2e;
-      padding: 9px 12px;
-      border-radius: 8px;
-      border: 1px solid rgba(15, 40, 80, 0.08);
-      background: #f8fafc;
-      font-size: 13.5px;
-      transition: background 0.12s ease;
-    }
-
-    .state-list a:hover {
-      background: #eaf0f9;
-      border-color: rgba(15, 40, 80, 0.14);
-    }
-
-    .state-list span {
-      font-weight: 700;
-      color: #0d2b55;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 11.5px;
-      font-weight: 700;
-      background: #eff6ff;
-      color: #1e40af;
-      border: 1px solid rgba(29,78,216,0.15);
-    }
-
-    /* Summary split */
-    .summary-split {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: 1fr;
-    }
-
-    @media (min-width: 900px) {
-      .summary-split {
-        grid-template-columns: minmax(240px, 320px) 1fr;
-        align-items: start;
-      }
-    }
-
-    .summary-wide {
-      grid-column: 1 / -1;
-    }
-
-    .summary-block {
-      border: 1px solid rgba(15, 40, 80, 0.08);
-      border-radius: 10px;
-      padding: 14px;
-      background: #f8fafc;
-    }
-
-    .summary-block h3 {
-      margin: 0 0 10px;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: #7a93ae;
-      font-weight: 700;
-    }
-
-    /* Pie chart */
-    .pie-wrap {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      align-items: start;
-    }
-
-    @media (min-width: 640px) {
-      .pie-wrap {
-        grid-template-columns: minmax(160px, 280px) 1fr;
-        gap: 14px;
-      }
-    }
-
-    .pie-chart {
-      width: 100%;
-      max-width: 280px;
-      aspect-ratio: 1 / 1;
-      padding: 10px;
-      border-radius: 10px;
-      background: #ffffff;
-      border: 1px solid rgba(15, 40, 80, 0.08);
-      display: grid;
-      place-items: center;
-    }
-
-    .pie-chart svg {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    .pie-legend {
-      display: grid;
-      gap: 7px;
-      font-size: 13px;
-      padding: 4px 0;
-      min-width: 0;
-    }
-
-    .legend-item {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 10px;
-      align-items: center;
-    }
-
-    .legend-left {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      min-width: 0;
-    }
-
-    .legend-left div {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-size: 13px;
-    }
-
-    .legend-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .legend-right {
-      display: flex;
-      align-items: baseline;
-      gap: 5px;
-      font-weight: 700;
-      color: #0d2b55;
-      font-size: 13px;
-      white-space: nowrap;
-    }
-
-    .legend-right small {
-      font-weight: 600;
-      color: #7a93ae;
-      font-size: 11px;
-    }
-
-    /* Range summary */
-    .range-summary {
-      margin-top: 10px;
-      display: grid;
-      gap: 6px;
-      padding: 12px;
-      border-radius: 8px;
-      border: 1px solid rgba(15, 40, 80, 0.08);
-      background: #f8fafc;
-    }
-
-    .range-summary strong {
-      font-size: 18px;
-      font-weight: 700;
-      color: #0d2b55;
-    }
-
-    .summary-header {
-      display: grid;
-      gap: 4px;
-      margin-bottom: 2px;
-    }
-
-    .summary-title {
-      margin: 0;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: #7a93ae;
-      font-weight: 800;
-    }
-
-    .summary-note {
-      font-size: 12px;
-      color: #7a93ae;
-    }
-
-    /* Sales table details */
-    details#timeline-details {
-      border-top: 1px solid rgba(15, 40, 80, 0.08);
-      padding-top: 10px;
-    }
-
-    details#timeline-details summary {
-      list-style: none;
-      cursor: pointer;
-      font-size: 12.5px;
-      font-weight: 600;
-      color: #0ea5c9;
-      padding: 4px 0;
-    }
-
-    details#timeline-details summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .bar-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .bar-row {
-      display: grid;
-      gap: 8px;
-    }
-
-    .bar-meta {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: baseline;
-      flex-wrap: wrap;
-      font-size: 12.5px;
-      color: #4a6080;
-    }
-
-    .bar-meta strong {
-      color: #0d2b55;
-      font-size: 13px;
-    }
-
-    .bar-track {
-      width: 100%;
-      height: 12px;
-      border-radius: 999px;
-      background: #e9eff7;
-      overflow: hidden;
-    }
-
-    .bar-fill {
-      height: 100%;
-      border-radius: inherit;
-      min-width: 0;
-    }
-
-    .section-tools {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-  </style>
-  {{template "app_styles" .}}
-</head>
-<body>
-  {{template "header" .}}
-
-  <main class="page-content">
-    <div class="dashboard-toolbar">
-      <span id="dash-range-badge" class="range-pill">{{.RangeStart}} → {{.RangeEnd}} · {{.RangeCount}} ventas</span>
-      <a id="dash-download" class="button" href="/csv/ventas?start_date={{.RangeStart}}&end_date={{.RangeEnd}}" title="Descargar ventas del periodo">Descargar ventas</a>
-      <details class="range-picker" id="dash-range">
-        <summary>Fechas</summary>
-        <div class="range-popover">
-          <form id="dash-range-form" class="range-form" action="/dashboard" method="GET">
-            <div>
-              <label for="start_date">Desde</label>
-              <input id="start_date" name="start_date" type="date" value="{{.RangeStart}}" />
-            </div>
-            <div>
-              <label for="end_date">Hasta</label>
-              <input id="end_date" name="end_date" type="date" value="{{.RangeEnd}}" />
-            </div>
-            <div>
-              <button class="button primary" type="submit">Aplicar</button>
-            </div>
-          </form>
-          <div class="chart-note">El dashboard se actualiza automaticamente al cambiar el rango.</div>
-        </div>
-      </details>
-    </div>
-
-    <section class="grid">
-    <details class="card dashboard-panel span-full" id="panel-sales-day" open>
-      <summary>
-        <div class="panel-title-wrap">
-          <div class="panel-kicker">Dashboard</div>
-          <h2 class="panel-title">Línea de tiempo (ventas por día)</h2>
-          <div class="panel-subtitle">Visualiza la evolución diaria de ventas del rango seleccionado.</div>
-        </div>
-        <div class="panel-summary-meta">
-          <span class="panel-summary-pill" id="panel-sales-day-pill">{{.RangeCount}} ventas</span>
-          <span class="panel-chevron" aria-hidden="true"></span>
-        </div>
-      </summary>
-      <div class="panel-body">
-        <section class="panel-section">
-          <div class="card-head">
-            <div class="chart-note">Fecha (X) y total ($) (Y). Valores actualizados por rango.</div>
-            <div class="kpi">
-              <div class="kpi-label">Venta total</div>
-              <div id="kpi-total" class="kpi-value">{{.RangeTotal}}</div>
-              <div id="kpi-sub" class="kpi-sub">{{.RangeStart}} → {{.RangeEnd}} · {{.RangeCount}} ventas</div>
-            </div>
-          </div>
-
-          <svg id="timeline-svg" class="line-chart" viewBox="0 0 1000 260" role="img" aria-label="Histórico de ventas"></svg>
-          <div class="timeline-grid">
-            <div id="timeline-max">Máximo: {{.MaxTimelineText}}</div>
-            <div id="timeline-days">Días visibles: {{len .Timeline}}</div>
-          </div>
-        </section>
-
-        <details id="timeline-details">
-          <summary>Ver detalle de ventas</summary>
-          <div class="chart-note" style="margin-top:6px;">Detalle por venta dentro del rango seleccionado.</div>
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Fecha</th>
-                <th>Producto</th>
-                <th>Cantidad</th>
-                <th>Total</th>
-                <th>Método</th>
-                {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}<th>Acción</th>{{end}}
-              </tr>
-            </thead>
-            <tbody id="sales-table-body">
-              {{range .Sales}}
-              <tr>
-                <td>{{.ID}}</td>
-                <td>{{.Fecha}}</td>
-                <td>{{.Producto}}</td>
-                <td>{{.Cantidad}}</td>
-                <td>{{.Total}}</td>
-                <td>{{.MetodoPago}}</td>
-                {{if and $.CurrentUser (eq $.CurrentUser.Role "admin")}}
-                <td><button type="button" class="button secondary" data-sale-delete="{{.ID}}">Eliminar</button></td>
-                {{end}}
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </details>
-      </div>
-    </details>
-
-    <details class="card dashboard-panel span-full" id="panel-sales-user" open>
-      <summary>
-        <div class="panel-title-wrap">
-          <div class="panel-kicker">Dashboard</div>
-          <h2 class="panel-title">Línea de tiempo por usuario</h2>
-          <div class="panel-subtitle">Compara cómo evolucionan las ventas registradas por usuario a lo largo del tiempo.</div>
-        </div>
-        <div class="panel-summary-meta">
-          <span class="panel-summary-pill" id="panel-sales-user-pill">{{len .UserTimeline}} usuarios</span>
-          <span class="panel-chevron" aria-hidden="true"></span>
-        </div>
-      </summary>
-      <div class="panel-body">
-        <section class="panel-section">
-          <div class="chart-note">Cada línea representa el total vendido por usuario en cada día visible.</div>
-          <svg id="user-timeline-svg" class="line-chart" viewBox="0 0 1000 280" role="img" aria-label="Ventas por usuario" {{if .UserTimeline}}{{else}}hidden{{end}}></svg>
-          <div id="user-timeline-legend" class="chart-legend">
-            {{range .UserTimeline}}
-            <span class="chart-legend-item">
-              <span class="legend-swatch" style="background: {{.Color}};"></span>
-              <strong>{{.UserLabel}}</strong>
-              <span>{{.Total}}</span>
-            </span>
-            {{end}}
-          </div>
-          <div id="user-timeline-empty" class="empty-chart" {{if .UserTimeline}}hidden{{end}}>
-            No hay ventas registradas por usuario en el rango seleccionado.
-          </div>
-        </section>
-      </div>
-    </details>
-
-    <details class="card dashboard-panel span-full" id="panel-summary" open>
-      <summary>
-        <div class="panel-title-wrap">
-          <div class="panel-kicker">Dashboard</div>
-          <h2 class="panel-title">Resumen</h2>
-          <div class="panel-subtitle">Accesos rápidos y comparativos clave del periodo actual en una sola vista.</div>
-        </div>
-        <div class="panel-summary-meta">
-          <span class="panel-summary-pill">3 bloques</span>
-          <span class="panel-chevron" aria-hidden="true"></span>
-        </div>
-      </summary>
-      <div class="panel-body">
-        <div class="summary-split">
-          <section class="summary-block">
-            <div class="summary-header">
-              <h3 class="summary-title">Conteo por estado</h3>
-              <div class="summary-note">Distribución actual del inventario visible para el usuario.</div>
-            </div>
-            <div class="state-list">
-              {{range .EstadoConteos}}
-              <a href="{{.Link}}">
-                <div>{{.Estado}}</div>
-                <span class="badge">{{.Cantidad}}</span>
-              </a>
-              {{end}}
-            </div>
-          </section>
-
-          <section class="summary-block">
-            <div class="summary-header">
-              <h3 class="summary-title">Ventas por método de pago</h3>
-              <div class="summary-note">Participación de cada método dentro del total vendido.</div>
-            </div>
-            <div class="pie-wrap">
-              <div class="pie-chart">
-                <svg id="pie-svg" viewBox="-10 -10 140 140" role="img" aria-label="Ventas por método de pago"></svg>
-              </div>
-              <div id="pie-legend" class="pie-legend">
-                {{range .PieSlices}}
-                <div class="legend-item">
-                  <span class="legend-left">
-                    <span class="legend-dot" style="background: {{.Color}};"></span>
-                    <div>{{.Metodo}}</div>
-                  </span>
-                  <span class="legend-right">{{.Total}} <small>{{printf "%.0f" .Percent}}%</small></span>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            /* ── Dashboard: estilos locales complementarios ── */
+
+            .dashboard-toolbar {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                align-items: center;
+                margin-bottom: 18px;
+                flex-wrap: wrap;
+                padding: 14px 16px;
+                border-radius: 18px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: linear-gradient(
+                    135deg,
+                    rgba(255, 255, 255, 0.95) 0%,
+                    rgba(246, 249, 252, 0.92) 100%
+                );
+                box-shadow: 0 16px 28px rgba(12, 28, 52, 0.06);
+                backdrop-filter: blur(10px);
+                position: relative;
+                z-index: 20;
+            }
+
+            .dashboard-toolbar-copy {
+                display: grid;
+                gap: 4px;
+                min-width: min(100%, 420px);
+            }
+
+            .dashboard-toolbar-kicker {
+                margin: 0;
+                font-size: 10.5px;
+                text-transform: uppercase;
+                letter-spacing: 0.14em;
+                font-weight: 800;
+                color: #0ea5c9;
+            }
+
+            .dashboard-toolbar-copy strong {
+                font-size: 15px;
+                line-height: 1.2;
+                color: #0d2b55;
+                letter-spacing: -0.02em;
+            }
+
+            .dashboard-toolbar-copy span {
+                font-size: 12.5px;
+                color: #5f7694;
+            }
+
+            .dashboard-toolbar-actions {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: flex-end;
+            }
+
+            details.range-picker {
+                position: relative;
+            }
+
+            details.range-picker summary {
+                list-style: none;
+                cursor: pointer;
+                border: 1px solid rgba(15, 40, 80, 0.1);
+                background: rgba(255, 255, 255, 0.92);
+                border-radius: 999px;
+                padding: 0 14px;
+                min-height: 38px;
+                font-size: 12.5px;
+                font-weight: 700;
+                color: #4a6080;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                user-select: none;
+                transition:
+                    border-color 0.15s ease,
+                    background 0.15s ease,
+                    transform 0.15s ease;
+            }
+
+            details.range-picker summary::-webkit-details-marker {
+                display: none;
+            }
+
+            details.range-picker summary:hover {
+                border-color: #0ea5c9;
+                background: #ffffff;
+                color: #0d2b55;
+                transform: translateY(-1px);
+            }
+
+            details.range-picker[open] summary {
+                border-color: #0ea5c9;
+                background: #ffffff;
+                color: #0d2b55;
+            }
+
+            .range-popover {
+                position: absolute;
+                right: 0;
+                top: calc(100% + 8px);
+                width: min(400px, 90vw);
+                background: rgba(255, 255, 255, 0.97);
+                border: 1px solid rgba(15, 40, 80, 0.1);
+                border-radius: 16px;
+                box-shadow: 0 18px 36px rgba(10, 25, 55, 0.14);
+                padding: 16px;
+                z-index: 30;
+                backdrop-filter: blur(14px);
+            }
+
+            .range-form {
+                display: grid;
+                gap: 10px;
+                grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+                align-items: end;
+            }
+
+            /* Dashboard grid */
+            .grid {
+                display: grid;
+                gap: 18px;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            }
+
+            .span-full {
+                grid-column: 1 / -1;
+            }
+
+            #panel-summary {
+                order: -1;
+            }
+
+            .card h2 {
+                margin: 0;
+                font-size: 14px;
+                font-weight: 700;
+                color: #0d2b55;
+            }
+
+            .card-head {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+
+            .dashboard-panel {
+                padding: 0;
+                overflow: hidden;
+                border-radius: 20px;
+            }
+
+            .dashboard-panel summary {
+                list-style: none;
+                cursor: pointer;
+                padding: 18px 20px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                user-select: none;
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.28) 0%,
+                    rgba(255, 255, 255, 0) 100%
+                );
+            }
+
+            .dashboard-panel summary::-webkit-details-marker {
+                display: none;
+            }
+
+            .dashboard-panel summary:hover {
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.54) 0%,
+                    rgba(248, 250, 252, 0.32) 100%
+                );
+            }
+
+            .panel-title-wrap {
+                min-width: 0;
+                display: grid;
+                gap: 4px;
+            }
+
+            .panel-kicker {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.12em;
+                color: #0ea5c9;
+                font-weight: 800;
+            }
+
+            .panel-title {
+                margin: 0;
+                font-size: 16px;
+                line-height: 1.15;
+                color: #0d2b55;
+                font-weight: 800;
+                letter-spacing: -0.02em;
+            }
+
+            .panel-subtitle {
+                font-size: 12.5px;
+                color: #5f7694;
+            }
+
+            .panel-summary-meta {
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                margin-left: auto;
+                color: #4a6080;
+                font-size: 12px;
+                font-weight: 700;
+                flex-shrink: 0;
+            }
+
+            .panel-summary-pill {
+                display: inline-flex;
+                align-items: center;
+                min-height: 30px;
+                padding: 0 11px;
+                border-radius: 999px;
+                background: rgba(245, 249, 252, 0.9);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                white-space: nowrap;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            }
+
+            .panel-chevron {
+                width: 10px;
+                height: 10px;
+                border-right: 1.5px solid #7a93ae;
+                border-bottom: 1.5px solid #7a93ae;
+                transform: rotate(45deg);
+                transition:
+                    transform 0.16s ease,
+                    border-color 0.16s ease;
+                margin-bottom: 3px;
+                flex-shrink: 0;
+            }
+
+            .dashboard-panel[open] .panel-chevron {
+                transform: rotate(225deg);
+                margin-bottom: -2px;
+                border-color: #0ea5c9;
+            }
+
+            .panel-body {
+                padding: 0 20px 20px;
+                display: grid;
+                gap: 16px;
+                border-top: 1px solid rgba(15, 40, 80, 0.08);
+                background: linear-gradient(
+                    180deg,
+                    rgba(243, 247, 251, 0.76) 0%,
+                    rgba(255, 255, 255, 1) 34%
+                );
+            }
+
+            .panel-section {
+                display: grid;
+                gap: 14px;
+                padding-top: 16px;
+            }
+
+            .panel-section:first-child {
+                padding-top: 0;
+            }
+
+            @media (max-width: 720px) {
+                .dashboard-panel summary {
+                    align-items: flex-start;
+                }
+
+                .panel-summary-meta {
+                    width: 100%;
+                    justify-content: space-between;
+                    margin-left: 0;
+                }
+            }
+
+            /* KPI */
+            .kpi {
+                display: grid;
+                gap: 4px;
+                padding: 12px 14px;
+                border-radius: 16px;
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.96) 0%,
+                    rgba(244, 248, 252, 0.92) 100%
+                );
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                min-width: min(100%, 220px);
+            }
+
+            .kpi-label {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                color: #5f7694;
+                font-weight: 800;
+            }
+
+            .kpi-value {
+                font-size: 26px;
+                font-weight: 800;
+                letter-spacing: -0.03em;
+                color: #0d2b55;
+            }
+
+            .kpi-sub {
+                font-size: 12px;
+                color: #7a93ae;
+                font-weight: 500;
+            }
+
+            /* Chart */
+            .line-chart {
+                width: 100%;
+                height: auto;
+                background: linear-gradient(
+                    180deg,
+                    rgba(248, 250, 252, 0.94) 0%,
+                    rgba(255, 255, 255, 0.96) 100%
+                );
+                border-radius: 16px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            }
+
+            .timeline-grid {
+                display: flex;
+                gap: 16px;
+                font-size: 12px;
+                color: #7a93ae;
+                flex-wrap: wrap;
+            }
+
+            .chart-note {
+                font-size: 12px;
+                color: #7a93ae;
+            }
+
+            .chart-legend {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+
+            .chart-legend-item {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                padding: 7px 11px;
+                border-radius: 999px;
+                background: rgba(248, 250, 252, 0.94);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                font-size: 12px;
+                color: #4a6080;
+            }
+
+            .chart-legend-item strong {
+                color: #0d2b55;
+                font-size: 12.5px;
+            }
+
+            .legend-swatch {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                flex-shrink: 0;
+            }
+
+            .empty-chart {
+                min-height: 120px;
+                display: grid;
+                place-items: center;
+                text-align: center;
+                padding: 18px;
+                border-radius: 14px;
+                border: 1px dashed rgba(15, 40, 80, 0.16);
+                background: rgba(248, 250, 252, 0.94);
+                color: #7a93ae;
+                font-size: 12.5px;
+            }
+
+            /* State list */
+            .state-list {
+                display: grid;
+                gap: 6px;
+            }
+
+            .state-list a {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                text-decoration: none;
+                color: #0f1d2e;
+                padding: 10px 12px;
+                border-radius: 12px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: rgba(248, 250, 252, 0.92);
+                font-size: 13.5px;
+                transition:
+                    background 0.12s ease,
+                    border-color 0.12s ease,
+                    transform 0.12s ease;
+            }
+
+            .state-list a:hover {
+                background: #eaf0f9;
+                border-color: rgba(15, 40, 80, 0.14);
+                transform: translateY(-1px);
+            }
+
+            .state-list span {
+                font-weight: 700;
+                color: #0d2b55;
+            }
+
+            .badge {
+                display: inline-flex;
+                align-items: center;
+                padding: 2px 8px;
+                border-radius: 999px;
+                font-size: 11.5px;
+                font-weight: 700;
+                background: #eff6ff;
+                color: #1e40af;
+                border: 1px solid rgba(29, 78, 216, 0.15);
+            }
+
+            /* Summary split */
+            .summary-split {
+                display: grid;
+                gap: 14px;
+                grid-template-columns: 1fr;
+            }
+
+            @media (min-width: 740px) {
+                .summary-split {
+                    grid-template-columns: 1fr 1fr;
+                    align-items: start;
+                }
+            }
+
+            @media (min-width: 1100px) {
+                .summary-split {
+                    grid-template-columns: repeat(4, 1fr);
+                    align-items: start;
+                }
+            }
+
+            .summary-wide {
+                grid-column: auto;
+            }
+
+            /* Pie compacto dentro del bloque resumen */
+            .summary-block .pie-wrap {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-block .pie-chart {
+                max-width: 130px;
+                padding: 8px;
+                margin: 0 auto;
+            }
+
+            /* Ventas por usuario en resumen */
+            .user-sale-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                padding: 8px 10px;
+                border-radius: 8px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: rgba(248, 250, 252, 0.92);
+                font-size: 13px;
+            }
+
+            .user-sale-left {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                min-width: 0;
+                overflow: hidden;
+            }
+
+            .user-sale-left span {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                font-weight: 600;
+                color: #0d2b55;
+            }
+
+            .user-sale-total {
+                font-weight: 700;
+                color: #0d2b55;
+                white-space: nowrap;
+                font-size: 12.5px;
+            }
+
+            .summary-block {
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                border-radius: 16px;
+                padding: 16px;
+                background: linear-gradient(
+                    180deg,
+                    rgba(248, 250, 252, 0.92) 0%,
+                    rgba(255, 255, 255, 0.96) 100%
+                );
+            }
+
+            .summary-block h3 {
+                margin: 0 0 10px;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.07em;
+                color: #7a93ae;
+                font-weight: 700;
+            }
+
+            /* Pie chart */
+            .pie-wrap {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 12px;
+                align-items: start;
+            }
+
+            @media (min-width: 640px) {
+                .pie-wrap {
+                    grid-template-columns: minmax(160px, 280px) 1fr;
+                    gap: 14px;
+                }
+            }
+
+            .pie-chart {
+                width: 100%;
+                max-width: 280px;
+                aspect-ratio: 1 / 1;
+                padding: 12px;
+                border-radius: 14px;
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.98) 0%,
+                    rgba(245, 249, 252, 0.94) 100%
+                );
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                display: grid;
+                place-items: center;
+            }
+
+            .pie-chart svg {
+                width: 100%;
+                height: 100%;
+                display: block;
+            }
+
+            .pie-legend {
+                display: grid;
+                gap: 7px;
+                font-size: 13px;
+                padding: 4px 0;
+                min-width: 0;
+            }
+
+            .legend-item {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .legend-left {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                min-width: 0;
+            }
+
+            .legend-left div {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                font-size: 13px;
+            }
+
+            .legend-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                flex-shrink: 0;
+            }
+
+            .legend-right {
+                display: flex;
+                align-items: baseline;
+                gap: 5px;
+                font-weight: 700;
+                color: #0d2b55;
+                font-size: 13px;
+                white-space: nowrap;
+            }
+
+            .legend-right small {
+                font-weight: 600;
+                color: #7a93ae;
+                font-size: 11px;
+            }
+
+            /* Range summary */
+            .range-summary {
+                margin-top: 10px;
+                display: grid;
+                gap: 6px;
+                padding: 13px 14px;
+                border-radius: 12px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: rgba(248, 250, 252, 0.92);
+            }
+
+            .range-summary strong {
+                font-size: 18px;
+                font-weight: 700;
+                color: #0d2b55;
+            }
+
+            .summary-header {
+                display: grid;
+                gap: 4px;
+                margin-bottom: 2px;
+            }
+
+            .summary-title {
+                margin: 0;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.07em;
+                color: #7a93ae;
+                font-weight: 800;
+            }
+
+            .summary-note {
+                font-size: 12px;
+                color: #7a93ae;
+            }
+
+            /* Sales table details */
+            details#timeline-details {
+                border-top: 1px solid rgba(15, 40, 80, 0.08);
+                padding-top: 10px;
+            }
+
+            details#timeline-details summary {
+                list-style: none;
+                cursor: pointer;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: #0ea5c9;
+                padding: 4px 0;
+            }
+
+            details#timeline-details summary::-webkit-details-marker {
+                display: none;
+            }
+
+            .bar-list {
+                display: grid;
+                gap: 10px;
+            }
+
+            .bar-row {
+                display: grid;
+                gap: 8px;
+            }
+
+            .bar-meta {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                align-items: baseline;
+                flex-wrap: wrap;
+                font-size: 12.5px;
+                color: #4a6080;
+            }
+
+            .bar-meta strong {
+                color: #0d2b55;
+                font-size: 13px;
+            }
+
+            .bar-track {
+                width: 100%;
+                height: 12px;
+                border-radius: 999px;
+                background: #e9eff7;
+                overflow: hidden;
+            }
+
+            .bar-fill {
+                height: 100%;
+                border-radius: inherit;
+                min-width: 0;
+            }
+
+            .section-tools {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+
+            @media (max-width: 720px) {
+                .dashboard-toolbar {
+                    padding: 14px;
+                }
+
+                .dashboard-toolbar-actions {
+                    width: 100%;
+                    justify-content: stretch;
+                }
+
+                .dashboard-toolbar-actions > * {
+                    flex: 1 1 auto;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+
+        <main class="page-content">
+            <div class="dashboard-toolbar">
+                <div class="dashboard-toolbar-copy">
+                    <p class="dashboard-toolbar-kicker">Resumen ejecutivo</p>
+                    <strong
+                        >Lectura rápida del rango seleccionado y accesos
+                        inmediatos para operar.</strong
+                    >
+                    <span
+                        >Usa el filtro de fechas para concentrar el análisis sin
+                        salir del panel.</span
+                    >
                 </div>
-                {{end}}
-              </div>
-            </div>
-          </section>
-
-          <section class="summary-block summary-wide">
-            <div class="summary-header">
-              <h3 class="summary-title">Totales por categoría</h3>
-              <div class="summary-note">Comparativo de ventas, créditos y retomas según las categorías activas.</div>
-            </div>
-            <div id="category-bars" class="bar-list">
-              {{range .CategoryTotals}}
-              <div class="bar-row">
-                <div class="bar-meta">
-                  <div><strong>{{.Label}}</strong> · {{.Count}} registros</div>
-                  <div>{{.Total}}</div>
+                <div class="dashboard-toolbar-actions">
+                    <details class="range-picker" id="dash-range">
+                        <summary><span id="dash-range-badge">{{.RangeStart}} → {{.RangeEnd}} · {{.RangeCount}} ventas</span> <span style="opacity:0.6;font-size:10px;">▾</span></summary>
+                        <div class="range-popover">
+                            <form
+                                id="dash-range-form"
+                                class="range-form"
+                                action="/dashboard"
+                                method="GET"
+                            >
+                                <div>
+                                    <label for="start_date">Desde</label>
+                                    <input
+                                        id="start_date"
+                                        name="start_date"
+                                        type="date"
+                                        value="{{.RangeStart}}"
+                                    />
+                                </div>
+                                <div>
+                                    <label for="end_date">Hasta</label>
+                                    <input
+                                        id="end_date"
+                                        name="end_date"
+                                        type="date"
+                                        value="{{.RangeEnd}}"
+                                    />
+                                </div>
+                                <div>
+                                    <button
+                                        class="button primary"
+                                        type="submit"
+                                    >
+                                        Aplicar
+                                    </button>
+                                </div>
+                            </form>
+                            <div class="chart-note">
+                                El dashboard se actualiza automaticamente al
+                                cambiar el rango.
+                            </div>
+                        </div>
+                    </details>
+                    <a
+                        id="dash-download"
+                        class="button"
+                        href="/csv/ventas?start_date={{.RangeStart}}&end_date={{.RangeEnd}}"
+                        title="Descargar ventas del periodo"
+                        >Descargar ventas</a
+                    >
                 </div>
-                <div class="bar-track">
-                  <div class="bar-fill" style="width: 0%; background: {{.Color}};"></div>
-                </div>
-              </div>
-              {{end}}
             </div>
-            <div id="category-bars-empty" class="empty-chart" hidden>
-              No hay categorías disponibles para mostrar en este rango.
-            </div>
-          </section>
-        </div>
-      </div>
-    </details>
-    </section>
-  </main>
 
-  <script>
-    const dash = (() => {
-      const startInput = document.getElementById("start_date");
-      const endInput = document.getElementById("end_date");
-      const rangeBadge = document.getElementById("dash-range-badge");
-      const downloadBtn = document.getElementById("dash-download");
-	      const pieSvg = document.getElementById("pie-svg");
-	      const pieLegend = document.getElementById("pie-legend");
-	      const timelineSvg = document.getElementById("timeline-svg");
-	      const timelineMax = document.getElementById("timeline-max");
-	      const timelineDays = document.getElementById("timeline-days");
-	      const userTimelineSvg = document.getElementById("user-timeline-svg");
-	      const userTimelineLegend = document.getElementById("user-timeline-legend");
-	      const userTimelineEmpty = document.getElementById("user-timeline-empty");
-	      const categoryBars = document.getElementById("category-bars");
-	      const categoryBarsEmpty = document.getElementById("category-bars-empty");
-	      const panelSalesDayPill = document.getElementById("panel-sales-day-pill");
-	      const panelSalesUserPill = document.getElementById("panel-sales-user-pill");
-	      const dashboardPanels = Array.from(document.querySelectorAll(".dashboard-panel[id]"));
-	      const salesTableBody = document.getElementById("sales-table-body");
-	      const kpiTotal = document.getElementById("kpi-total");
-	      const kpiSub = document.getElementById("kpi-sub");
-	      const isAdmin = {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}true{{else}}false{{end}};
-	      const panelStorageKey = "stockiapp.dashboard.panels";
+            <section class="grid">
+                <details
+                    class="card dashboard-panel span-full"
+                    id="panel-sales-day"
+                    open
+                >
+                    <summary>
+                        <div class="panel-title-wrap">
+                            <div class="panel-kicker">Dashboard</div>
+                            <h2 class="panel-title">
+                                Línea de tiempo (ventas por día)
+                            </h2>
+                            <div class="panel-subtitle">
+                                Visualiza la evolución diaria de ventas del
+                                rango seleccionado.
+                            </div>
+                        </div>
+                        <div class="panel-summary-meta">
+                            <span
+                                class="panel-summary-pill"
+                                id="panel-sales-day-pill"
+                                >{{.RangeCount}} ventas</span
+                            >
+                            <span
+                                class="panel-chevron"
+                                aria-hidden="true"
+                            ></span>
+                        </div>
+                    </summary>
+                    <div class="panel-body">
+                        <section class="panel-section">
+                            <div class="card-head">
+                                <div class="chart-note">
+                                    Fecha (X) y total ($) (Y). Valores
+                                    actualizados por rango.
+                                </div>
+                                <div class="kpi">
+                                    <div class="kpi-label">Venta total</div>
+                                    <div id="kpi-total" class="kpi-value">
+                                        {{.RangeTotal}}
+                                    </div>
+                                    <div id="kpi-sub" class="kpi-sub">
+                                        {{.RangeStart}} → {{.RangeEnd}} ·
+                                        {{.RangeCount}} ventas
+                                    </div>
+                                </div>
+                            </div>
 
-	      const moneyFmt = (() => {
-	        try {
-	          return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
-	        } catch (_) {
-	          return { format: (n) => String(n) };
-	        }
-	      })();
-	      const fmtMoney = (value) => `$${moneyFmt.format(Math.round(Number(value || 0)))}`;
+                            <svg
+                                id="timeline-svg"
+                                class="line-chart"
+                                viewBox="0 0 1000 260"
+                                role="img"
+                                aria-label="Histórico de ventas"
+                            ></svg>
+                            <div class="timeline-grid">
+                                <div id="timeline-max">
+                                    Máximo: {{.MaxTimelineText}}
+                                </div>
+                                <div id="timeline-days">
+                                    Días visibles: {{len .Timeline}}
+                                </div>
+                            </div>
+                        </section>
 
-      const setRangeBadge = (start, end, count, totalText) => {
-        if (!rangeBadge) return;
-        const suffix = Number.isFinite(count) ? ` · ${count} ventas` : "";
-        rangeBadge.textContent = `${start} → ${end}${suffix}`;
-        if (kpiSub) kpiSub.textContent = `${start} → ${end}${suffix}`;
-        if (kpiTotal && totalText) kpiTotal.textContent = totalText;
-        if (panelSalesDayPill && Number.isFinite(count)) panelSalesDayPill.textContent = `${count} ventas`;
-        if (downloadBtn) downloadBtn.href = `/csv/ventas?${new URLSearchParams({ start_date: start, end_date: end }).toString()}`;
-      };
+                        <details id="timeline-details">
+                            <summary>Ver detalle de ventas</summary>
+                            <div class="chart-note" style="margin-top: 6px">
+                                Detalle por venta dentro del rango seleccionado.
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Fecha</th>
+                                        <th>Producto</th>
+                                        <th>Cantidad</th>
+                                        <th>Total</th>
+                                        <th>Método</th>
+                                        {{if and .CurrentUser (eq
+                                        .CurrentUser.Role "admin")}}
+                                        <th>Acción</th>
+                                        {{end}}
+                                    </tr>
+                                </thead>
+                                <tbody id="sales-table-body">
+                                    {{range .Sales}}
+                                    <tr>
+                                        <td>{{.ID}}</td>
+                                        <td>{{.Fecha}}</td>
+                                        <td>{{.Producto}}</td>
+                                        <td>{{.Cantidad}}</td>
+                                        <td>{{.Total}}</td>
+                                        <td>{{.MetodoPago}}</td>
+                                        {{if and $.CurrentUser (eq
+                                        $.CurrentUser.Role "admin")}}
+                                        <td>
+                                            <button
+                                                type="button"
+                                                class="button secondary"
+                                                data-sale-delete="{{.ID}}"
+                                            >
+                                                Eliminar
+                                            </button>
+                                        </td>
+                                        {{end}}
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </details>
+                    </div>
+                </details>
 
-      const loadPanelState = () => {
-        try {
-          return JSON.parse(window.localStorage.getItem(panelStorageKey) || "{}");
-        } catch (_) {
-          return {};
-        }
-      };
+                <details
+                    class="card dashboard-panel span-full"
+                    id="panel-sales-user"
+                    open
+                >
+                    <summary>
+                        <div class="panel-title-wrap">
+                            <div class="panel-kicker">Dashboard</div>
+                            <h2 class="panel-title">
+                                Línea de tiempo por usuario
+                            </h2>
+                            <div class="panel-subtitle">
+                                Compara cómo evolucionan las ventas registradas
+                                por usuario a lo largo del tiempo.
+                            </div>
+                        </div>
+                        <div class="panel-summary-meta">
+                            <span
+                                class="panel-summary-pill"
+                                id="panel-sales-user-pill"
+                                >{{len .UserTimeline}} usuarios</span
+                            >
+                            <span
+                                class="panel-chevron"
+                                aria-hidden="true"
+                            ></span>
+                        </div>
+                    </summary>
+                    <div class="panel-body">
+                        <section class="panel-section">
+                            <div class="chart-note">
+                                Cada línea representa el total vendido por
+                                usuario en cada día visible.
+                            </div>
+                            <svg
+                                id="user-timeline-svg"
+                                class="line-chart"
+                                viewBox="0 0 1000 280"
+                                role="img"
+                                aria-label="Ventas por usuario"
+                                {{if
+                                .UserTimeline}}{{else}}hidden{{end}}
+                            ></svg>
+                            <div id="user-timeline-legend" class="chart-legend">
+                                {{range .UserTimeline}}
+                                <span class="chart-legend-item">
+                                    <span
+                                        class="legend-swatch"
+                                        style="background: {{.Color}};"
+                                    ></span>
+                                    <strong>{{.UserLabel}}</strong>
+                                    <span>{{.Total}}</span>
+                                </span>
+                                {{end}}
+                            </div>
+                            <div
+                                id="user-timeline-empty"
+                                class="empty-chart"
+                                {{if
+                                .UserTimeline}}hidden{{end}}
+                            >
+                                No hay ventas registradas por usuario en el
+                                rango seleccionado.
+                            </div>
+                        </section>
+                    </div>
+                </details>
 
-      const savePanelState = () => {
-        if (!dashboardPanels.length) return;
-        const nextState = {};
-        dashboardPanels.forEach((panel) => {
-          if (panel.id) nextState[panel.id] = !!panel.open;
-        });
-        try {
-          window.localStorage.setItem(panelStorageKey, JSON.stringify(nextState));
-        } catch (_) {
-          // ignore persistence errors
-        }
-      };
+                <details
+                    class="card dashboard-panel span-full"
+                    id="panel-summary"
+                    open
+                >
+                    <summary>
+                        <div class="panel-title-wrap">
+                            <div class="panel-kicker">Dashboard</div>
+                            <h2 class="panel-title">Resumen</h2>
+                            <div class="panel-subtitle">
+                                Accesos rápidos y comparativos clave del periodo
+                                actual en una sola vista.
+                            </div>
+                        </div>
+                        <div class="panel-summary-meta">
+                            <span class="panel-summary-pill">3 bloques</span>
+                            <span
+                                class="panel-chevron"
+                                aria-hidden="true"
+                            ></span>
+                        </div>
+                    </summary>
+                    <div class="panel-body">
+                        <div class="summary-split">
+                            <section class="summary-block">
+                                <div class="summary-header">
+                                    <h3 class="summary-title">
+                                        Conteo por estado
+                                    </h3>
+                                    <div class="summary-note">
+                                        Distribución actual del inventario
+                                        visible para el usuario.
+                                    </div>
+                                </div>
+                                <div class="state-list">
+                                    {{range .EstadoConteos}}
+                                    <a href="{{.Link}}">
+                                        <div>{{.Estado}}</div>
+                                        <span class="badge">{{.Cantidad}}</span>
+                                    </a>
+                                    {{end}}
+                                </div>
+                            </section>
 
-      const applyPanelState = () => {
-        const state = loadPanelState();
-        dashboardPanels.forEach((panel) => {
-          if (!Object.prototype.hasOwnProperty.call(state, panel.id)) return;
-          panel.open = !!state[panel.id];
-        });
-      };
+                            <section class="summary-block">
+                                <div class="summary-header">
+                                    <h3 class="summary-title">
+                                        Ventas por método de pago
+                                    </h3>
+                                    <div class="summary-note">
+                                        Participación de cada método dentro del
+                                        total vendido.
+                                    </div>
+                                </div>
+                                <div class="pie-wrap">
+                                    <div class="pie-chart">
+                                        <svg
+                                            id="pie-svg"
+                                            viewBox="-10 -10 140 140"
+                                            role="img"
+                                            aria-label="Ventas por método de pago"
+                                        ></svg>
+                                    </div>
+                                    <div id="pie-legend" class="pie-legend">
+                                        {{range .PieSlices}}
+                                        <div class="legend-item">
+                                            <span class="legend-left">
+                                                <span
+                                                    class="legend-dot"
+                                                    style="background: {{.Color}};"
+                                                ></span>
+                                                <div>{{.Metodo}}</div>
+                                            </span>
+                                            <span class="legend-right"
+                                                >{{.Total}}
+                                                <small
+                                                    >{{printf "%.0f"
+                                                    .Percent}}%</small
+                                                ></span
+                                            >
+                                        </div>
+                                        {{end}}
+                                    </div>
+                                </div>
+                            </section>
 
-      const clearEl = (el) => {
-        if (!el) return;
-        while (el.firstChild) el.removeChild(el.firstChild);
-      };
+                            <section class="summary-block">
+                                <div class="summary-header">
+                                    <h3 class="summary-title">
+                                        Ventas por usuario
+                                    </h3>
+                                    <div class="summary-note">
+                                        Total vendido por cada usuario en el periodo.
+                                    </div>
+                                </div>
+                                <div class="state-list" id="summary-user-list">
+                                    {{range .UserTimeline}}
+                                    <div class="user-sale-row">
+                                        <span class="user-sale-left">
+                                            <span class="legend-dot" style="background: {{.Color}};"></span>
+                                            <span>{{.UserLabel}}</span>
+                                        </span>
+                                        <span class="user-sale-total">{{.Total}}</span>
+                                    </div>
+                                    {{else}}
+                                    <div class="empty-chart" style="min-height:60px;">Sin datos</div>
+                                    {{end}}
+                                </div>
+                            </section>
 
-      const el = (name, attrs = {}, text = "") => {
-        const node = document.createElementNS("http://www.w3.org/2000/svg", name);
-        Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, String(v)));
-        if (text) node.textContent = text;
-        return node;
-      };
+                            <section class="summary-block">
+                                <div class="summary-header">
+                                    <h3 class="summary-title">
+                                        Totales por categoría
+                                    </h3>
+                                    <div class="summary-note">
+                                        Comparativo de ventas, créditos y
+                                        retomas según las categorías activas.
+                                    </div>
+                                </div>
+                                <div id="category-bars" class="bar-list">
+                                    {{range .CategoryTotals}}
+                                    <div class="bar-row">
+                                        <div class="bar-meta">
+                                            <div>
+                                                <strong>{{.Label}}</strong> ·
+                                                {{.Count}} registros
+                                            </div>
+                                            <div>{{.Total}}</div>
+                                        </div>
+                                        <div class="bar-track">
+                                            <div
+                                                class="bar-fill"
+                                                style="width: 0%; background: {{.Color}};"
+                                            ></div>
+                                        </div>
+                                    </div>
+                                    {{end}}
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </details>
+            </section>
+        </main>
 
-	      const renderDonut = (data) => {
-	        if (!pieSvg) return;
-	        clearEl(pieSvg);
+        <script>
+            const dash = (() => {
+              const startInput = document.getElementById("start_date");
+              const endInput = document.getElementById("end_date");
+              const rangeBadge = document.getElementById("dash-range-badge");
+              const downloadBtn = document.getElementById("dash-download");
+               const pieSvg = document.getElementById("pie-svg");
+               const pieLegend = document.getElementById("pie-legend");
+               const timelineSvg = document.getElementById("timeline-svg");
+               const timelineMax = document.getElementById("timeline-max");
+               const timelineDays = document.getElementById("timeline-days");
+               const userTimelineSvg = document.getElementById("user-timeline-svg");
+               const userTimelineLegend = document.getElementById("user-timeline-legend");
+               const userTimelineEmpty = document.getElementById("user-timeline-empty");
+               const categoryBars = document.getElementById("category-bars");
+               const panelSalesDayPill = document.getElementById("panel-sales-day-pill");
+               const panelSalesUserPill = document.getElementById("panel-sales-user-pill");
+               const dashboardPanels = Array.from(document.querySelectorAll(".dashboard-panel[id]"));
+               const salesTableBody = document.getElementById("sales-table-body");
+               const kpiTotal = document.getElementById("kpi-total");
+               const kpiSub = document.getElementById("kpi-sub");
+               const isAdmin = {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}true{{else}}false{{end}};
+               const panelStorageKey = "stockiapp.dashboard.panels";
 
-	        const slices = Array.isArray(data.pie_slices) ? data.pie_slices : [];
-	        const total = String(data.pie_total || fmtMoney(0));
-	        const longTotal = total.length >= 14;
+               const moneyFmt = (() => {
+                 try {
+                   return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
+                 } catch (_) {
+                   return { format: (n) => String(n) };
+                 }
+               })();
+               const fmtMoney = (value) => `$${moneyFmt.format(Math.round(Number(value || 0)))}`;
 
-	        pieSvg.appendChild(el("circle", { cx: 60, cy: 60, r: 45, fill: "none", stroke: "#eef2ff", "stroke-width": 16 }));
-	        slices.forEach((s) => {
-	          pieSvg.appendChild(el("circle", {
-	            cx: 60,
-            cy: 60,
-            r: 45,
-            fill: "none",
-            stroke: s.color || "#2c6bed",
-            "stroke-width": 16,
-            "stroke-dasharray": `${Number(s.percent || 0).toFixed(2)} ${(Number(s.gap || 0)).toFixed(2)}`,
-            "stroke-dashoffset": `${Number(s.offset || 0).toFixed(2)}`,
-            transform: "rotate(-90 60 60)"
-	          }));
-	        });
-	        pieSvg.appendChild(el("text", { x: 60, y: 58, "text-anchor": "middle", "font-size": 12, fill: "#5c647c" }, "Total"));
-	        const totalAttrs = { x: 60, y: 74, "text-anchor": "middle", "font-size": longTotal ? 12 : 14, "font-weight": 700, fill: "#1c1f2a" };
-	        if (longTotal) {
-	          // Avoid clipping when totals are very large.
-	          totalAttrs.textLength = 92;
-	          totalAttrs.lengthAdjust = "spacingAndGlyphs";
-	        }
-	        pieSvg.appendChild(el("text", totalAttrs, total));
+              const setRangeBadge = (start, end, count, totalText) => {
+                if (!rangeBadge) return;
+                const suffix = Number.isFinite(count) ? ` · ${count} ventas` : "";
+                rangeBadge.textContent = `${start} → ${end}${suffix}`;
+                if (kpiSub) kpiSub.textContent = `${start} → ${end}${suffix}`;
+                if (kpiTotal && totalText) kpiTotal.textContent = totalText;
+                if (panelSalesDayPill && Number.isFinite(count)) panelSalesDayPill.textContent = `${count} ventas`;
+                if (downloadBtn) downloadBtn.href = `/csv/ventas?${new URLSearchParams({ start_date: start, end_date: end }).toString()}`;
+              };
 
-	        if (pieLegend) {
-	          pieLegend.innerHTML = "";
-	          slices.forEach((s) => {
-	            const div = document.createElement("div");
-            div.className = "legend-item";
-            const dot = document.createElement("span");
-            dot.className = "legend-dot";
-            dot.style.background = s.color || "#2c6bed";
-            const left = document.createElement("span");
-            left.className = "legend-left";
-            const label = document.createElement("div");
-            const pct = Math.round(Number(s.percent || 0));
-            label.textContent = `${s.metodo || "-"}`;
-            left.appendChild(dot);
-            left.appendChild(label);
+              const loadPanelState = () => {
+                try {
+                  return JSON.parse(window.localStorage.getItem(panelStorageKey) || "{}");
+                } catch (_) {
+                  return {};
+                }
+              };
 
-            const right = document.createElement("span");
-            right.className = "legend-right";
-            right.innerHTML = `${s.total || "-" } <small>${pct}%</small>`;
+              const savePanelState = () => {
+                if (!dashboardPanels.length) return;
+                const nextState = {};
+                dashboardPanels.forEach((panel) => {
+                  if (panel.id) nextState[panel.id] = !!panel.open;
+                });
+                try {
+                  window.localStorage.setItem(panelStorageKey, JSON.stringify(nextState));
+                } catch (_) {
+                  // ignore persistence errors
+                }
+              };
 
-            div.appendChild(left);
-            div.appendChild(right);
-            pieLegend.appendChild(div);
-          });
-        }
-      };
+              const applyPanelState = () => {
+                const state = loadPanelState();
+                dashboardPanels.forEach((panel) => {
+                  if (!Object.prototype.hasOwnProperty.call(state, panel.id)) return;
+                  panel.open = !!state[panel.id];
+                });
+              };
 
-      const renderTimeline = (data) => {
-        if (!timelineSvg) return;
-        clearEl(timelineSvg);
+              const clearEl = (el) => {
+                if (!el) return;
+                while (el.firstChild) el.removeChild(el.firstChild);
+              };
 
-        const timeline = Array.isArray(data.timeline) ? data.timeline : [];
-        const maxV = Number(data.max_timeline || 0);
-        const maxText = String(data.max_timeline_text || fmtMoney(maxV));
+              const el = (name, attrs = {}, text = "") => {
+                const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+                Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, String(v)));
+                if (text) node.textContent = text;
+                return node;
+              };
 
-        if (timelineMax) timelineMax.textContent = `Máximo: ${maxText}`;
-        if (timelineDays) timelineDays.textContent = `Días visibles: ${timeline.length}`;
+               const renderDonut = (data) => {
+                 if (!pieSvg) return;
+                 clearEl(pieSvg);
 
-        const W = 1000;
-        const H = 260;
-        const padL = 72, padR = 22, padT = 18, padB = 44;
-        const plotW = W - padL - padR;
-        const plotH = H - padT - padB;
-        const n = timeline.length;
-        const safeMax = Math.max(maxV, 1);
+                 const slices = Array.isArray(data.pie_slices) ? data.pie_slices : [];
+                 const total = String(data.pie_total || fmtMoney(0));
+                 const longTotal = total.length >= 14;
 
-        const xAt = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-        const yAt = (v) => padT + (1 - (v / safeMax)) * plotH;
+                 pieSvg.appendChild(el("circle", { cx: 60, cy: 60, r: 45, fill: "none", stroke: "#eef2ff", "stroke-width": 16 }));
+                 slices.forEach((s) => {
+                   pieSvg.appendChild(el("circle", {
+                     cx: 60,
+                    cy: 60,
+                    r: 45,
+                    fill: "none",
+                    stroke: s.color || "#2c6bed",
+                    "stroke-width": 16,
+                    "stroke-dasharray": `${Number(s.percent || 0).toFixed(2)} ${(Number(s.gap || 0)).toFixed(2)}`,
+                    "stroke-dashoffset": `${Number(s.offset || 0).toFixed(2)}`,
+                    transform: "rotate(-90 60 60)"
+                   }));
+                 });
+                 pieSvg.appendChild(el("text", { x: 60, y: 58, "text-anchor": "middle", "font-size": 12, fill: "#5c647c" }, "Total"));
+                 const totalAttrs = { x: 60, y: 74, "text-anchor": "middle", "font-size": longTotal ? 12 : 14, "font-weight": 700, fill: "#1c1f2a" };
+                 if (longTotal) {
+                   // Avoid clipping when totals are very large.
+                   totalAttrs.textLength = 92;
+                   totalAttrs.lengthAdjust = "spacingAndGlyphs";
+                 }
+                 pieSvg.appendChild(el("text", totalAttrs, total));
 
-        // Grid lines (10% opacity).
-        const grid = el("g", { opacity: 0.1 });
-        const ticks = 4;
-        for (let t = 0; t <= ticks; t++) {
-          const v = (safeMax / ticks) * t;
-          const y = yAt(v);
-          grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "#26221f", "stroke-width": 1 }));
-        }
-        timelineSvg.appendChild(grid);
+                 if (pieLegend) {
+                   pieLegend.innerHTML = "";
+                   slices.forEach((s) => {
+                     const div = document.createElement("div");
+                    div.className = "legend-item";
+                    const dot = document.createElement("span");
+                    dot.className = "legend-dot";
+                    dot.style.background = s.color || "#2c6bed";
+                    const left = document.createElement("span");
+                    left.className = "legend-left";
+                    const label = document.createElement("div");
+                    const pct = Math.round(Number(s.percent || 0));
+                    label.textContent = `${s.metodo || "-"}`;
+                    left.appendChild(dot);
+                    left.appendChild(label);
 
-        // Axes.
-        timelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
-        timelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
+                    const right = document.createElement("span");
+                    right.className = "legend-right";
+                    right.innerHTML = `${s.total || "-" } <small>${pct}%</small>`;
 
-        // Y axis labels (Currency).
-        for (let t = 0; t <= ticks; t++) {
-          const v = (safeMax / ticks) * t;
-          const y = yAt(v);
-          const label = el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, fmtMoney(v));
-          timelineSvg.appendChild(label);
-        }
+                    div.appendChild(left);
+                    div.appendChild(right);
+                    pieLegend.appendChild(div);
+                  });
+                }
+              };
 
-        // X axis labels (Date).
-        const labelsIdx = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
-        labelsIdx.forEach((i) => {
-          const x = xAt(i);
-          const d = timeline[i]?.fecha || "";
-          timelineSvg.appendChild(el("text", { x, y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: "#6f6a65" }, d));
-        });
-        timelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, "Fecha"));
-        timelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: "#6f6a65" }, "Total ($)"));
+              const renderTimeline = (data) => {
+                if (!timelineSvg) return;
+                clearEl(timelineSvg);
 
-        // Line points.
-        const points = timeline.map((p, i) => `${xAt(i).toFixed(1)},${yAt(Number(p.value || 0)).toFixed(1)}`).join(" ");
-        timelineSvg.appendChild(el("polyline", {
-          fill: "none",
-          stroke: "#2c6bed",
-          "stroke-width": 3,
-          "stroke-linecap": "round",
-          "stroke-linejoin": "round",
-          points
-        }));
+                const timeline = Array.isArray(data.timeline) ? data.timeline : [];
+                const maxV = Number(data.max_timeline || 0);
+                const maxText = String(data.max_timeline_text || fmtMoney(maxV));
 
-        // Dots (subtle).
-        const dots = el("g", { opacity: 0.35 });
-        timeline.forEach((p, i) => {
-          dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(p.value || 0)), r: 3.2, fill: "#2c6bed" }));
-        });
-        timelineSvg.appendChild(dots);
+                if (timelineMax) timelineMax.textContent = `Máximo: ${maxText}`;
+                if (timelineDays) timelineDays.textContent = `Días visibles: ${timeline.length}`;
 
-        // Labels on key points: last + max.
-        const lastIdx = Math.max(0, n - 1);
-        let maxIdx = 0;
-        let maxVal = -1;
-        timeline.forEach((p, i) => {
-          const v = Number(p.value || 0);
-          if (v > maxVal) {
-            maxVal = v;
-            maxIdx = i;
-          }
-        });
-        const key = new Map();
-        if (n > 0) key.set(lastIdx, { title: "Venta Total", value: timeline[lastIdx].total });
-        if (n > 0) key.set(maxIdx, { title: "Pico", value: timeline[maxIdx].total });
+                const W = 1000;
+                const H = 260;
+                const padL = 72, padR = 22, padT = 18, padB = 44;
+                const plotW = W - padL - padR;
+                const plotH = H - padT - padB;
+                const n = timeline.length;
+                const safeMax = Math.max(maxV, 1);
 
-        key.forEach((meta, i) => {
-          const cx = xAt(i);
-          const cy = yAt(Number(timeline[i].value || 0));
-          timelineSvg.appendChild(el("circle", { cx, cy, r: 5.5, fill: "#e85d3c" }));
-          const label = `${meta.title}: ${meta.value || fmtMoney(0)}`;
-          const tx = Math.min(W - padR - 6, Math.max(padL + 6, cx + 10));
-          const ty = Math.max(padT + 12, cy - 10);
-          timelineSvg.appendChild(el("text", { x: tx, y: ty, "font-size": 12, fill: "#26221f", "font-weight": 700 }, label));
-        });
+                const xAt = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+                const yAt = (v) => padT + (1 - (v / safeMax)) * plotH;
 
-	      };
+                // Grid lines (10% opacity).
+                const grid = el("g", { opacity: 0.1 });
+                const ticks = 4;
+                for (let t = 0; t <= ticks; t++) {
+                  const v = (safeMax / ticks) * t;
+                  const y = yAt(v);
+                  grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "#26221f", "stroke-width": 1 }));
+                }
+                timelineSvg.appendChild(grid);
 
-	      const renderSales = (data) => {
-	        if (!salesTableBody) return;
-	        const sales = Array.isArray(data.sales) ? data.sales : [];
-	        salesTableBody.innerHTML = "";
-	        sales.forEach((s) => {
-	          const tr = document.createElement("tr");
-	          const cells = [
-	            String(s.id ?? "-"),
-	            String(s.fecha || "-"),
-	            String(s.producto || "-"),
-	            String(s.cantidad ?? "-"),
-	            String(s.total || "-"),
-	            String(s.metodo_pago || "-")
-	          ];
-	          if (isAdmin) {
-	            cells.push(`<button type="button" class="button secondary" data-sale-delete="${s.id}">Eliminar</button>`);
-	          }
-	          tr.innerHTML = cells.map((c, i) => {
-	            if (isAdmin && i === cells.length - 1) return `<td>${c}</td>`;
-	            return `<td>${c}</td>`;
-	          }).join("");
-	          salesTableBody.appendChild(tr);
-	        });
-	      };
+                // Axes.
+                timelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
+                timelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
 
-	      const renderUserTimeline = (data) => {
-	        if (!userTimelineSvg) return;
-	        clearEl(userTimelineSvg);
-	        const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
-	        if (userTimelineLegend) userTimelineLegend.innerHTML = "";
-	        if (panelSalesUserPill) panelSalesUserPill.textContent = `${series.length} usuarios`;
-	        if (!series.length) {
-	          if (userTimelineEmpty) userTimelineEmpty.hidden = false;
-	          userTimelineSvg.setAttribute("hidden", "hidden");
-	          return;
-	        }
-	        if (userTimelineEmpty) userTimelineEmpty.hidden = true;
-	        userTimelineSvg.removeAttribute("hidden");
+                // Y axis labels (Currency).
+                for (let t = 0; t <= ticks; t++) {
+                  const v = (safeMax / ticks) * t;
+                  const y = yAt(v);
+                  const label = el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, fmtMoney(v));
+                  timelineSvg.appendChild(label);
+                }
 
-	        const pointsLen = Array.isArray(series[0]?.points) ? series[0].points.length : 0;
-	        const W = 1000;
-	        const H = 280;
-	        const padL = 72, padR = 22, padT = 18, padB = 44;
-	        const plotW = W - padL - padR;
-	        const plotH = H - padT - padB;
-	        const maxV = series.reduce((acc, item) => {
-	          const itemMax = (Array.isArray(item.points) ? item.points : []).reduce((inner, point) => Math.max(inner, Number(point.value || 0)), 0);
-	          return Math.max(acc, itemMax);
-	        }, 0);
-	        const safeMax = Math.max(maxV, 1);
-	        const xAt = (i) => padL + (pointsLen <= 1 ? plotW / 2 : (i / (pointsLen - 1)) * plotW);
-	        const yAt = (v) => padT + (1 - (v / safeMax)) * plotH;
+                // X axis labels (Date).
+                const labelsIdx = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
+                labelsIdx.forEach((i) => {
+                  const x = xAt(i);
+                  const d = timeline[i]?.fecha || "";
+                  timelineSvg.appendChild(el("text", { x, y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: "#6f6a65" }, d));
+                });
+                timelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, "Fecha"));
+                timelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: "#6f6a65" }, "Total ($)"));
 
-	        const grid = el("g", { opacity: 0.1 });
-	        for (let t = 0; t <= 4; t++) {
-	          const v = (safeMax / 4) * t;
-	          const y = yAt(v);
-	          grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "#26221f", "stroke-width": 1 }));
-	          userTimelineSvg.appendChild(el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, fmtMoney(v)));
-	        }
-	        userTimelineSvg.appendChild(grid);
-	        userTimelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
-	        userTimelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
+                // Line points.
+                const points = timeline.map((p, i) => `${xAt(i).toFixed(1)},${yAt(Number(p.value || 0)).toFixed(1)}`).join(" ");
+                timelineSvg.appendChild(el("polyline", {
+                  fill: "none",
+                  stroke: "#2c6bed",
+                  "stroke-width": 3,
+                  "stroke-linecap": "round",
+                  "stroke-linejoin": "round",
+                  points
+                }));
 
-	        const labelsIdx = pointsLen <= 1 ? [0] : [0, Math.floor((pointsLen - 1) / 2), pointsLen - 1];
-	        labelsIdx.forEach((i) => {
-	          const d = series[0]?.points?.[i]?.fecha || "";
-	          userTimelineSvg.appendChild(el("text", { x: xAt(i), y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: "#6f6a65" }, d));
-	        });
-	        userTimelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, "Fecha"));
-	        userTimelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: "#6f6a65" }, "Total ($)"));
+                // Dots (subtle).
+                const dots = el("g", { opacity: 0.35 });
+                timeline.forEach((p, i) => {
+                  dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(p.value || 0)), r: 3.2, fill: "#2c6bed" }));
+                });
+                timelineSvg.appendChild(dots);
 
-	        series.forEach((item) => {
-	          const points = Array.isArray(item.points) ? item.points : [];
-	          const color = item.color || "#2c6bed";
-	          const polyPoints = points.map((point, i) => `${xAt(i).toFixed(1)},${yAt(Number(point.value || 0)).toFixed(1)}`).join(" ");
-	          userTimelineSvg.appendChild(el("polyline", {
-	            fill: "none",
-	            stroke: color,
-	            "stroke-width": 3,
-	            "stroke-linecap": "round",
-	            "stroke-linejoin": "round",
-	            points: polyPoints
-	          }));
-	          const dots = el("g", { opacity: 0.4 });
-	          points.forEach((point, i) => {
-	            dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(point.value || 0)), r: 3, fill: color }));
-	          });
-	          userTimelineSvg.appendChild(dots);
+                // Labels on key points: last + max.
+                const lastIdx = Math.max(0, n - 1);
+                let maxIdx = 0;
+                let maxVal = -1;
+                timeline.forEach((p, i) => {
+                  const v = Number(p.value || 0);
+                  if (v > maxVal) {
+                    maxVal = v;
+                    maxIdx = i;
+                  }
+                });
+                const key = new Map();
+                if (n > 0) key.set(lastIdx, { title: "Venta Total", value: timeline[lastIdx].total });
+                if (n > 0) key.set(maxIdx, { title: "Pico", value: timeline[maxIdx].total });
 
-	          if (userTimelineLegend) {
-	            const legend = document.createElement("span");
-	            legend.className = "chart-legend-item";
-	            legend.innerHTML = `<span class="legend-swatch" style="background:${color};"></span><strong>${item.user_label || "-"}</strong><span>${item.total || fmtMoney(0)}</span>`;
-	            userTimelineLegend.appendChild(legend);
-	          }
-	        });
-	      };
+                key.forEach((meta, i) => {
+                  const cx = xAt(i);
+                  const cy = yAt(Number(timeline[i].value || 0));
+                  timelineSvg.appendChild(el("circle", { cx, cy, r: 5.5, fill: "#e85d3c" }));
+                  const label = `${meta.title}: ${meta.value || fmtMoney(0)}`;
+                  const tx = Math.min(W - padR - 6, Math.max(padL + 6, cx + 10));
+                  const ty = Math.max(padT + 12, cy - 10);
+                  timelineSvg.appendChild(el("text", { x: tx, y: ty, "font-size": 12, fill: "#26221f", "font-weight": 700 }, label));
+                });
 
-	      const renderCategoryBars = (data) => {
-	        if (!categoryBars) return;
-	        const categories = Array.isArray(data.category_totals) ? data.category_totals : [];
-	        categoryBars.innerHTML = "";
-	        if (!categories.length) {
-	          if (categoryBarsEmpty) categoryBarsEmpty.hidden = false;
-	          return;
-	        }
-	        if (categoryBarsEmpty) categoryBarsEmpty.hidden = true;
-	        const maxV = categories.reduce((acc, item) => Math.max(acc, Number(item.value || 0)), 0);
-	        const safeMax = Math.max(maxV, 1);
-	        categories.forEach((item) => {
-	          const row = document.createElement("div");
-	          row.className = "bar-row";
-	          const width = ((Number(item.value || 0) / safeMax) * 100).toFixed(2);
-	          row.innerHTML = `
-	            <div class="bar-meta">
-	              <div><strong>${item.label || "-"}</strong> · ${Number(item.count || 0)} registros</div>
-	              <div>${item.total || fmtMoney(0)}</div>
-	            </div>
-	            <div class="bar-track">
-	              <div class="bar-fill" style="width:${width}%; background:${item.color || "#2c6bed"};"></div>
-	            </div>
-	          `;
-	          categoryBars.appendChild(row);
-	        });
-	      };
+               };
 
-	      const applyData = (data) => {
-	        if (!data || !data.ok) return;
-	        setRangeBadge(data.range_start, data.range_end, data.range_count, data.range_total);
-	        renderDonut(data);
-	        renderTimeline(data);
-	        renderUserTimeline(data);
-	        renderCategoryBars(data);
-	        renderSales(data);
-	      };
+               const renderSales = (data) => {
+                 if (!salesTableBody) return;
+                 const sales = Array.isArray(data.sales) ? data.sales : [];
+                 salesTableBody.innerHTML = "";
+                 sales.forEach((s) => {
+                   const tr = document.createElement("tr");
+                   const cells = [
+                     String(s.id ?? "-"),
+                     String(s.fecha || "-"),
+                     String(s.producto || "-"),
+                     String(s.cantidad ?? "-"),
+                     String(s.total || "-"),
+                     String(s.metodo_pago || "-")
+                   ];
+                   if (isAdmin) {
+                     cells.push(`<button type="button" class="button secondary" data-sale-delete="${s.id}">Eliminar</button>`);
+                   }
+                   tr.innerHTML = cells.map((c, i) => {
+                     if (isAdmin && i === cells.length - 1) return `<td>${c}</td>`;
+                     return `<td>${c}</td>`;
+                   }).join("");
+                   salesTableBody.appendChild(tr);
+                 });
+               };
 
-      let pending = null;
-      const schedule = () => {
-        if (pending) clearTimeout(pending);
-        pending = setTimeout(async () => {
-          const start = startInput?.value;
-          const end = endInput?.value;
-          if (!start || !end) return;
-          const qs = new URLSearchParams({ start_date: start, end_date: end });
-          const url = `/dashboard/data?${qs.toString()}`;
-          try {
-            const resp = await fetch(url, { headers: { "Accept": "application/json" } });
-            const data = await resp.json().catch(() => ({}));
-            if (!resp.ok || !data.ok) return;
-            // Keep URL in sync without hard reload.
-            const nextUrl = `/dashboard?${qs.toString()}`;
-            window.history.replaceState({}, "", nextUrl);
-            applyData(data);
-          } catch (_) {
-            // ignore
-          }
-        }, 250);
-      };
+               const renderUserTimeline = (data) => {
+                 if (!userTimelineSvg) return;
+                 clearEl(userTimelineSvg);
+                 const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
+                 if (userTimelineLegend) userTimelineLegend.innerHTML = "";
+                 if (panelSalesUserPill) panelSalesUserPill.textContent = `${series.length} usuarios`;
+                 if (!series.length) {
+                   if (userTimelineEmpty) userTimelineEmpty.hidden = false;
+                   userTimelineSvg.setAttribute("hidden", "hidden");
+                   return;
+                 }
+                 if (userTimelineEmpty) userTimelineEmpty.hidden = true;
+                 userTimelineSvg.removeAttribute("hidden");
 
-	      if (startInput) startInput.addEventListener("change", schedule);
-	      if (endInput) endInput.addEventListener("change", schedule);
-	      applyPanelState();
-	      dashboardPanels.forEach((panel) => panel.addEventListener("toggle", savePanelState));
-	      if (salesTableBody && isAdmin) {
-	        salesTableBody.addEventListener("click", async (event) => {
-	          const btn = event.target.closest("[data-sale-delete]");
-	          if (!btn) return;
-	          const saleId = String(btn.getAttribute("data-sale-delete") || "").trim();
-	          if (!saleId) return;
-	          if (!window.confirm("¿Eliminar esta venta? Esta acción no se puede deshacer.")) return;
-	          btn.setAttribute("disabled", "disabled");
-	          try {
-	            const resp = await fetch("/dashboard/ventas/delete", {
-	              method: "POST",
-	              headers: {
-	                "Content-Type": "application/x-www-form-urlencoded",
-	                "Accept": "application/json"
-	              },
-	              body: new URLSearchParams({ venta_id: saleId }).toString()
-	            });
-	            const data = await resp.json().catch(() => ({}));
-	            if (!resp.ok || !data.ok) {
-	              throw new Error(data.error || "No se pudo eliminar la venta.");
-	            }
-	            schedule();
-	          } catch (err) {
-	            alert(err?.message || "No se pudo eliminar la venta.");
-	          } finally {
-	            btn.removeAttribute("disabled");
-	          }
-	        });
-	      }
+                 const pointsLen = Array.isArray(series[0]?.points) ? series[0].points.length : 0;
+                 const W = 1000;
+                 const H = 280;
+                 const padL = 72, padR = 22, padT = 18, padB = 44;
+                 const plotW = W - padL - padR;
+                 const plotH = H - padT - padB;
+                 const maxV = series.reduce((acc, item) => {
+                   const itemMax = (Array.isArray(item.points) ? item.points : []).reduce((inner, point) => Math.max(inner, Number(point.value || 0)), 0);
+                   return Math.max(acc, itemMax);
+                 }, 0);
+                 const safeMax = Math.max(maxV, 1);
+                 const xAt = (i) => padL + (pointsLen <= 1 ? plotW / 2 : (i / (pointsLen - 1)) * plotW);
+                 const yAt = (v) => padT + (1 - (v / safeMax)) * plotH;
 
-	      // First render: reuse server-provided range values by fetching JSON once.
-	      schedule();
-      return { schedule };
-    })();
-  </script>
-</body>
+                 const grid = el("g", { opacity: 0.1 });
+                 for (let t = 0; t <= 4; t++) {
+                   const v = (safeMax / 4) * t;
+                   const y = yAt(v);
+                   grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "#26221f", "stroke-width": 1 }));
+                   userTimelineSvg.appendChild(el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, fmtMoney(v)));
+                 }
+                 userTimelineSvg.appendChild(grid);
+                 userTimelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
+                 userTimelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
+
+                 const labelsIdx = pointsLen <= 1 ? [0] : [0, Math.floor((pointsLen - 1) / 2), pointsLen - 1];
+                 labelsIdx.forEach((i) => {
+                   const d = series[0]?.points?.[i]?.fecha || "";
+                   userTimelineSvg.appendChild(el("text", { x: xAt(i), y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: "#6f6a65" }, d));
+                 });
+                 userTimelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, "Fecha"));
+                 userTimelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: "#6f6a65" }, "Total ($)"));
+
+                 series.forEach((item) => {
+                   const points = Array.isArray(item.points) ? item.points : [];
+                   const color = item.color || "#2c6bed";
+                   const polyPoints = points.map((point, i) => `${xAt(i).toFixed(1)},${yAt(Number(point.value || 0)).toFixed(1)}`).join(" ");
+                   userTimelineSvg.appendChild(el("polyline", {
+                     fill: "none",
+                     stroke: color,
+                     "stroke-width": 3,
+                     "stroke-linecap": "round",
+                     "stroke-linejoin": "round",
+                     points: polyPoints
+                   }));
+                   const dots = el("g", { opacity: 0.4 });
+                   points.forEach((point, i) => {
+                     dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(point.value || 0)), r: 3, fill: color }));
+                   });
+                   userTimelineSvg.appendChild(dots);
+
+                   if (userTimelineLegend) {
+                     const legend = document.createElement("span");
+                     legend.className = "chart-legend-item";
+                     legend.innerHTML = `<span class="legend-swatch" style="background:${color};"></span><strong>${item.user_label || "-"}</strong><span>${item.total || fmtMoney(0)}</span>`;
+                     userTimelineLegend.appendChild(legend);
+                   }
+                 });
+               };
+
+               const renderCategoryBars = (data) => {
+                 if (!categoryBars) return;
+                 const categories = Array.isArray(data.category_totals) ? data.category_totals : [];
+                 categoryBars.innerHTML = "";
+                 if (!categories.length) return;
+                 const maxV = categories.reduce((acc, item) => Math.max(acc, Number(item.value || 0)), 0);
+                 const safeMax = Math.max(maxV, 1);
+                 categories.forEach((item) => {
+                   const row = document.createElement("div");
+                   row.className = "bar-row";
+                   const width = ((Number(item.value || 0) / safeMax) * 100).toFixed(2);
+                   row.innerHTML = `
+                     <div class="bar-meta">
+                       <div><strong>${item.label || "-"}</strong> · ${Number(item.count || 0)} registros</div>
+                       <div>${item.total || fmtMoney(0)}</div>
+                     </div>
+                     <div class="bar-track">
+                       <div class="bar-fill" style="width:${width}%; background:${item.color || "#2c6bed"};"></div>
+                     </div>
+                   `;
+                   categoryBars.appendChild(row);
+                 });
+               };
+
+               const renderSummaryUserList = (data) => {
+                 const list = document.getElementById("summary-user-list");
+                 if (!list) return;
+                 const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
+                 list.innerHTML = "";
+                 if (!series.length) {
+                   list.innerHTML = '<div class="empty-chart" style="min-height:60px;">Sin datos</div>';
+                   return;
+                 }
+                 series.forEach((item) => {
+                   const row = document.createElement("div");
+                   row.className = "user-sale-row";
+                   row.innerHTML = `<span class="user-sale-left"><span class="legend-dot" style="background:${item.color || "#2c6bed"};border-radius:50%;display:inline-block;width:8px;height:8px;flex-shrink:0;"></span><span>${item.user_label || "-"}</span></span><span class="user-sale-total">${item.total || fmtMoney(0)}</span>`;
+                   list.appendChild(row);
+                 });
+               };
+
+               const applyData = (data) => {
+                 if (!data || !data.ok) return;
+                 setRangeBadge(data.range_start, data.range_end, data.range_count, data.range_total);
+                 renderDonut(data);
+                 renderTimeline(data);
+                 renderUserTimeline(data);
+                 renderSummaryUserList(data);
+                 renderCategoryBars(data);
+                 renderSales(data);
+               };
+
+              let pending = null;
+              const schedule = () => {
+                if (pending) clearTimeout(pending);
+                pending = setTimeout(async () => {
+                  const start = startInput?.value;
+                  const end = endInput?.value;
+                  if (!start || !end) return;
+                  const qs = new URLSearchParams({ start_date: start, end_date: end });
+                  const url = `/dashboard/data?${qs.toString()}`;
+                  try {
+                    const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+                    const data = await resp.json().catch(() => ({}));
+                    if (!resp.ok || !data.ok) return;
+                    // Keep URL in sync without hard reload.
+                    const nextUrl = `/dashboard?${qs.toString()}`;
+                    window.history.replaceState({}, "", nextUrl);
+                    applyData(data);
+                  } catch (_) {
+                    // ignore
+                  }
+                }, 250);
+              };
+
+               if (startInput) startInput.addEventListener("change", schedule);
+               if (endInput) endInput.addEventListener("change", schedule);
+               applyPanelState();
+               dashboardPanels.forEach((panel) => panel.addEventListener("toggle", savePanelState));
+               if (salesTableBody && isAdmin) {
+                 salesTableBody.addEventListener("click", async (event) => {
+                   const btn = event.target.closest("[data-sale-delete]");
+                   if (!btn) return;
+                   const saleId = String(btn.getAttribute("data-sale-delete") || "").trim();
+                   if (!saleId) return;
+                   if (!window.confirm("¿Eliminar esta venta? Esta acción no se puede deshacer.")) return;
+                   btn.setAttribute("disabled", "disabled");
+                   try {
+                     const resp = await fetch("/dashboard/ventas/delete", {
+                       method: "POST",
+                       headers: {
+                         "Content-Type": "application/x-www-form-urlencoded",
+                         "Accept": "application/json"
+                       },
+                       body: new URLSearchParams({ venta_id: saleId }).toString()
+                     });
+                     const data = await resp.json().catch(() => ({}));
+                     if (!resp.ok || !data.ok) {
+                       throw new Error(data.error || "No se pudo eliminar la venta.");
+                     }
+                     schedule();
+                   } catch (err) {
+                     alert(err?.message || "No se pudo eliminar la venta.");
+                   } finally {
+                     btn.removeAttribute("disabled");
+                   }
+                 });
+               }
+
+               // First render: reuse server-provided range values by fetching JSON once.
+               schedule();
+              return { schedule };
+            })();
+        </script>
+    </body>
 </html>

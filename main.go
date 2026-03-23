@@ -2839,6 +2839,8 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		cantidad INTEGER NOT NULL,
 		precio_final REAL NOT NULL,
 		metodo_pago TEXT NOT NULL,
+		channel TEXT NOT NULL DEFAULT '',
+		sold_by TEXT NOT NULL DEFAULT '',
 		notas TEXT NOT NULL DEFAULT '',
 		fecha TEXT NOT NULL
 	);
@@ -3148,6 +3150,26 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 	}
 	if notasColumn == "" {
 		if _, err := db.Exec("ALTER TABLE ventas ADD COLUMN notas TEXT NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
+	}
+
+	var ventasChannelColumn string
+	if err := db.QueryRow("SELECT name FROM pragma_table_info('ventas') WHERE name = 'channel'").Scan(&ventasChannelColumn); err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	if ventasChannelColumn == "" {
+		if _, err := db.Exec("ALTER TABLE ventas ADD COLUMN channel TEXT NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
+	}
+
+	var ventasSoldByColumn string
+	if err := db.QueryRow("SELECT name FROM pragma_table_info('ventas') WHERE name = 'sold_by'").Scan(&ventasSoldByColumn); err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	if ventasSoldByColumn == "" {
+		if _, err := db.Exec("ALTER TABLE ventas ADD COLUMN sold_by TEXT NOT NULL DEFAULT ''"); err != nil {
 			return nil, err
 		}
 	}
@@ -7677,133 +7699,281 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/sales", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
-			return
-		}
 		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettings(db)
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
-			return
-		}
-		if !movementEnabled(movementEnabledMap, "venta") {
-			writeAPIError(w, http.StatusForbidden, "La venta está deshabilitada en Configuración.", nil)
-			return
-		}
-		var payload struct {
-			ProductID     string  `json:"product_id"`
-			Quantity      int     `json:"quantity"`
-			PaymentMethod string  `json:"payment_method"`
-			UnitPrice     float64 `json:"unit_price"`
-			Total         float64 `json:"total"`
-			Notes         string  `json:"notes"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-			return
-		}
-		payload.ProductID = strings.TrimSpace(payload.ProductID)
-		payload.PaymentMethod = strings.TrimSpace(payload.PaymentMethod)
-		payload.Notes = strings.TrimSpace(payload.Notes)
-		activePaymentMethods, err := loadPaymentMethods(db, true)
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los métodos de pago.", nil)
-			return
-		}
-		paymentMethodOptions := paymentMethodNames(activePaymentMethods)
-		productsMu.RLock()
-		productsSnapshot := make([]productOption, len(products))
-		copy(productsSnapshot, products)
-		productsMu.RUnlock()
-		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
-		stockByProd, err := availableCountsByProduct(db)
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
-			return
-		}
-		fields := map[string]string{}
-		if payload.ProductID == "" {
-			fields["product_id"] = "Selecciona un producto válido."
-		}
-		if payload.Quantity <= 0 {
-			fields["quantity"] = "La cantidad debe ser un número positivo."
-		}
-		if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
-			return
-		} else if !allowed {
-			fields["product_id"] = "No tienes acceso a este producto."
-		}
-		selectedProduct, ok := findProduct(productsSnapshot, payload.ProductID)
-		if !ok && len(productsSnapshot) > 0 {
-			selectedProduct = productsSnapshot[0]
-		}
-		validMethod := false
-		for _, method := range paymentMethodOptions {
-			if payload.PaymentMethod == method {
-				validMethod = true
-				break
+		switch r.Method {
+		case http.MethodGet:
+			q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+			fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
+			toStr := strings.TrimSpace(r.URL.Query().Get("to"))
+			fields := map[string]string{}
+			if fromStr != "" {
+				if _, err := time.Parse("2006-01-02", fromStr); err != nil {
+					fields["from"] = "Fecha inválida. Usa formato YYYY-MM-DD."
+				}
 			}
-		}
-		if !validMethod {
-			fields["payment_method"] = "Selecciona un método de pago válido."
-		}
-		if payload.ProductID != "" && payload.Quantity > 0 {
-			if available := stockByProd[payload.ProductID]; available > 0 && payload.Quantity > available {
-				fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
+			if toStr != "" {
+				if _, err := time.Parse("2006-01-02", toStr); err != nil {
+					fields["to"] = "Fecha inválida. Usa formato YYYY-MM-DD."
+				}
 			}
-		}
-		unitPrice := payload.UnitPrice
-		if payload.Total > 0 && payload.Quantity > 0 {
-			unitPrice = payload.Total / float64(payload.Quantity)
-		}
-		if unitPrice <= 0 {
-			fields["unit_price"] = "Ingresa unit_price o total mayor a 0."
-		}
-		if len(fields) > 0 {
-			writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
-			return
-		}
-		tx, err := db.Begin()
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta.", nil)
-			return
-		}
-		defer tx.Rollback()
-		soldUnitIDs, err := selectAndMarkUnitsSold(tx, payload.ProductID, payload.Quantity)
-		if err != nil {
-			if err == errInsufficientStock {
-				writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
 				return
 			}
-			writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
-			return
+
+			visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
+			args := append([]any{}, visibilityArgs...)
+			query := `
+				SELECT
+					v.id,
+					v.fecha,
+					v.producto_id,
+					COALESCE(p.nombre, v.producto_id),
+					v.cantidad,
+					v.precio_final,
+					COALESCE(v.channel, ''),
+					COALESCE(v.sold_by, ''),
+					COALESCE(v.notas, ''),
+					COALESCE(v.metodo_pago, '')
+				FROM ventas v
+				LEFT JOIN productos p ON p.sku = v.producto_id
+				WHERE ` + visibilitySQL
+			if q != "" {
+				query += ` AND (LOWER(v.producto_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(v.channel, '')) LIKE ? OR LOWER(COALESCE(v.sold_by, '')) LIKE ? OR LOWER(COALESCE(v.notas, '')) LIKE ? OR LOWER(COALESCE(v.metodo_pago, '')) LIKE ?)`
+				qLike := "%" + q + "%"
+				args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
+			}
+			if fromStr != "" {
+				query += ` AND substr(v.fecha, 1, 10) >= ?`
+				args = append(args, fromStr)
+			}
+			if toStr != "" {
+				query += ` AND substr(v.fecha, 1, 10) <= ?`
+				args = append(args, toStr)
+			}
+			query += ` ORDER BY v.fecha DESC, v.id DESC LIMIT 100`
+
+			rows, err := db.Query(query, args...)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las ventas.", nil)
+				return
+			}
+			defer rows.Close()
+
+			items := make([]map[string]any, 0, 64)
+			for rows.Next() {
+				var (
+					id            int
+					fecha         string
+					productID     string
+					productName   string
+					quantity      int
+					salePrice     float64
+					channel       string
+					soldBy        string
+					notes         string
+					paymentMethod string
+				)
+				if err := rows.Scan(&id, &fecha, &productID, &productName, &quantity, &salePrice, &channel, &soldBy, &notes, &paymentMethod); err != nil {
+					writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer las ventas.", nil)
+					return
+				}
+				items = append(items, map[string]any{
+					"id":             id,
+					"fecha":          formatDateWithSettings(fecha),
+					"product_id":     productID,
+					"product_name":   productName,
+					"quantity":       quantity,
+					"sale_price":     salePrice,
+					"channel":        channel,
+					"sold_by":        soldBy,
+					"notes":          notes,
+					"payment_method": paymentMethod,
+				})
+			}
+			if err := rows.Err(); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron procesar las ventas.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+
+		case http.MethodPost:
+			_, movementEnabledMap, err := loadMovementSettings(db)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+				return
+			}
+			if !movementEnabled(movementEnabledMap, "venta") {
+				writeAPIError(w, http.StatusForbidden, "La venta está deshabilitada en Configuración.", nil)
+				return
+			}
+			var payload struct {
+				ProductID     string   `json:"product_id"`
+				Quantity      *int     `json:"quantity"`
+				PaymentMethod string   `json:"payment_method"`
+				UnitPrice     *float64 `json:"unit_price"`
+				Total         *float64 `json:"total"`
+				SalePrice     *float64 `json:"sale_price"`
+				Channel       string   `json:"channel"`
+				SoldBy        string   `json:"sold_by"`
+				Notes         string   `json:"notes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+				return
+			}
+			payload.ProductID = strings.TrimSpace(payload.ProductID)
+			payload.PaymentMethod = strings.TrimSpace(payload.PaymentMethod)
+			payload.Channel = strings.TrimSpace(payload.Channel)
+			payload.SoldBy = strings.TrimSpace(payload.SoldBy)
+			payload.Notes = strings.TrimSpace(payload.Notes)
+
+			quantity := 1
+			if payload.Quantity != nil {
+				quantity = *payload.Quantity
+			}
+
+			activePaymentMethods, err := loadPaymentMethods(db, true)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los métodos de pago.", nil)
+				return
+			}
+			paymentMethodOptions := paymentMethodNames(activePaymentMethods)
+
+			fields := map[string]string{}
+			if payload.ProductID == "" {
+				fields["product_id"] = "Selecciona un producto válido."
+			}
+			if quantity <= 0 {
+				fields["quantity"] = "La cantidad debe ser un número positivo."
+			}
+
+			var (
+				productName      string
+				productSalePrice float64
+			)
+			if payload.ProductID != "" {
+				if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0) FROM productos WHERE sku = ? OR id = ? LIMIT 1`, payload.ProductID, payload.ProductID).Scan(&productName, &productSalePrice); err != nil {
+					if err == sql.ErrNoRows {
+						fields["product_id"] = "Selecciona un producto válido."
+					} else {
+						writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el producto.", nil)
+						return
+					}
+				}
+			}
+
+			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+				return
+			} else if !allowed && fields["product_id"] == "" {
+				fields["product_id"] = "No tienes acceso a este producto."
+			}
+
+			stockByProd, err := availableCountsByProduct(db)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
+				return
+			}
+			if payload.ProductID != "" && quantity > 0 {
+				if available := stockByProd[payload.ProductID]; available > 0 && quantity > available {
+					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
+				}
+			}
+
+			paymentMethod := payload.PaymentMethod
+			if paymentMethod == "" && len(paymentMethodOptions) > 0 {
+				paymentMethod = paymentMethodOptions[0]
+			}
+			validMethod := false
+			for _, method := range paymentMethodOptions {
+				if paymentMethod == method {
+					validMethod = true
+					break
+				}
+			}
+			if !validMethod {
+				fields["payment_method"] = "Selecciona un método de pago válido."
+			}
+
+			salePrice := productSalePrice
+			switch {
+			case payload.Total != nil && *payload.Total > 0 && quantity > 0:
+				salePrice = *payload.Total / float64(quantity)
+			case payload.SalePrice != nil:
+				salePrice = *payload.SalePrice
+			case payload.UnitPrice != nil:
+				salePrice = *payload.UnitPrice
+			}
+			if salePrice <= 0 {
+				fields["sale_price"] = "Ingresa sale_price o configura un precio de venta válido para el producto."
+			}
+
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
+				return
+			}
+
+			tx, err := db.Begin()
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta.", nil)
+				return
+			}
+			defer tx.Rollback()
+
+			soldUnitIDs, err := selectAndMarkUnitsSold(tx, payload.ProductID, quantity)
+			if err != nil {
+				if err == errInsufficientStock {
+					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
+				return
+			}
+
+			now := time.Now().Format(time.RFC3339)
+			if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta", payload.Notes, currentUser, now); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
+				return
+			}
+			result, err := tx.Exec(`INSERT INTO ventas (producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, payload.ProductID, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
+				return
+			}
+			saleID, _ := result.LastInsertId()
+			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
+				"sale_id":     saleID,
+				"producto_id": payload.ProductID,
+				"producto":    productName,
+				"cantidad":    quantity,
+				"sale_price":  salePrice,
+				"metodo_pago": paymentMethod,
+				"channel":     payload.Channel,
+				"sold_by":     payload.SoldBy,
+				"notes":       payload.Notes,
+				"total":       salePrice * float64(quantity),
+			})); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
+				return
+			}
+			if err := tx.Commit(); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusCreated, map[string]any{
+				"ok":           true,
+				"sale_id":      saleID,
+				"product_id":   payload.ProductID,
+				"product_name": productName,
+				"quantity":     quantity,
+				"sale_price":   salePrice,
+				"message":      "Venta registrada correctamente.",
+			})
+
+		default:
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 		}
-		now := time.Now().Format(time.RFC3339)
-		if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta", payload.Notes, currentUser, now); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
-			return
-		}
-		if _, err := tx.Exec(`INSERT INTO ventas (producto_id, cantidad, precio_final, metodo_pago, notas, fecha) VALUES (?, ?, ?, ?, ?, ?)`, payload.ProductID, payload.Quantity, unitPrice, payload.PaymentMethod, payload.Notes, now); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
-			return
-		}
-		if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
-			"producto_id": payload.ProductID,
-			"producto":    selectedProduct.Name,
-			"cantidad":    payload.Quantity,
-			"metodo_pago": payload.PaymentMethod,
-			"total":       unitPrice * float64(payload.Quantity),
-		})); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
-			return
-		}
-		if err := tx.Commit(); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta.", nil)
-			return
-		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "product_id": payload.ProductID, "product_name": selectedProduct.Name, "quantity": payload.Quantity, "message": "Venta registrada correctamente."})
 	})
 
 	mux.HandleFunc("/api/swaps", func(w http.ResponseWriter, r *http.Request) {
