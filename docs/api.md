@@ -737,11 +737,26 @@ Soporta búsqueda opcional con `q` sobre:
 - `product_id`
 - nombre del producto
 - nombre del deudor
+- tipo de documento del deudor
+- número de documento del deudor
+- teléfono del deudor
 
-Ejemplo con filtro:
+Ejemplos útiles para agente / n8n:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/credits"
+```
 
 ```bash
 curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/credits?q=maria"
+```
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/credits?q=1020304050"
+```
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" "https://login.stockiapp.co/api/credits?q=3001234567"
 ```
 
 Respuesta:
@@ -758,6 +773,9 @@ Respuesta:
       "product": "Crema corporal",
       "quantity": 1,
       "debtor_name": "Maria Gomez",
+      "debtor_document_type": "CC",
+      "debtor_document_number": "1020304050",
+      "debtor_phone": "3001234567",
       "installments_total": 6,
       "installments_paid": 2,
       "installments_pending": 4,
@@ -787,6 +805,9 @@ Payload:
   "product_id": "P-001",
   "quantity": 1,
   "debtor_name": "Maria Gomez",
+  "debtor_document_type": "CC",
+  "debtor_document_number": "1020304050",
+  "debtor_phone": "3001234567",
   "installments_total": 6,
   "total_value": 250000,
   "interest_percent": 5,
@@ -798,6 +819,9 @@ Notas:
 - `installment_value` es opcional.
 - Si no se envía, el backend calcula la cuota con `total_value`, `installments_total` e `interest_percent`.
 - Si se envía, debe ser mayor a `0`.
+- `debtor_document_type` es obligatorio y hoy acepta: `CC`, `C Extranjeria`, `Pasaporte`.
+- `debtor_document_number` es obligatorio.
+- `debtor_phone` es obligatorio.
 
 Ejemplo:
 
@@ -809,6 +833,9 @@ curl -X POST https://login.stockiapp.co/api/credits \
     "product_id": "P-001",
     "quantity": 1,
     "debtor_name": "Maria Gomez",
+    "debtor_document_type": "CC",
+    "debtor_document_number": "1020304050",
+    "debtor_phone": "3001234567",
     "installments_total": 6,
     "total_value": 250000,
     "interest_percent": 5,

@@ -43,19 +43,42 @@ func init() {
 }
 
 type inventoryPageData struct {
-	Title           string
-	Subtitle        string
-	RoutePrefix     string
-	Flash           string
-	MetodoPagos     []string
-	Products        []inventoryProduct
-	EditableLines   []string
-	AssignableUsers []assignableUser
-	CanSell         bool
-	CanSwap         bool
-	CanRetoma       bool
-	CanCredit       bool
-	CurrentUser     *User
+	Title              string
+	Subtitle           string
+	RoutePrefix        string
+	Flash              string
+	ReceiptSaleID      int
+	ReceiptViewURL     string
+	ReceiptDownloadURL string
+	MetodoPagos        []string
+	Products           []inventoryProduct
+	EditableLines      []string
+	AssignableUsers    []assignableUser
+	CanSell            bool
+	CanSwap            bool
+	CanRetoma          bool
+	CanCredit          bool
+	CurrentUser        *User
+}
+
+type saleReceiptData struct {
+	Title          string
+	Subtitle       string
+	SaleID         int
+	ReceiptNumber  string
+	SaleDate       string
+	ProductoID     string
+	ProductoNom    string
+	Cantidad       int
+	PrecioUnitario string
+	Total          string
+	MetodoPago     string
+	SoldBy         string
+	Channel        string
+	Notas          string
+	DownloadURL    string
+	CurrentUser    *User
+	Settings       BusinessSettings
 }
 
 type unitOption struct {
@@ -2401,6 +2424,94 @@ func formatCurrency(value float64) string {
 	}
 }
 
+func saleReceiptViewURL(saleID int) string {
+	return fmt.Sprintf("/venta/comprobante?sale_id=%d", saleID)
+}
+
+func saleReceiptDownloadURL(saleID int) string {
+	return fmt.Sprintf("/venta/comprobante?sale_id=%d&download=1", saleID)
+}
+
+func saleReceiptNumber(saleID int, saleDate string) string {
+	compactDate := strings.ReplaceAll(strings.TrimSpace(saleDate), "-", "")
+	if compactDate == "" {
+		compactDate = time.Now().In(appTimeLocation).Format("20060102")
+	}
+	return fmt.Sprintf("CV-%s-%06d", compactDate, saleID)
+}
+
+func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceiptData, error) {
+	var (
+		createdAtRaw  string
+		productID     string
+		productName   string
+		quantity      int
+		unitPrice     float64
+		paymentMethod string
+		channel       string
+		soldBy        string
+		notes         string
+	)
+
+	err := db.QueryRow(`
+		SELECT
+			v.fecha,
+			v.producto_id,
+			COALESCE(p.nombre, v.producto_id),
+			v.cantidad,
+			v.precio_final,
+			COALESCE(v.metodo_pago, ''),
+			COALESCE(v.channel, ''),
+			COALESCE(v.sold_by, ''),
+			COALESCE(v.notas, '')
+		FROM ventas v
+		LEFT JOIN productos p ON p.sku = v.producto_id
+		WHERE v.id = ?
+		LIMIT 1
+	`, saleID).Scan(&createdAtRaw, &productID, &productName, &quantity, &unitPrice, &paymentMethod, &channel, &soldBy, &notes)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return saleReceiptData{}, requestError{Status: http.StatusNotFound, Message: "Venta no encontrada."}
+		}
+		return saleReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar la venta."}
+	}
+
+	allowed, err := productAccessibleByID(db, currentUser, productID)
+	if err != nil {
+		return saleReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso a la venta."}
+	}
+	if !allowed {
+		return saleReceiptData{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a esta venta."}
+	}
+
+	saleDate := createdAtRaw
+	if parsed, ok := parseFlexibleTime(createdAtRaw); ok {
+		saleDate = formatDateWithSettings(parsed.Format("2006-01-02"))
+	} else if len(createdAtRaw) >= 10 {
+		saleDate = formatDateWithSettings(createdAtRaw[:10])
+	}
+
+	return saleReceiptData{
+		Title:          "Comprobante de venta",
+		Subtitle:       "Comprobante simple generado desde una venta existente.",
+		SaleID:         saleID,
+		ReceiptNumber:  saleReceiptNumber(saleID, createdAtRaw[:min(10, len(createdAtRaw))]),
+		SaleDate:       saleDate,
+		ProductoID:     productID,
+		ProductoNom:    productName,
+		Cantidad:       quantity,
+		PrecioUnitario: formatCurrency(unitPrice),
+		Total:          formatCurrency(unitPrice * float64(quantity)),
+		MetodoPago:     paymentMethod,
+		SoldBy:         soldBy,
+		Channel:        channel,
+		Notas:          notes,
+		DownloadURL:    saleReceiptDownloadURL(saleID),
+		CurrentUser:    currentUser,
+		Settings:       currentBusinessSettings(),
+	}, nil
+}
+
 // formatIntDots formats an integer with '.' as thousands separator (e.g. 1234567 -> "1.234.567").
 // This matches common Spanish formatting and improves readability in UI.
 func formatIntDots(n int64) string {
@@ -3380,6 +3491,7 @@ func main() {
 		"templates/product_new.html",
 		"templates/venta_new.html",
 		"templates/venta_confirm.html",
+		"templates/sale_receipt.html",
 		"templates/cambio_new.html",
 		"templates/cambio_confirm.html",
 		"templates/csv_template.html",
@@ -3484,16 +3596,19 @@ func main() {
 	}
 
 	type ventaConfirmData struct {
-		Title           string
-		Subtitle        string
-		ProductoID      string
-		ProductoNom     string
-		Cantidad        int
-		PrecioFinal     string
-		ValorVentaFinal string
-		MetodoPago      string
-		Notas           string
-		CurrentUser     *User
+		Title              string
+		Subtitle           string
+		SaleID             int
+		ProductoID         string
+		ProductoNom        string
+		Cantidad           int
+		PrecioFinal        string
+		ValorVentaFinal    string
+		MetodoPago         string
+		Notas              string
+		ReceiptViewURL     string
+		ReceiptDownloadURL string
+		CurrentUser        *User
 	}
 
 	type loginPageData struct {
@@ -5366,6 +5481,7 @@ func main() {
 	mux.HandleFunc("/inventario", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
 		flash := r.URL.Query().Get("mensaje")
+		receiptSaleID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("receipt_sale_id")))
 		activePaymentMethods, err := loadPaymentMethods(db, true)
 		if err != nil {
 			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
@@ -5615,10 +5731,23 @@ func main() {
 			return
 		}
 		data := inventoryPageData{
-			Title:           "Seguimiento de existencias",
-			Subtitle:        "",
-			RoutePrefix:     "",
-			Flash:           flash,
+			Title:         "Seguimiento de existencias",
+			Subtitle:      "",
+			RoutePrefix:   "",
+			Flash:         flash,
+			ReceiptSaleID: receiptSaleID,
+			ReceiptViewURL: func() string {
+				if receiptSaleID > 0 {
+					return saleReceiptViewURL(receiptSaleID)
+				}
+				return ""
+			}(),
+			ReceiptDownloadURL: func() string {
+				if receiptSaleID > 0 {
+					return saleReceiptDownloadURL(receiptSaleID)
+				}
+				return ""
+			}(),
 			MetodoPagos:     paymentMethodNames(activePaymentMethods),
 			Products:        inventoryProducts,
 			EditableLines:   editableLines,
@@ -7650,6 +7779,50 @@ func main() {
 		}
 	})
 
+	mux.HandleFunc("/venta/comprobante", func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+
+		saleID, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("sale_id")))
+		if err != nil || saleID <= 0 {
+			http.Error(w, "Venta inválida", http.StatusBadRequest)
+			return
+		}
+
+		data, err := loadSaleReceiptData(db, currentUser, saleID)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "No se pudo generar el comprobante.", http.StatusInternalServerError)
+			return
+		}
+
+		download := r.URL.Query().Get("download") == "1"
+		if download {
+			filename := fmt.Sprintf("comprobante-venta-%d.html", saleID)
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+		}
+
+		if auditErr := logAuditEvent(db, currentUser, "sale_receipt_generated", "sale", strconv.Itoa(saleID), "web", map[string]any{
+			"sale_id":        saleID,
+			"product_id":     data.ProductoID,
+			"receipt_number": data.ReceiptNumber,
+			"download":       download,
+		}); auditErr != nil {
+			log.Printf("audit sale receipt generated: %v", auditErr)
+		}
+
+		if err := tmpl.ExecuteTemplate(w, "sale_receipt.html", data); err != nil {
+			http.Error(w, "Error al renderizar el comprobante", http.StatusInternalServerError)
+		}
+	})
+
 	mux.HandleFunc("/cambio/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
 		_, movementEnabledMap, err := loadMovementSettings(db)
@@ -8496,6 +8669,7 @@ func main() {
 			return
 		}
 
+		saleID := 0
 		if saleMode == "credit" {
 			result, err := tx.Exec(
 				`INSERT INTO credit_sales (product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
@@ -8538,7 +8712,7 @@ func main() {
 				http.Error(w, "Error al registrar la auditoría del crédito", http.StatusInternalServerError)
 				return
 			}
-		} else if _, err := tx.Exec(
+		} else if result, err := tx.Exec(
 			`INSERT INTO ventas (producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
 			VALUES (?, ?, ?, ?, ?, ?)`,
 			productID, cantidad, func() float64 {
@@ -8558,6 +8732,10 @@ func main() {
 			}
 			http.Error(w, "Error al registrar la venta", http.StatusInternalServerError)
 			return
+		} else {
+			if insertedID, idErr := result.LastInsertId(); idErr == nil {
+				saleID = int(insertedID)
+			}
 		}
 		if saleMode != "credit" {
 			precioFinal := precioParsed
@@ -8598,13 +8776,20 @@ func main() {
 			if saleMode == "credit" {
 				message = "Venta a crédito registrada correctamente."
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			resp := map[string]any{
 				"ok":           true,
 				"producto_id":  productID,
 				"producto_nom": selectedProduct.Name,
 				"cantidad":     cantidad,
 				"mensaje":      message,
-			})
+			}
+			if saleMode != "credit" && saleID > 0 {
+				resp["sale_id"] = saleID
+				resp["receipt_url"] = saleReceiptViewURL(saleID)
+				resp["receipt_download_url"] = saleReceiptDownloadURL(saleID)
+				resp["redirect_url"] = fmt.Sprintf("/inventario?mensaje=%s&receipt_sale_id=%d", url.QueryEscape(message), saleID)
+			}
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 		precioFinalText := precioValue
@@ -8614,6 +8799,7 @@ func main() {
 
 		confirmData := ventaConfirmData{
 			Title:           "Venta registrada",
+			SaleID:          saleID,
 			ProductoID:      productID,
 			ProductoNom:     selectedProduct.Name,
 			Cantidad:        cantidad,
@@ -8621,7 +8807,19 @@ func main() {
 			ValorVentaFinal: valorVentaFinalValue,
 			MetodoPago:      metodoPago,
 			Notas:           notas,
-			CurrentUser:     currentUser,
+			ReceiptViewURL: func() string {
+				if saleID > 0 {
+					return saleReceiptViewURL(saleID)
+				}
+				return ""
+			}(),
+			ReceiptDownloadURL: func() string {
+				if saleID > 0 {
+					return saleReceiptDownloadURL(saleID)
+				}
+				return ""
+			}(),
+			CurrentUser: currentUser,
 		}
 		if err := tmpl.ExecuteTemplate(w, "venta_confirm.html", confirmData); err != nil {
 			http.Error(w, "Error al renderizar el template", http.StatusInternalServerError)

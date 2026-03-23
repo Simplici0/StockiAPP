@@ -1,131 +1,151 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{{.Title}}</title>
-  <style>
-    /* ── Venta confirm: estilos locales ── */
-    .card {
-      max-width: 620px;
-      margin: 24px auto 0;
-    }
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            /* ── Venta confirm: estilos locales ── */
+            .card {
+                max-width: 620px;
+                margin: 24px auto 0;
+            }
 
-    .confirm-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 12px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      background: #ecfdf5;
-      color: #047857;
-      border: 1px solid rgba(5, 150, 105, 0.2);
-      margin-bottom: 10px;
-    }
+            .confirm-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 12px;
+                border-radius: 999px;
+                font-size: 12px;
+                font-weight: 700;
+                background: #ecfdf5;
+                color: #047857;
+                border: 1px solid rgba(5, 150, 105, 0.2);
+                margin-bottom: 10px;
+            }
 
-    .confirm-title {
-      margin: 0 0 4px;
-    }
+            .confirm-title {
+                margin: 0 0 4px;
+            }
 
-    .confirm-sub {
-      margin: 0 0 20px;
-      font-size: 13px;
-    }
+            .confirm-sub {
+                margin: 0 0 20px;
+                font-size: 13px;
+            }
 
-    .summary {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 14px 16px;
-      background: var(--bg-card-muted);
-      display: grid;
-      gap: 0;
-      margin-bottom: 12px;
-    }
+            .summary {
+                border: 1px solid var(--border);
+                border-radius: var(--radius-md);
+                padding: 14px 16px;
+                background: var(--bg-card-muted);
+                display: grid;
+                gap: 0;
+                margin-bottom: 12px;
+            }
 
-    .summary-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 12px;
-      font-size: 13.5px;
-      padding: 9px 0;
-      border-bottom: 1px solid var(--border);
-    }
+            .summary-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                gap: 12px;
+                font-size: 13.5px;
+                padding: 9px 0;
+                border-bottom: 1px solid var(--border);
+            }
 
-    .summary-row:last-child {
-      border-bottom: none;
-    }
+            .summary-row:last-child {
+                border-bottom: none;
+            }
 
-    .summary-row strong {
-      color: var(--text-muted);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      flex-shrink: 0;
-    }
+            .summary-row strong {
+                color: var(--text-muted);
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                flex-shrink: 0;
+            }
 
-    .summary-row span {
-      color: var(--text);
-      font-weight: 600;
-      text-align: right;
-    }
+            .summary-row span {
+                color: var(--text);
+                font-weight: 600;
+                text-align: right;
+            }
 
-    .confirm-actions {
-      margin-top: 20px;
-      display: flex;
-      gap: 10px;
-    }
-  </style>
-  {{template "app_styles" .}}
-</head>
-<body>
-  {{template "header" .}}
-  <main class="page-content">
-    <div class="card">
-      <div class="confirm-badge">&#10003; Listo</div>
-      <h1 class="confirm-title">{{.Title}}</h1>
-      <p class="confirm-sub">Venta registrada e inventario actualizado.</p>
+            .confirm-actions {
+                margin-top: 20px;
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="card">
+                <div class="confirm-badge">&#10003; Listo</div>
+                <h1 class="confirm-title">{{.Title}}</h1>
+                <p class="confirm-sub">
+                    Venta registrada e inventario actualizado.
+                </p>
 
-      <div class="summary">
-        <div class="summary-row">
-          <strong>Producto</strong>
-          <span>
-            {{if .ProductoNom}}{{.ProductoNom}} ({{.ProductoID}}){{else}}{{.ProductoID}}{{end}}
-          </span>
-        </div>
-        <div class="summary-row">
-          <strong>Cantidad</strong>
-          <span>{{.Cantidad}}</span>
-        </div>
-        <div class="summary-row">
-          <strong>Precio unitario</strong>
-          <span>{{.PrecioFinal}}</span>
-        </div>
-        {{if .ValorVentaFinal}}
-          <div class="summary-row">
-            <strong>Valor venta final</strong>
-            <span>{{.ValorVentaFinal}}</span>
-          </div>
-        {{end}}
-        <div class="summary-row">
-          <strong>Pago</strong>
-          <span>{{.MetodoPago}}</span>
-        </div>
-        {{if .Notas}}
-          <div class="summary-row">
-            <strong>Notas</strong>
-            <span>{{.Notas}}</span>
-          </div>
-        {{end}}
-      </div>
+                <div class="summary">
+                    <div class="summary-row">
+                        <strong>Producto</strong>
+                        <span>
+                            {{if .ProductoNom}}{{.ProductoNom}}
+                            ({{.ProductoID}}){{else}}{{.ProductoID}}{{end}}
+                        </span>
+                    </div>
+                    <div class="summary-row">
+                        <strong>Cantidad</strong>
+                        <span>{{.Cantidad}}</span>
+                    </div>
+                    <div class="summary-row">
+                        <strong>Precio unitario</strong>
+                        <span>{{.PrecioFinal}}</span>
+                    </div>
+                    {{if .ValorVentaFinal}}
+                    <div class="summary-row">
+                        <strong>Valor venta final</strong>
+                        <span>{{.ValorVentaFinal}}</span>
+                    </div>
+                    {{end}}
+                    <div class="summary-row">
+                        <strong>Pago</strong>
+                        <span>{{.MetodoPago}}</span>
+                    </div>
+                    {{if .Notas}}
+                    <div class="summary-row">
+                        <strong>Notas</strong>
+                        <span>{{.Notas}}</span>
+                    </div>
+                    {{end}}
+                </div>
 
-      <div class="confirm-actions">
-        <a class="button primary" href="/inventario?mensaje=Venta%20registrada%20correctamente">Volver al inventario</a>
-      </div>
-    </div>
-  </main>
-</body>
+                <div class="confirm-actions">
+                    {{if .ReceiptDownloadURL}}
+                    <a
+                        class="button secondary"
+                        href="{{.ReceiptViewURL}}"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Ver comprobante</a
+                    >
+                    <a class="button primary" href="{{.ReceiptDownloadURL}}"
+                        >Descargar comprobante</a
+                    >
+                    {{end}}
+                    <a
+                        class="button primary"
+                        href="/inventario?mensaje=Venta%20registrada%20correctamente"
+                        >Volver al inventario</a
+                    >
+                </div>
+            </div>
+        </main>
+    </body>
 </html>

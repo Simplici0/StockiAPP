@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            .receipt-shell {
+                width: min(820px, 100%);
+                margin: 0 auto;
+                display: grid;
+                gap: 18px;
+            }
+
+            .receipt-card {
+                background: rgba(255, 255, 255, 0.98);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                border-radius: 22px;
+                box-shadow: 0 18px 40px rgba(10, 25, 55, 0.08);
+                overflow: hidden;
+            }
+
+            .receipt-head {
+                display: flex;
+                justify-content: space-between;
+                gap: 18px;
+                align-items: flex-start;
+                padding: 22px 24px 18px;
+                background: linear-gradient(
+                    180deg,
+                    rgba(248, 250, 252, 0.98) 0%,
+                    rgba(255, 255, 255, 0.95) 100%
+                );
+                border-bottom: 1px solid rgba(15, 40, 80, 0.08);
+                flex-wrap: wrap;
+            }
+
+            .receipt-brand {
+                display: flex;
+                gap: 14px;
+                align-items: center;
+            }
+
+            .receipt-brand img {
+                width: 56px;
+                height: 56px;
+                object-fit: contain;
+                border-radius: 14px;
+                background: rgba(255, 255, 255, 0.92);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                padding: 8px;
+            }
+
+            .receipt-kicker {
+                margin: 0 0 6px;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--primary);
+            }
+
+            .receipt-meta {
+                display: grid;
+                gap: 6px;
+                min-width: min(100%, 220px);
+            }
+
+            .receipt-meta-item {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                font-size: 13px;
+                color: var(--text-muted);
+            }
+
+            .receipt-meta-item strong {
+                color: var(--secondary);
+                font-size: 11px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .receipt-body {
+                padding: 20px 24px 24px;
+                display: grid;
+                gap: 18px;
+            }
+
+            .receipt-block {
+                display: grid;
+                gap: 10px;
+                padding: 16px 18px;
+                border-radius: 16px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: rgba(248, 250, 252, 0.9);
+            }
+
+            .receipt-block h2 {
+                margin: 0;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--text-muted);
+            }
+
+            .receipt-grid {
+                display: grid;
+                gap: 12px;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            }
+
+            .receipt-field {
+                display: grid;
+                gap: 5px;
+            }
+
+            .receipt-field strong {
+                color: var(--text-muted);
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .receipt-field span {
+                color: var(--secondary);
+                font-size: 14px;
+                font-weight: 600;
+            }
+
+            .receipt-total {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 16px;
+                padding: 16px 18px;
+                border-radius: 18px;
+                background: linear-gradient(
+                    135deg,
+                    rgba(16, 42, 76, 0.96) 0%,
+                    rgba(11, 29, 54, 0.98) 100%
+                );
+                color: #ffffff;
+            }
+
+            .receipt-total strong {
+                font-size: 12px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: rgba(255, 255, 255, 0.74);
+            }
+
+            .receipt-total span {
+                font-size: 26px;
+                font-weight: 800;
+                letter-spacing: -0.04em;
+            }
+
+            .receipt-actions {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            .receipt-note {
+                font-size: 12px;
+                color: var(--text-soft);
+            }
+
+            @media print {
+                .topbar,
+                .page-header,
+                .receipt-actions {
+                    display: none !important;
+                }
+
+                body,
+                html {
+                    background: #ffffff !important;
+                }
+
+                .page-content {
+                    width: 100%;
+                    padding: 0;
+                }
+
+                .receipt-card {
+                    border: 0;
+                    box-shadow: none;
+                }
+            }
+
+            @media (max-width: 720px) {
+                .receipt-head,
+                .receipt-body {
+                    padding: 16px;
+                }
+
+                .receipt-total {
+                    align-items: flex-start;
+                    flex-direction: column;
+                }
+
+                .receipt-actions {
+                    flex-direction: column;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="receipt-shell">
+                <div class="receipt-actions">
+                    <a class="button secondary" href="/inventario"
+                        >Volver al inventario</a
+                    >
+                    <a class="button secondary" href="{{.DownloadURL}}"
+                        >Descargar comprobante</a
+                    >
+                    <button
+                        class="primary"
+                        type="button"
+                        onclick="window.print()"
+                    >
+                        Imprimir
+                    </button>
+                </div>
+
+                <article class="receipt-card">
+                    <header class="receipt-head">
+                        <div class="receipt-brand">
+                            {{if businessLogoPath}}
+                            <img
+                                src="{{businessLogoPath}}"
+                                alt="{{businessName}}"
+                            />
+                            {{end}}
+                            <div>
+                                <p class="receipt-kicker">
+                                    Comprobante de venta
+                                </p>
+                                <h1>{{businessName}}</h1>
+                                <p>{{.Subtitle}}</p>
+                            </div>
+                        </div>
+                        <div class="receipt-meta">
+                            <div class="receipt-meta-item">
+                                <strong>Comprobante</strong>
+                                <span>{{.ReceiptNumber}}</span>
+                            </div>
+                            <div class="receipt-meta-item">
+                                <strong>Venta</strong>
+                                <span>#{{.SaleID}}</span>
+                            </div>
+                            <div class="receipt-meta-item">
+                                <strong>Fecha</strong>
+                                <span>{{.SaleDate}}</span>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div class="receipt-body">
+                        <section class="receipt-block">
+                            <h2>Detalle</h2>
+                            <div class="receipt-grid">
+                                <div class="receipt-field">
+                                    <strong>Producto</strong>
+                                    <span>{{.ProductoNom}}</span>
+                                </div>
+                                <div class="receipt-field">
+                                    <strong>ID</strong>
+                                    <span>{{.ProductoID}}</span>
+                                </div>
+                                <div class="receipt-field">
+                                    <strong>Cantidad</strong>
+                                    <span>{{.Cantidad}}</span>
+                                </div>
+                                <div class="receipt-field">
+                                    <strong>Precio unitario</strong>
+                                    <span>{{.PrecioUnitario}}</span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="receipt-block">
+                            <h2>Pago</h2>
+                            <div class="receipt-grid">
+                                <div class="receipt-field">
+                                    <strong>Método de pago</strong>
+                                    <span
+                                        >{{if
+                                        .MetodoPago}}{{.MetodoPago}}{{else}}-{{end}}</span
+                                    >
+                                </div>
+                                <div class="receipt-field">
+                                    <strong>Vendedor</strong>
+                                    <span
+                                        >{{if
+                                        .SoldBy}}{{.SoldBy}}{{else}}-{{end}}</span
+                                    >
+                                </div>
+                                <div class="receipt-field">
+                                    <strong>Canal</strong>
+                                    <span
+                                        >{{if
+                                        .Channel}}{{.Channel}}{{else}}-{{end}}</span
+                                    >
+                                </div>
+                            </div>
+                        </section>
+
+                        {{if .Notas}}
+                        <section class="receipt-block">
+                            <h2>Observaciones</h2>
+                            <div class="receipt-note">{{.Notas}}</div>
+                        </section>
+                        {{end}}
+
+                        <section class="receipt-total">
+                            <strong>Total de la venta</strong>
+                            <span>{{.Total}}</span>
+                        </section>
+                    </div>
+                </article>
+            </div>
+        </main>
+    </body>
+</html>
