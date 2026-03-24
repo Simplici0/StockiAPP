@@ -20,11 +20,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	pgxstdlib "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
@@ -227,12 +229,15 @@ type AuditEvent struct {
 }
 
 type Tenant struct {
-	ID        int
-	Slug      string
-	Name      string
-	Active    bool
-	CreatedAt string
-	UpdatedAt string
+	ID                   int
+	Slug                 string
+	Name                 string
+	Active               bool
+	CreatedAt            string
+	UpdatedAt            string
+	InitialAdminUsername string
+	InitialAPIKeyName    string
+	IsDefault            bool
 }
 
 type APIKey struct {
@@ -240,11 +245,23 @@ type APIKey struct {
 	Name      string
 	TenantID  int
 	Active    bool
+	IsInitial bool
 	CreatedAt string
 	UpdatedAt string
 }
 
+type tenantProvisionResult struct {
+	Tenant            *Tenant
+	InitialAPIKeyName string
+	InitialAPIToken   string
+	InitialAdminUser  string
+}
+
 const (
+	rolePlatformAdmin = "platform_admin"
+	roleAdmin         = "admin"
+	roleEmployee      = "empleado"
+
 	defaultTenantID   = 1
 	defaultTenantSlug = "default"
 	defaultTenantName = "Default tenant"
@@ -615,7 +632,7 @@ func loadAssignableUsers(db *sql.DB) ([]assignableUser, error) {
 }
 
 func canAccessProduct(user *User, product productOption) bool {
-	if user != nil && user.Role == "admin" {
+	if user != nil && isAdminRole(user.Role) {
 		return true
 	}
 	if !product.HasOwner {
@@ -628,7 +645,7 @@ func canAccessProduct(user *User, product productOption) bool {
 }
 
 func filterProductsForUser(products []productOption, user *User) []productOption {
-	if user != nil && user.Role == "admin" {
+	if user != nil && isAdminRole(user.Role) {
 		return products
 	}
 	filtered := make([]productOption, 0, len(products))
@@ -654,7 +671,7 @@ func productAccessibleByID(db *sql.DB, user *User, productID string) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	if user != nil && user.Role == "admin" {
+	if user != nil && isAdminRole(user.Role) {
 		return true, nil
 	}
 	if !ownerUserID.Valid {
@@ -671,13 +688,349 @@ func productVisibilityPredicate(alias string, user *User) (string, []any) {
 		alias = "p"
 	}
 	tenantID := tenantIDFromUser(user)
-	if user != nil && user.Role == "admin" {
+	if user != nil && isAdminRole(user.Role) {
 		return fmt.Sprintf("%s.tenant_id = ?", alias), []any{tenantID}
 	}
 	if user == nil {
 		return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL))", alias, alias, alias), []any{tenantID}
 	}
 	return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?))", alias, alias, alias, alias), []any{tenantID, user.ID}
+}
+
+func tenantScopedProductAccessPredicate(entityAlias, productAlias string, user *User) (string, []any) {
+	if entityAlias == "" {
+		entityAlias = "t"
+	}
+	if productAlias == "" {
+		productAlias = "p"
+	}
+	tenantID := tenantIDFromUser(user)
+	if user != nil && isAdminRole(user.Role) {
+		return fmt.Sprintf("%s.tenant_id = ?", entityAlias), []any{tenantID}
+	}
+	if user == nil {
+		return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL))", entityAlias, productAlias, productAlias), []any{tenantID}
+	}
+	return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?))", entityAlias, productAlias, productAlias, productAlias), []any{tenantID, user.ID}
+}
+
+func listRecentSalesForUser(db *sql.DB, user *User, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	accessSQL, accessArgs := tenantScopedProductAccessPredicate("v", "p", user)
+	args := append([]any{}, accessArgs...)
+	args = append(args, limit)
+	rows, err := db.Query(`
+		SELECT v.id, v.fecha, v.producto_id, COALESCE(p.nombre, v.producto_id), v.cantidad, v.precio_final, COALESCE(v.metodo_pago, '')
+		FROM ventas v
+		LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
+		WHERE `+accessSQL+`
+		ORDER BY v.fecha DESC, v.id DESC
+		LIMIT ?
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		var id int
+		var fecha, productoID, producto, metodo string
+		var cantidad int
+		var precioFinal float64
+		if err := rows.Scan(&id, &fecha, &productoID, &producto, &cantidad, &precioFinal, &metodo); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{
+			"id":           id,
+			"fecha":        formatDateWithSettings(fecha),
+			"producto_id":  productoID,
+			"producto":     producto,
+			"cantidad":     cantidad,
+			"precio_final": precioFinal,
+			"metodo_pago":  metodo,
+			"total":        precioFinal * float64(cantidad),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	q = strings.TrimSpace(strings.ToLower(q))
+	accessSQL, accessArgs := tenantScopedProductAccessPredicate("v", "p", user)
+	args := append([]any{}, accessArgs...)
+	query := `
+		SELECT
+			v.id,
+			v.fecha,
+			v.producto_id,
+			COALESCE(p.nombre, v.producto_id),
+			v.cantidad,
+			v.precio_final,
+			COALESCE(v.channel, ''),
+			COALESCE(v.sold_by, ''),
+			COALESCE(v.notas, ''),
+			COALESCE(v.metodo_pago, '')
+		FROM ventas v
+		LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
+		WHERE ` + accessSQL
+	if q != "" {
+		query += ` AND (LOWER(v.producto_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(v.channel, '')) LIKE ? OR LOWER(COALESCE(v.sold_by, '')) LIKE ? OR LOWER(COALESCE(v.notas, '')) LIKE ? OR LOWER(COALESCE(v.metodo_pago, '')) LIKE ?)`
+		qLike := "%" + q + "%"
+		args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
+	}
+	if fromStr != "" {
+		query += ` AND ` + sqlDatePrefixExpr("v.fecha") + ` >= ?`
+		args = append(args, fromStr)
+	}
+	if toStr != "" {
+		query += ` AND ` + sqlDatePrefixExpr("v.fecha") + ` <= ?`
+		args = append(args, toStr)
+	}
+	query += ` ORDER BY v.fecha DESC, v.id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		var (
+			id            int
+			fecha         string
+			productID     string
+			productName   string
+			quantity      int
+			salePrice     float64
+			channel       string
+			soldBy        string
+			notes         string
+			paymentMethod string
+		)
+		if err := rows.Scan(&id, &fecha, &productID, &productName, &quantity, &salePrice, &channel, &soldBy, &notes, &paymentMethod); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{
+			"id":             id,
+			"fecha":          formatDateWithSettings(fecha),
+			"product_id":     productID,
+			"product_name":   productName,
+			"quantity":       quantity,
+			"sale_price":     salePrice,
+			"channel":        channel,
+			"sold_by":        soldBy,
+			"notes":          notes,
+			"payment_method": paymentMethod,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func listRetomasForUser(db *sql.DB, user *User, q string, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	q = strings.TrimSpace(strings.ToLower(q))
+	accessSQL, accessArgs := tenantScopedProductAccessPredicate("r", "p", user)
+	args := append([]any{}, accessArgs...)
+	query := `
+		SELECT
+			r.id,
+			r.fecha,
+			r.producto_id,
+			COALESCE(p.nombre, r.producto_id),
+			r.cantidad,
+			r.valor_recibido,
+			r.estado_recibido,
+			r.publicado_stock,
+			r.precio_publicado,
+			COALESCE(r.notas, '')
+		FROM retomas r
+		LEFT JOIN productos p ON p.sku = r.producto_id AND p.tenant_id = r.tenant_id
+		WHERE ` + accessSQL
+	if q != "" {
+		query += ` AND (LOWER(r.producto_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(r.estado_recibido, '')) LIKE ? OR LOWER(COALESCE(r.notas, '')) LIKE ?)`
+		qLike := "%" + q + "%"
+		args = append(args, qLike, qLike, qLike, qLike)
+	}
+	query += ` ORDER BY r.fecha DESC, r.id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		var (
+			id               int
+			fecha            string
+			productID        string
+			productName      string
+			quantity         int
+			valueReceived    float64
+			receivedState    string
+			publishedToStock int
+			finalSalePrice   sql.NullFloat64
+			notes            string
+		)
+		if err := rows.Scan(&id, &fecha, &productID, &productName, &quantity, &valueReceived, &receivedState, &publishedToStock, &finalSalePrice, &notes); err != nil {
+			return nil, err
+		}
+		var publishedPrice any = nil
+		if finalSalePrice.Valid {
+			publishedPrice = finalSalePrice.Float64
+		}
+		items = append(items, map[string]any{
+			"id":                 id,
+			"fecha":              formatDateWithSettings(fecha),
+			"product_id":         productID,
+			"product_name":       productName,
+			"quantity":           quantity,
+			"value_received":     valueReceived,
+			"received_state":     receivedState,
+			"published_to_stock": publishedToStock == 1,
+			"final_sale_price":   publishedPrice,
+			"notes":              notes,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	q = strings.TrimSpace(strings.ToLower(q))
+	accessSQL, accessArgs := tenantScopedProductAccessPredicate("cs", "p", user)
+	args := append([]any{}, accessArgs...)
+	query := `
+		SELECT
+			cs.id,
+			cs.created_at,
+			cs.product_id,
+			COALESCE(p.nombre, cs.product_id),
+			cs.quantity,
+			COALESCE(cs.debtor_name, ''),
+			COALESCE(cs.debtor_document_type, ''),
+			COALESCE(cs.debtor_document_number, ''),
+			COALESCE(cs.debtor_phone, ''),
+			COALESCE(cs.installments_total, 0),
+			COALESCE(cs.installments_paid, 0),
+			COALESCE(cs.total_value, 0),
+			COALESCE(cs.interest_percent, 0),
+			COALESCE(cs.installment_value, 0),
+			COALESCE(cs.notes, ''),
+			COALESCE((
+				SELECT ci.amount_paid
+				FROM credit_installments ci
+				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+				ORDER BY ci.installment_number DESC, ci.id DESC
+				LIMIT 1
+			), 0),
+			COALESCE((
+				SELECT ci.created_at
+				FROM credit_installments ci
+				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+				ORDER BY ci.installment_number DESC, ci.id DESC
+				LIMIT 1
+			), '')
+		FROM credit_sales cs
+		LEFT JOIN productos p ON p.sku = cs.product_id AND p.tenant_id = cs.tenant_id
+		WHERE ` + accessSQL
+	if q != "" {
+		query += ` AND (LOWER(cs.product_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_name, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_document_type, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_document_number, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_phone, '')) LIKE ?)`
+		qLike := "%" + q + "%"
+		args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
+	}
+	query += ` ORDER BY cs.created_at DESC, cs.id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		var (
+			id                int
+			createdAt         string
+			productID         string
+			productName       string
+			quantity          int
+			debtorName        string
+			debtorDocType     string
+			debtorDocNumber   string
+			debtorPhone       string
+			installmentsTotal int
+			installmentsPaid  int
+			totalValue        float64
+			interestPercent   float64
+			installmentValue  float64
+			notes             string
+			lastPaymentAmount float64
+			lastPaymentAt     string
+		)
+		if err := rows.Scan(&id, &createdAt, &productID, &productName, &quantity, &debtorName, &debtorDocType, &debtorDocNumber, &debtorPhone, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &lastPaymentAmount, &lastPaymentAt); err != nil {
+			return nil, err
+		}
+		status := "active"
+		if installmentsTotal > 0 && installmentsPaid >= installmentsTotal {
+			status = "completed"
+		}
+		item := map[string]any{
+			"id":                     id,
+			"created_at":             formatDateWithSettings(createdAt),
+			"product_id":             productID,
+			"product":                productName,
+			"quantity":               quantity,
+			"debtor_name":            debtorName,
+			"debtor_document_type":   debtorDocType,
+			"debtor_document_number": debtorDocNumber,
+			"debtor_phone":           debtorPhone,
+			"installments_total":     installmentsTotal,
+			"installments_paid":      installmentsPaid,
+			"installments_pending":   max(installmentsTotal-installmentsPaid, 0),
+			"total_value":            totalValue,
+			"interest_percent":       interestPercent,
+			"installment_value":      installmentValue,
+			"notes":                  notes,
+			"status":                 status,
+		}
+		if lastPaymentAt != "" {
+			item["last_payment_at"] = formatDateWithSettings(lastPaymentAt)
+			item["last_payment_amount"] = lastPaymentAmount
+		} else {
+			item["last_payment_at"] = ""
+			item["last_payment_amount"] = 0
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func generateNextProductSKU(db *sql.DB) (string, error) {
@@ -1271,6 +1624,7 @@ type contextKey string
 const (
 	userContextKey               contextKey = "user"
 	apiIntegrationNameContextKey contextKey = "api_integration_name"
+	apiAuthModeContextKey        contextKey = "api_auth_mode"
 	tenantContextKey             contextKey = "tenant"
 )
 
@@ -1383,6 +1737,14 @@ func tenantIDFromUser(user *User) int {
 		return defaultTenantID
 	}
 	return normalizeTenantID(user.TenantID)
+}
+
+func invalidateSessionToken(db *sql.DB, token string) {
+	token = strings.TrimSpace(token)
+	if db == nil || token == "" {
+		return
+	}
+	_, _ = db.Exec("DELETE FROM sessions WHERE token = ?", token)
 }
 
 func logAuditEvent(exec sqlExecer, user *User, eventType, entityType, entityID, source string, payload map[string]any) error {
@@ -2254,6 +2616,59 @@ func currentBusinessSettings() BusinessSettings {
 	return businessSettings
 }
 
+func businessSettingsFromTemplateData(data any) (BusinessSettings, bool) {
+	if data == nil {
+		return BusinessSettings{}, false
+	}
+	value := reflect.ValueOf(data)
+	if !value.IsValid() {
+		return BusinessSettings{}, false
+	}
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return BusinessSettings{}, false
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return BusinessSettings{}, false
+	}
+	field := value.FieldByName("Settings")
+	if !field.IsValid() || !field.CanInterface() {
+		return BusinessSettings{}, false
+	}
+	settings, ok := field.Interface().(BusinessSettings)
+	if !ok {
+		return BusinessSettings{}, false
+	}
+	return normalizeBusinessSettings(settings), true
+}
+
+func currentUserFromTemplateData(data any) (*User, bool) {
+	if data == nil {
+		return nil, false
+	}
+	value := reflect.ValueOf(data)
+	if !value.IsValid() {
+		return nil, false
+	}
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return nil, false
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return nil, false
+	}
+	field := value.FieldByName("CurrentUser")
+	if !field.IsValid() || field.Kind() != reflect.Pointer || field.IsNil() || !field.CanInterface() {
+		return nil, false
+	}
+	user, ok := field.Interface().(*User)
+	return user, ok && user != nil
+}
+
 func setCurrentBusinessSettings(settings BusinessSettings) {
 	businessSettingsMu.Lock()
 	businessSettings = normalizeBusinessSettings(settings)
@@ -2274,6 +2689,31 @@ func normalizeBusinessSettings(settings BusinessSettings) BusinessSettings {
 	settings.Currency = normalizeCurrency(settings.Currency)
 	settings.DateFormat = normalizeDateFormat(settings.DateFormat)
 	return settings
+}
+
+func effectiveBusinessLogoPath(settings BusinessSettings, data any) string {
+	defaultLogoPath := strings.TrimSpace(defaultBusinessSettings().LogoPath)
+	globalLogoPath := strings.TrimSpace(currentBusinessSettings().LogoPath)
+	logoPath := strings.TrimSpace(settings.LogoPath)
+
+	if logoPath == "" {
+		if globalLogoPath != "" {
+			return globalLogoPath
+		}
+		return defaultLogoPath
+	}
+
+	// For non-default tenants without custom branding (legacy/default logo),
+	// prefer current global branding configured by platform admin.
+	if logoPath == defaultLogoPath {
+		if user, ok := currentUserFromTemplateData(data); ok && tenantIDFromUser(user) != defaultTenantID {
+			if globalLogoPath != "" {
+				return globalLogoPath
+			}
+		}
+	}
+
+	return logoPath
 }
 
 func normalizeCurrency(raw string) string {
@@ -2541,6 +2981,11 @@ func loadAPIKeys(db *sql.DB) ([]APIKey, error) {
 }
 
 func loadAPIKeysForTenant(db *sql.DB, tenantID int) ([]APIKey, error) {
+	tenant, err := resolveTenantByID(db, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	canonicalInitialName := strings.ToLower(initialAPIKeyNameForTenant(tenant))
 	rows, err := db.Query(`
 		SELECT id, name, COALESCE(NULLIF(tenant_id, 0), ?), active, created_at, updated_at
 		FROM api_keys
@@ -2561,6 +3006,7 @@ func loadAPIKeysForTenant(db *sql.DB, tenantID int) ([]APIKey, error) {
 		}
 		item.Active = active == 1
 		item.TenantID = normalizeTenantID(item.TenantID)
+		item.IsInitial = strings.ToLower(strings.TrimSpace(item.Name)) == canonicalInitialName || strings.HasSuffix(strings.ToLower(strings.TrimSpace(item.Name)), "-inicial")
 		item.CreatedAt = formatDateWithSettings(item.CreatedAt)
 		item.UpdatedAt = formatDateWithSettings(item.UpdatedAt)
 		items = append(items, item)
@@ -2997,6 +3443,670 @@ func defaultTenant() Tenant {
 	}
 }
 
+func isPlatformAdmin(user *User) bool {
+	return user != nil && user.Role == rolePlatformAdmin
+}
+
+func isAdminRole(role string) bool {
+	return role == roleAdmin || role == rolePlatformAdmin
+}
+
+func isStaffRole(role string) bool {
+	return isAdminRole(role) || role == roleEmployee
+}
+
+func isValidManagedRole(role string, allowPlatform bool) bool {
+	switch role {
+	case roleEmployee, roleAdmin:
+		return true
+	case rolePlatformAdmin:
+		return allowPlatform
+	default:
+		return false
+	}
+}
+
+func canManageTenants(user *User) bool {
+	return isPlatformAdmin(user)
+}
+
+func normalizeTenantSlug(value string) string {
+	replacer := strings.NewReplacer(
+		"á", "a",
+		"é", "e",
+		"í", "i",
+		"ó", "o",
+		"ú", "u",
+		"Á", "a",
+		"É", "e",
+		"Í", "i",
+		"Ó", "o",
+		"Ú", "u",
+	)
+	value = strings.TrimSpace(strings.ToLower(replacer.Replace(value)))
+
+	var builder strings.Builder
+	lastWasDash := false
+	for _, r := range value {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			builder.WriteRune(r)
+			lastWasDash = false
+		case r == ' ' || r == '-' || r == '_' || r == '.':
+			if builder.Len() == 0 || lastWasDash {
+				continue
+			}
+			builder.WriteByte('-')
+			lastWasDash = true
+		}
+	}
+
+	return strings.Trim(builder.String(), "-")
+}
+
+func listTenants(db *sql.DB) ([]Tenant, error) {
+	rows, err := db.Query(`
+		SELECT
+			t.id,
+			t.slug,
+			t.name,
+			t.active,
+			t.created_at,
+			t.updated_at,
+			COALESCE((
+				SELECT u.username
+				FROM users u
+				WHERE COALESCE(NULLIF(u.tenant_id, 0), ?) = t.id
+					AND u.role = 'admin'
+				ORDER BY u.id ASC
+				LIMIT 1
+			), ''),
+			COALESCE((
+				SELECT k.name
+				FROM api_keys k
+				WHERE COALESCE(NULLIF(k.tenant_id, 0), ?) = t.id
+				ORDER BY
+					CASE
+						WHEN k.name LIKE '%-inicial' THEN 0
+						ELSE 1
+					END,
+					k.id ASC
+				LIMIT 1
+			), '')
+		FROM tenants t
+		ORDER BY id ASC
+	`, defaultTenantID, defaultTenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tenants := make([]Tenant, 0, 16)
+	for rows.Next() {
+		var item Tenant
+		var active int
+		if err := rows.Scan(
+			&item.ID,
+			&item.Slug,
+			&item.Name,
+			&active,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+			&item.InitialAdminUsername,
+			&item.InitialAPIKeyName,
+		); err != nil {
+			return nil, err
+		}
+		item.Active = active == 1
+		item.IsDefault = normalizeTenantID(item.ID) == defaultTenantID
+		item.CreatedAt = formatDateWithSettings(item.CreatedAt)
+		item.UpdatedAt = formatDateWithSettings(item.UpdatedAt)
+		tenants = append(tenants, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return tenants, nil
+}
+
+func loadTenantForManagement(db *sql.DB, tenantID int) (*Tenant, error) {
+	tenantID = normalizeTenantID(tenantID)
+
+	var (
+		item   Tenant
+		active int
+	)
+	err := db.QueryRow(`
+		SELECT id, slug, name, active, created_at, updated_at
+		FROM tenants
+		WHERE id = ?
+	`, tenantID).Scan(&item.ID, &item.Slug, &item.Name, &active, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, requestError{Status: http.StatusNotFound, Message: "La empresa no existe."}
+		}
+		return nil, err
+	}
+	item.Active = active == 1
+	item.IsDefault = tenantID == defaultTenantID
+	return &item, nil
+}
+
+func updateTenantBasics(db *sql.DB, currentUser *User, tenantID int, name, slug string) (*Tenant, error) {
+	if !canManageTenants(currentUser) {
+		return nil, requestError{Status: http.StatusForbidden, Message: "No tienes permisos para editar empresas."}
+	}
+
+	currentTenant, err := loadTenantForManagement(db, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El nombre de la empresa es obligatorio."}
+	}
+
+	slug = strings.TrimSpace(slug)
+	if currentTenant.IsDefault {
+		if slug != "" && slug != currentTenant.Slug {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "El slug del tenant base no se puede editar en esta fase."}
+		}
+		slug = currentTenant.Slug
+	} else {
+		slug = normalizeTenantSlug(slug)
+		if slug == "" {
+			slug = normalizeTenantSlug(name)
+		}
+		if slug == "" {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "El slug de la empresa es obligatorio."}
+		}
+	}
+
+	if currentTenant.Name == name && currentTenant.Slug == slug {
+		return currentTenant, nil
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		UPDATE tenants
+		SET name = ?, slug = ?, updated_at = ?
+		WHERE id = ?
+	`, name, slug, now, currentTenant.ID); err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "tenants_slug") || strings.Contains(errText, "unique constraint failed: tenants.slug") {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "Ya existe una empresa con ese slug."}
+		}
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"previous_name": currentTenant.Name,
+		"new_name":      name,
+	}
+	if currentTenant.Slug != slug {
+		payload["previous_slug"] = currentTenant.Slug
+		payload["new_slug"] = slug
+	}
+	if err := logAuditEvent(db, currentUser, "tenant_updated", "tenant", strconv.Itoa(currentTenant.ID), "manual", payload); err != nil {
+		return nil, err
+	}
+
+	return loadTenantForManagement(db, currentTenant.ID)
+}
+
+func setTenantActiveState(db *sql.DB, currentUser *User, tenantID int, active bool) (*Tenant, error) {
+	if !canManageTenants(currentUser) {
+		return nil, requestError{Status: http.StatusForbidden, Message: "No tienes permisos para administrar empresas."}
+	}
+
+	currentTenant, err := loadTenantForManagement(db, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if currentTenant.IsDefault {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El tenant base no se puede activar ni inactivar en esta fase."}
+	}
+	if currentTenant.Active == active {
+		return currentTenant, nil
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		UPDATE tenants
+		SET active = ?, updated_at = ?
+		WHERE id = ?
+	`, boolToInt(active), now, currentTenant.ID); err != nil {
+		return nil, err
+	}
+	if !active {
+		if _, err := tx.Exec(`DELETE FROM sessions WHERE tenant_id = ?`, currentTenant.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	eventType := "tenant_activated"
+	if !active {
+		eventType = "tenant_deactivated"
+	}
+	if err := logAuditEvent(tx, currentUser, eventType, "tenant", strconv.Itoa(currentTenant.ID), "manual", map[string]any{
+		"tenant_name": currentTenant.Name,
+		"tenant_slug": currentTenant.Slug,
+		"active":      active,
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return loadTenantForManagement(db, currentTenant.ID)
+}
+
+func createAPIKeyRecord(exec sqlExecer, tenantID int, name, token, now string) error {
+	_, err := exec.Exec(`
+		INSERT INTO api_keys (name, token_hash, tenant_id, active, created_at, updated_at)
+		VALUES (?, ?, ?, 1, ?, ?)
+	`, strings.TrimSpace(name), hashAPIToken(token), normalizeTenantID(tenantID), now, now)
+	return err
+}
+
+func isReservedInitialAPIKeyName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), "-inicial")
+}
+
+func isInitialTenantAPIKey(tenant *Tenant, keyName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(keyName))
+	if normalized == "" {
+		return false
+	}
+	return normalized == strings.ToLower(initialAPIKeyNameForTenant(tenant)) || strings.HasSuffix(normalized, "-inicial")
+}
+
+func loadAPIKeyForTenant(db *sql.DB, tenantID, keyID int) (*APIKey, error) {
+	tenantID = normalizeTenantID(tenantID)
+	var (
+		item   APIKey
+		active int
+	)
+	err := db.QueryRow(`
+		SELECT id, name, COALESCE(NULLIF(tenant_id, 0), ?), active, created_at, updated_at
+		FROM api_keys
+		WHERE id = ? AND COALESCE(NULLIF(tenant_id, 0), ?) = ?
+		LIMIT 1
+	`, defaultTenantID, keyID, defaultTenantID, tenantID).Scan(&item.ID, &item.Name, &item.TenantID, &active, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, requestError{Status: http.StatusNotFound, Message: "API key no encontrada."}
+		}
+		return nil, err
+	}
+	item.Active = active == 1
+	item.TenantID = normalizeTenantID(item.TenantID)
+	return &item, nil
+}
+
+func updateTenantAPIKey(db *sql.DB, currentUser *User, keyID int, name string, active bool) error {
+	tenantID := tenantIDFromUser(currentUser)
+	key, err := loadAPIKeyForTenant(db, tenantID, keyID)
+	if err != nil {
+		return err
+	}
+	tenant, err := resolveTenantByID(db, tenantID)
+	if err != nil {
+		return err
+	}
+	if isInitialTenantAPIKey(tenant, key.Name) {
+		if strings.TrimSpace(name) != key.Name || active != key.Active {
+			return requestError{Status: http.StatusBadRequest, Message: "La API key inicial se gestiona desde Empresas / tenants. Usa regenerar API key inicial."}
+		}
+		return nil
+	}
+
+	result, err := db.Exec(`
+		UPDATE api_keys
+		SET name = ?, active = ?, updated_at = ?
+		WHERE id = ? AND COALESCE(NULLIF(tenant_id, 0), ?) = ?
+	`, strings.TrimSpace(name), boolToInt(active), time.Now().Format(time.RFC3339), keyID, defaultTenantID, tenantID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return requestError{Status: http.StatusBadRequest, Message: "Ya existe una API key con ese nombre."}
+		}
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected == 0 {
+		return requestError{Status: http.StatusNotFound, Message: "API key no encontrada."}
+	}
+	return nil
+}
+
+func initialAPIKeyNameForTenant(tenant *Tenant) string {
+	if tenant == nil {
+		return "tenant-inicial"
+	}
+	slug := normalizeTenantSlug(tenant.Slug)
+	if slug == "" {
+		slug = normalizeTenantSlug(tenant.Name)
+	}
+	if slug == "" {
+		slug = fmt.Sprintf("tenant-%d", normalizeTenantID(tenant.ID))
+	}
+	return slug + "-inicial"
+}
+
+func rotateTenantInitialAPIKey(db *sql.DB, currentUser *User, tenantID int) (string, string, error) {
+	if !canManageTenants(currentUser) {
+		return "", "", requestError{Status: http.StatusForbidden, Message: "No tienes permisos para regenerar la API key inicial."}
+	}
+
+	tenant, err := resolveTenantByID(db, tenantID)
+	if err != nil {
+		return "", "", err
+	}
+
+	initialName := initialAPIKeyNameForTenant(tenant)
+	token, err := generateToken()
+	if err != nil {
+		return "", "", err
+	}
+	now := time.Now().Format(time.RFC3339)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return "", "", err
+	}
+	defer tx.Rollback()
+
+	var (
+		existingID   int
+		existingName string
+		found        bool
+	)
+	err = tx.QueryRow(`
+		SELECT id, name
+		FROM api_keys
+		WHERE COALESCE(NULLIF(tenant_id, 0), ?) = ? AND name = ?
+		ORDER BY id ASC
+		LIMIT 1
+	`, defaultTenantID, tenant.ID, initialName).Scan(&existingID, &existingName)
+	if err == sql.ErrNoRows {
+		err = tx.QueryRow(`
+			SELECT id, name
+			FROM api_keys
+			WHERE COALESCE(NULLIF(tenant_id, 0), ?) = ? AND name LIKE ?
+			ORDER BY id ASC
+			LIMIT 1
+		`, defaultTenantID, tenant.ID, "%-inicial").Scan(&existingID, &existingName)
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return "", "", err
+	}
+	found = err == nil
+
+	if found {
+		if _, err := tx.Exec(`
+			UPDATE api_keys
+			SET name = ?, token_hash = ?, active = 1, updated_at = ?
+			WHERE id = ?
+		`, initialName, hashAPIToken(token), now, existingID); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				return "", "", requestError{Status: http.StatusBadRequest, Message: "No se pudo regenerar la API key inicial por conflicto de nombre."}
+			}
+			return "", "", err
+		}
+	} else {
+		if err := createAPIKeyRecord(tx, tenant.ID, initialName, token, now); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				return "", "", requestError{Status: http.StatusBadRequest, Message: "No se pudo crear la API key inicial por conflicto de nombre."}
+			}
+			return "", "", err
+		}
+	}
+
+	if err := logAuditEvent(tx, currentUser, "tenant_initial_api_key_rotated", "tenant", strconv.Itoa(tenant.ID), "manual", map[string]any{
+		"tenant_name":           tenant.Name,
+		"tenant_slug":           tenant.Slug,
+		"api_key_name":          initialName,
+		"reused_existing_key":   found,
+		"previous_api_key_name": existingName,
+	}); err != nil {
+		return "", "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", "", err
+	}
+	return initialName, token, nil
+}
+
+func createTenantWithSeed(db *sql.DB, currentUser *User, usersCols map[string]bool, name, slug, adminUsername, adminPassword string) (*tenantProvisionResult, error) {
+	if !canManageTenants(currentUser) {
+		return nil, requestError{Status: http.StatusForbidden, Message: "No tienes permisos para crear empresas."}
+	}
+
+	name = strings.TrimSpace(name)
+	slug = normalizeTenantSlug(slug)
+	adminUsername = strings.TrimSpace(adminUsername)
+	if slug == "" {
+		slug = normalizeTenantSlug(name)
+	}
+	if name == "" {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El nombre de la empresa es obligatorio."}
+	}
+	if slug == "" {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "No se pudo generar un slug válido para la empresa."}
+	}
+	if adminUsername == "" {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El usuario admin inicial es obligatorio."}
+	}
+	if adminPassword == "" {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "La contraseña inicial del admin es obligatoria."}
+	}
+
+	sourceTenantID := normalizeTenantID(currentUser.TenantID)
+	sourceSettings, err := loadBusinessSettingsForTenant(db, sourceTenantID)
+	if err != nil {
+		return nil, err
+	}
+	sourceLines, err := loadBusinessLinesForTenant(db, sourceTenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	sourcePaymentMethods, err := loadPaymentMethodsForTenant(db, sourceTenantID, false)
+	if err != nil {
+		return nil, err
+	}
+	sourceMovementSettings, _, err := loadMovementSettingsForTenant(db, sourceTenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	initialAPIKeyName := initialAPIKeyNameForTenant(&Tenant{Slug: slug, Name: name})
+	initialAPIToken, err := generateToken()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var existingUsernameCount int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM users WHERE username = ?`, adminUsername).Scan(&existingUsernameCount); err != nil {
+		return nil, err
+	}
+	if existingUsernameCount > 0 {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El usuario admin inicial ya existe."}
+	}
+	var existingAPIKeyNameCount int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM api_keys WHERE name = ?`, initialAPIKeyName).Scan(&existingAPIKeyNameCount); err != nil {
+		return nil, err
+	}
+	if existingAPIKeyNameCount > 0 {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "Ya existe una API key inicial con ese nombre."}
+	}
+
+	tenantID, err := insertAndReturnID(tx, `
+		INSERT INTO tenants (slug, name, active, created_at, updated_at)
+		VALUES (?, ?, 1, ?, ?)
+	`, slug, name, now, now)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "tenants_slug") || strings.Contains(strings.ToLower(err.Error()), "unique constraint failed: tenants.slug") {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "Ya existe una empresa con ese slug."}
+		}
+		return nil, err
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, tenantID, name, sourceSettings.LogoPath, sourceSettings.PrimaryColor, sourceSettings.Currency, sourceSettings.DateFormat, now); err != nil {
+		return nil, err
+	}
+
+	for _, line := range sourceLines {
+		if _, err := tx.Exec(`
+			INSERT INTO business_lines (tenant_id, name, active, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, tenantID, line.Name, boolToInt(line.Active), now, now); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(sourcePaymentMethods) == 0 {
+		for idx, methodName := range defaultPaymentMethodNames() {
+			if _, err := tx.Exec(`
+				INSERT INTO payment_methods (tenant_id, name, active, sort_order, created_at, updated_at)
+				VALUES (?, ?, 1, ?, ?, ?)
+			`, tenantID, methodName, idx+1, now, now); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		for idx, method := range sourcePaymentMethods {
+			sortOrder := method.SortOrder
+			if sortOrder <= 0 {
+				sortOrder = idx + 1
+			}
+			if _, err := tx.Exec(`
+				INSERT INTO payment_methods (tenant_id, name, active, sort_order, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?)
+			`, tenantID, method.Name, boolToInt(method.Active), sortOrder, now, now); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if len(sourceMovementSettings) == 0 {
+		for _, movementType := range defaultMovementTypes() {
+			if _, err := tx.Exec(`
+				INSERT INTO movement_settings (tenant_id, movement_type, enabled, updated_at)
+				VALUES (?, ?, 1, ?)
+			`, tenantID, movementType, now); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		for _, setting := range sourceMovementSettings {
+			if _, err := tx.Exec(`
+				INSERT INTO movement_settings (tenant_id, movement_type, enabled, updated_at)
+				VALUES (?, ?, ?, ?)
+			`, tenantID, setting.MovementType, boolToInt(setting.Enabled), now); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	userCols := []string{"username", "password_hash", "role"}
+	userArgs := []any{adminUsername, string(hashedPassword), roleAdmin}
+	if usersCols["name"] {
+		userCols = append(userCols, "name")
+		userArgs = append(userArgs, adminUsername)
+	}
+	if usersCols["email"] {
+		email := adminUsername
+		if !strings.Contains(email, "@") {
+			email = adminUsername + "@local"
+		}
+		userCols = append(userCols, "email")
+		userArgs = append(userArgs, email)
+	}
+	if usersCols["password_salt"] {
+		userCols = append(userCols, "password_salt")
+		userArgs = append(userArgs, "bcrypt")
+	}
+	if usersCols["created_at"] {
+		userCols = append(userCols, "created_at")
+		userArgs = append(userArgs, now)
+	}
+	if usersCols["tenant_id"] {
+		userCols = append(userCols, "tenant_id")
+		userArgs = append(userArgs, int(tenantID))
+	}
+	if usersCols["is_active"] {
+		userCols = append(userCols, "is_active")
+		userArgs = append(userArgs, 1)
+	}
+	if usersCols["active"] {
+		userCols = append(userCols, "active")
+		userArgs = append(userArgs, 1)
+	}
+	placeholders := make([]string, len(userCols))
+	for i := range placeholders {
+		placeholders[i] = "?"
+	}
+	if _, err := tx.Exec(
+		fmt.Sprintf("INSERT INTO users (%s) VALUES (%s)", strings.Join(userCols, ", "), strings.Join(placeholders, ", ")),
+		userArgs...,
+	); err != nil {
+		return nil, requestError{Status: http.StatusBadRequest, Message: userCreateErrorText(err)}
+	}
+
+	if err := createAPIKeyRecord(tx, int(tenantID), initialAPIKeyName, initialAPIToken, now); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "No se pudo crear la API key inicial por conflicto de nombre."}
+		}
+		return nil, err
+	}
+
+	if err := logAuditEvent(tx, currentUser, "tenant_created", "tenant", strconv.FormatInt(tenantID, 10), "manual", map[string]any{
+		"tenant_name":     name,
+		"tenant_slug":     slug,
+		"admin_username":  adminUsername,
+		"initial_api_key": initialAPIKeyName,
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	tenant, err := resolveTenantByID(db, int(tenantID))
+	if err != nil {
+		return nil, err
+	}
+	return &tenantProvisionResult{
+		Tenant:            tenant,
+		InitialAPIKeyName: initialAPIKeyName,
+		InitialAPIToken:   initialAPIToken,
+		InitialAdminUser:  adminUsername,
+	}, nil
+}
+
 func tenantIDFromRequest(r *http.Request) int {
 	if tenant := tenantFromContext(r); tenant != nil {
 		return normalizeTenantID(tenant.ID)
@@ -3021,6 +4131,13 @@ func tenantFromContext(r *http.Request) *Tenant {
 func apiIntegrationNameFromContext(r *http.Request) string {
 	if name, ok := r.Context().Value(apiIntegrationNameContextKey).(string); ok {
 		return strings.TrimSpace(name)
+	}
+	return ""
+}
+
+func apiAuthModeFromContext(r *http.Request) string {
+	if mode, ok := r.Context().Value(apiAuthModeContextKey).(string); ok {
+		return strings.TrimSpace(mode)
 	}
 	return ""
 }
@@ -3176,18 +4293,21 @@ func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
 	}
 
 	var (
-		user       User
-		isActive   int
-		expiresRaw string
+		user            User
+		isActive        int
+		sessionTenantID int
+		userTenantID    int
+		expiresRaw      string
 	)
 	query := `
 		SELECT u.id, u.username, u.role, u.is_active,
-		       COALESCE(NULLIF(s.tenant_id, 0), NULLIF(u.tenant_id, 0), ?),
+		       COALESCE(NULLIF(s.tenant_id, 0), ?),
+		       COALESCE(NULLIF(u.tenant_id, 0), ?),
 		       s.expires_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token = ?`
-	if err := db.QueryRow(query, defaultTenantID, cookie.Value).Scan(&user.ID, &user.Username, &user.Role, &isActive, &user.TenantID, &expiresRaw); err != nil {
+	if err := db.QueryRow(query, defaultTenantID, defaultTenantID, cookie.Value).Scan(&user.ID, &user.Username, &user.Role, &isActive, &sessionTenantID, &userTenantID, &expiresRaw); err != nil {
 		return nil, err
 	}
 	expiresAt, err := time.Parse(time.RFC3339, expiresRaw)
@@ -3195,13 +4315,19 @@ func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
 		return nil, err
 	}
 	if time.Now().After(expiresAt) {
-		_, _ = db.Exec("DELETE FROM sessions WHERE token = ?", cookie.Value)
+		invalidateSessionToken(db, cookie.Value)
+		return nil, sql.ErrNoRows
+	}
+	sessionTenantID = normalizeTenantID(sessionTenantID)
+	userTenantID = normalizeTenantID(userTenantID)
+	if sessionTenantID != userTenantID {
+		invalidateSessionToken(db, cookie.Value)
 		return nil, sql.ErrNoRows
 	}
 	user.IsActive = isActive == 1
-	user.TenantID = normalizeTenantID(user.TenantID)
+	user.TenantID = userTenantID
 	if !user.IsActive {
-		_, _ = db.Exec("DELETE FROM sessions WHERE token = ?", cookie.Value)
+		invalidateSessionToken(db, cookie.Value)
 		return nil, sql.ErrNoRows
 	}
 	return &user, nil
@@ -3219,54 +4345,745 @@ func bearerTokenFromRequest(r *http.Request) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func integrationUserFromDB(db *sql.DB, tenantID int) (*User, error) {
-	var user User
-	var isActive int
-	err := db.QueryRow(`
-		SELECT id, username, role, is_active, COALESCE(NULLIF(tenant_id, 0), ?)
-		FROM users
-		WHERE role = 'admin' AND is_active = 1 AND COALESCE(NULLIF(tenant_id, 0), ?) = ?
-		ORDER BY id
-		LIMIT 1
-	`, defaultTenantID, defaultTenantID, normalizeTenantID(tenantID)).Scan(&user.ID, &user.Username, &user.Role, &isActive, &user.TenantID)
-	if err != nil {
-		return nil, err
+func integrationPrincipalForTenant(tenantID int, integrationName string) *User {
+	tenantID = normalizeTenantID(tenantID)
+	integrationName = strings.TrimSpace(integrationName)
+	if integrationName == "" {
+		integrationName = fmt.Sprintf("tenant-%d", tenantID)
 	}
-	user.IsActive = isActive == 1
-	user.TenantID = normalizeTenantID(user.TenantID)
-	return &user, nil
+	// Keep API auth tenant-scoped without depending on any mutable human admin account.
+	return &User{
+		Username: "api:" + integrationName,
+		Role:     roleAdmin,
+		IsActive: true,
+		TenantID: tenantID,
+	}
 }
 
-func apiAuthFromRequest(db *sql.DB, r *http.Request) (*User, string, error) {
-	if user, err := userFromRequest(db, r); err == nil && user != nil {
-		return user, "", nil
-	}
-
+func apiAuthFromRequest(db *sql.DB, r *http.Request) (*User, string, string, error) {
 	token := bearerTokenFromRequest(r)
-	if token == "" {
-		return nil, "", sql.ErrNoRows
+	if token != "" {
+		var integrationName string
+		var active int
+		var tenantID int
+		err := db.QueryRow(`
+			SELECT name, active, COALESCE(NULLIF(tenant_id, 0), ?)
+			FROM api_keys
+			WHERE token_hash = ?
+		`, defaultTenantID, hashAPIToken(token)).Scan(&integrationName, &active, &tenantID)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if active != 1 {
+			return nil, "", "", sql.ErrNoRows
+		}
+
+		integrationName = strings.TrimSpace(integrationName)
+		return integrationPrincipalForTenant(tenantID, integrationName), integrationName, "api_key", nil
 	}
 
-	var integrationName string
-	var active int
-	var tenantID int
-	err := db.QueryRow(`
-		SELECT name, active, COALESCE(NULLIF(tenant_id, 0), ?)
-		FROM api_keys
-		WHERE token_hash = ?
-	`, defaultTenantID, hashAPIToken(token)).Scan(&integrationName, &active, &tenantID)
-	if err != nil {
-		return nil, "", err
-	}
-	if active != 1 {
-		return nil, "", sql.ErrNoRows
+	if user, err := userFromRequest(db, r); err == nil && user != nil {
+		return user, "", "session", nil
 	}
 
-	user, err := integrationUserFromDB(db, tenantID)
-	if err != nil {
-		return nil, "", err
+	return nil, "", "", sql.ErrNoRows
+}
+
+func apiBusinessSettingsForRequest(db *sql.DB, r *http.Request) (BusinessSettings, error) {
+	return loadBusinessSettingsForTenant(db, tenantIDFromRequest(r))
+}
+
+func apiAssignableUsersForRequest(db *sql.DB, r *http.Request) ([]assignableUser, error) {
+	return loadAssignableUsersForTenant(db, tenantIDFromRequest(r))
+}
+
+func handleAPISales(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		switch r.Method {
+		case http.MethodGet:
+			q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+			fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
+			toStr := strings.TrimSpace(r.URL.Query().Get("to"))
+			fields := map[string]string{}
+			if fromStr != "" {
+				if _, err := time.Parse("2006-01-02", fromStr); err != nil {
+					fields["from"] = "Fecha inválida. Usa formato YYYY-MM-DD."
+				}
+			}
+			if toStr != "" {
+				if _, err := time.Parse("2006-01-02", toStr); err != nil {
+					fields["to"] = "Fecha inválida. Usa formato YYYY-MM-DD."
+				}
+			}
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
+				return
+			}
+
+			items, err := listSalesForUser(db, currentUser, q, fromStr, toStr, 100)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las ventas.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+
+		case http.MethodPost:
+			_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+				return
+			}
+			if !movementEnabled(movementEnabledMap, "venta") {
+				writeAPIError(w, http.StatusForbidden, "La venta está deshabilitada en Configuración.", nil)
+				return
+			}
+			var payload struct {
+				ProductID     string   `json:"product_id"`
+				Quantity      *int     `json:"quantity"`
+				PaymentMethod string   `json:"payment_method"`
+				UnitPrice     *float64 `json:"unit_price"`
+				Total         *float64 `json:"total"`
+				SalePrice     *float64 `json:"sale_price"`
+				Channel       string   `json:"channel"`
+				SoldBy        string   `json:"sold_by"`
+				Notes         string   `json:"notes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+				return
+			}
+			payload.ProductID = strings.TrimSpace(payload.ProductID)
+			payload.PaymentMethod = strings.TrimSpace(payload.PaymentMethod)
+			payload.Channel = strings.TrimSpace(payload.Channel)
+			payload.SoldBy = strings.TrimSpace(payload.SoldBy)
+			payload.Notes = strings.TrimSpace(payload.Notes)
+
+			quantity := 1
+			if payload.Quantity != nil {
+				quantity = *payload.Quantity
+			}
+
+			activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los métodos de pago.", nil)
+				return
+			}
+			paymentMethodOptions := paymentMethodNames(activePaymentMethods)
+
+			fields := map[string]string{}
+			if payload.ProductID == "" {
+				fields["product_id"] = "Selecciona un producto válido."
+			}
+			if quantity <= 0 {
+				fields["quantity"] = "La cantidad debe ser un número positivo."
+			}
+
+			var (
+				productName      string
+				productSalePrice float64
+			)
+			if payload.ProductID != "" {
+				if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND (sku = ? OR id = ?) LIMIT 1`, tenantIDFromUser(currentUser), payload.ProductID, payload.ProductID).Scan(&productName, &productSalePrice); err != nil {
+					if err == sql.ErrNoRows {
+						fields["product_id"] = "Selecciona un producto válido."
+					} else {
+						writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el producto.", nil)
+						return
+					}
+				}
+			}
+
+			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+				return
+			} else if !allowed && fields["product_id"] == "" {
+				fields["product_id"] = "No tienes acceso a este producto."
+			}
+
+			stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
+				return
+			}
+			if payload.ProductID != "" && quantity > 0 {
+				if available := stockByProd[payload.ProductID]; available > 0 && quantity > available {
+					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
+				}
+			}
+
+			paymentMethod := payload.PaymentMethod
+			if paymentMethod == "" && len(paymentMethodOptions) > 0 {
+				paymentMethod = paymentMethodOptions[0]
+			}
+			validMethod := false
+			for _, method := range paymentMethodOptions {
+				if paymentMethod == method {
+					validMethod = true
+					break
+				}
+			}
+			if !validMethod {
+				fields["payment_method"] = "Selecciona un método de pago válido."
+			}
+
+			salePrice := productSalePrice
+			switch {
+			case payload.Total != nil && *payload.Total > 0 && quantity > 0:
+				salePrice = *payload.Total / float64(quantity)
+			case payload.SalePrice != nil:
+				salePrice = *payload.SalePrice
+			case payload.UnitPrice != nil:
+				salePrice = *payload.UnitPrice
+			}
+			if salePrice <= 0 {
+				fields["sale_price"] = "Ingresa sale_price o configura un precio de venta válido para el producto."
+			}
+
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
+				return
+			}
+
+			tx, err := db.Begin()
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta.", nil)
+				return
+			}
+			defer tx.Rollback()
+
+			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, quantity)
+			if err != nil {
+				if err == errInsufficientStock {
+					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
+				return
+			}
+
+			now := time.Now().Format(time.RFC3339)
+			if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta", payload.Notes, currentUser, now); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
+				return
+			}
+			saleID, err := insertAndReturnID(tx, `INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, tenantIDFromUser(currentUser), payload.ProductID, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
+				return
+			}
+			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
+				"sale_id":     saleID,
+				"producto_id": payload.ProductID,
+				"producto":    productName,
+				"cantidad":    quantity,
+				"sale_price":  salePrice,
+				"metodo_pago": paymentMethod,
+				"channel":     payload.Channel,
+				"sold_by":     payload.SoldBy,
+				"notes":       payload.Notes,
+				"total":       salePrice * float64(quantity),
+			})); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
+				return
+			}
+			if err := tx.Commit(); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusCreated, map[string]any{
+				"ok":           true,
+				"sale_id":      saleID,
+				"product_id":   payload.ProductID,
+				"product_name": productName,
+				"quantity":     quantity,
+				"sale_price":   salePrice,
+				"message":      "Venta registrada correctamente.",
+			})
+
+		default:
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+		}
 	}
-	return user, strings.TrimSpace(integrationName), nil
+}
+
+func handleAPICredits(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		switch r.Method {
+		case http.MethodGet:
+			q := strings.TrimSpace(r.URL.Query().Get("q"))
+			items, err := listCreditsForUser(db, currentUser, q, 100)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los créditos.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+		case http.MethodPost:
+			_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+				return
+			}
+			if !movementEnabled(movementEnabledMap, "credito") {
+				writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
+				return
+			}
+			var payload struct {
+				ProductID            string   `json:"product_id"`
+				Quantity             int      `json:"quantity"`
+				DebtorName           string   `json:"debtor_name"`
+				DebtorDocumentType   string   `json:"debtor_document_type"`
+				DebtorDocumentNumber string   `json:"debtor_document_number"`
+				DebtorPhone          string   `json:"debtor_phone"`
+				InstallmentsTotal    int      `json:"installments_total"`
+				TotalValue           float64  `json:"total_value"`
+				InterestPercent      float64  `json:"interest_percent"`
+				InstallmentValue     *float64 `json:"installment_value"`
+				Notes                string   `json:"notes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+				return
+			}
+			payload.ProductID = strings.TrimSpace(payload.ProductID)
+			payload.DebtorName = strings.TrimSpace(payload.DebtorName)
+			payload.DebtorDocumentType = strings.TrimSpace(payload.DebtorDocumentType)
+			payload.DebtorDocumentNumber = strings.TrimSpace(payload.DebtorDocumentNumber)
+			payload.DebtorPhone = strings.TrimSpace(payload.DebtorPhone)
+			payload.Notes = strings.TrimSpace(payload.Notes)
+
+			productsSnapshot, err := loadVisibleProductsForUser(db, currentUser)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
+				return
+			}
+
+			stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
+				return
+			}
+
+			fields := map[string]string{}
+			if payload.ProductID == "" {
+				fields["product_id"] = "Selecciona un producto válido."
+			}
+			if payload.Quantity <= 0 {
+				fields["quantity"] = "La cantidad debe ser un número positivo."
+			}
+			if payload.DebtorName == "" {
+				fields["debtor_name"] = "El nombre del deudor es obligatorio."
+			}
+			switch payload.DebtorDocumentType {
+			case "CC", "C Extranjeria", "Pasaporte":
+			default:
+				fields["debtor_document_type"] = "Selecciona un tipo de documento válido."
+			}
+			if payload.DebtorDocumentNumber == "" {
+				fields["debtor_document_number"] = "El número de documento del deudor es obligatorio."
+			}
+			if payload.DebtorPhone == "" {
+				fields["debtor_phone"] = "El teléfono del deudor es obligatorio."
+			}
+			if payload.InstallmentsTotal <= 0 {
+				fields["installments_total"] = "La cantidad total de cuotas debe ser mayor a 0."
+			}
+			if payload.TotalValue <= 0 {
+				fields["total_value"] = "El valor total debe ser mayor a 0."
+			}
+			if payload.InterestPercent < 0 {
+				fields["interest_percent"] = "El porcentaje de interés debe ser un número mayor o igual a 0."
+			}
+			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+				return
+			} else if !allowed {
+				fields["product_id"] = "No tienes acceso a este producto."
+			}
+			selectedProduct, ok := findProduct(productsSnapshot, payload.ProductID)
+			if !ok {
+				fields["product_id"] = "Selecciona un producto válido."
+			}
+			if payload.ProductID != "" && payload.Quantity > 0 {
+				if available := stockByProd[payload.ProductID]; available > 0 && payload.Quantity > available {
+					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
+				}
+			}
+			installmentValue := 0.0
+			if payload.TotalValue > 0 && payload.InstallmentsTotal > 0 {
+				financedTotal := payload.TotalValue + (payload.TotalValue * payload.InterestPercent / 100)
+				installmentValue = math.Round((financedTotal/float64(payload.InstallmentsTotal))*100) / 100
+			}
+			if payload.InstallmentValue != nil {
+				if *payload.InstallmentValue <= 0 {
+					fields["installment_value"] = "El valor por cuota debe ser mayor a 0."
+				} else {
+					installmentValue = *payload.InstallmentValue
+				}
+			}
+			if installmentValue <= 0 {
+				fields["installment_value"] = "El valor por cuota debe ser mayor a 0."
+			}
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
+				return
+			}
+
+			tx, err := db.Begin()
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta a crédito.", nil)
+				return
+			}
+			defer tx.Rollback()
+
+			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity)
+			if err != nil {
+				if err == errInsufficientStock {
+					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
+				return
+			}
+
+			now := time.Now().Format(time.RFC3339)
+			creditSummary := fmt.Sprintf("VENTA A CREDITO | Deudor: %s | Cuotas: %d | Interes: %.2f%% | Valor cuota: %.2f", payload.DebtorName, payload.InstallmentsTotal, payload.InterestPercent, installmentValue)
+			movementNote := creditSummary
+			if payload.Notes != "" {
+				movementNote += " | " + payload.Notes
+			}
+			if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta_credito", movementNote, currentUser, now); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
+				return
+			}
+			creditSaleID, err := insertAndReturnID(tx,
+				`INSERT INTO credit_sales (tenant_id, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+				tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, payload.DebtorName, payload.DebtorDocumentType, payload.DebtorDocumentNumber, payload.DebtorPhone, payload.InstallmentsTotal, payload.TotalValue, payload.InterestPercent, installmentValue, movementNote, now, nullableUserID(currentUser),
+			)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta a crédito.", nil)
+				return
+			}
+			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "api", withAPIAuditMetadata(r, map[string]any{
+				"credit_sale_id":         creditSaleID,
+				"product_id":             payload.ProductID,
+				"producto":               selectedProduct.Name,
+				"debtor_name":            payload.DebtorName,
+				"debtor_document_type":   payload.DebtorDocumentType,
+				"debtor_document_number": payload.DebtorDocumentNumber,
+				"debtor_phone":           payload.DebtorPhone,
+				"installments_total":     payload.InstallmentsTotal,
+				"installments_paid":      0,
+				"total_value":            payload.TotalValue,
+				"interest_percent":       payload.InterestPercent,
+				"installment_value":      installmentValue,
+				"quantity":               payload.Quantity,
+			})); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del crédito.", nil)
+				return
+			}
+			if err := tx.Commit(); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta a crédito.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusCreated, map[string]any{
+				"ok":                true,
+				"credit_sale_id":    creditSaleID,
+				"product_id":        payload.ProductID,
+				"product_name":      selectedProduct.Name,
+				"quantity":          payload.Quantity,
+				"installment_value": installmentValue,
+				"message":           "Venta a crédito registrada correctamente.",
+			})
+		default:
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+		}
+	}
+}
+
+func handleAPISwaps(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "cambio") {
+			writeAPIError(w, http.StatusForbidden, "El cambio está deshabilitado en Configuración.", nil)
+			return
+		}
+		var payload struct {
+			ProductID           string `json:"product_id"`
+			Quantity            int    `json:"quantity"`
+			PersonaCambio       string `json:"persona_del_cambio"`
+			Notes               string `json:"notes"`
+			IncomingMode        string `json:"incoming_mode"`
+			IncomingExistingID  string `json:"incoming_existing_id"`
+			IncomingExistingQty int    `json:"incoming_existing_qty"`
+			IncomingNewSKU      string `json:"incoming_new_sku"`
+			IncomingNewName     string `json:"incoming_new_name"`
+			IncomingNewLine     string `json:"incoming_new_line"`
+			IncomingNewQty      int    `json:"incoming_new_qty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+			return
+		}
+		payload.ProductID = strings.TrimSpace(payload.ProductID)
+		payload.PersonaCambio = strings.TrimSpace(payload.PersonaCambio)
+		payload.Notes = strings.TrimSpace(payload.Notes)
+		payload.IncomingMode = strings.TrimSpace(payload.IncomingMode)
+		payload.IncomingExistingID = strings.TrimSpace(payload.IncomingExistingID)
+		payload.IncomingNewSKU = strings.TrimSpace(payload.IncomingNewSKU)
+		payload.IncomingNewName = strings.TrimSpace(payload.IncomingNewName)
+		payload.IncomingNewLine = strings.TrimSpace(payload.IncomingNewLine)
+
+		productsSnapshot, err := loadVisibleProductsForUser(db, currentUser)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
+			return
+		}
+		if len(productsSnapshot) == 0 {
+			writeAPIError(w, http.StatusForbidden, "No tienes productos disponibles para cambio.", nil)
+			return
+		}
+		fields := map[string]string{}
+		if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+			return
+		} else if !allowed {
+			fields["product_id"] = "No tienes acceso a este producto."
+		}
+		selectedProduct, ok := findProduct(productsSnapshot, payload.ProductID)
+		if !ok {
+			fields["product_id"] = "Selecciona un producto válido."
+		}
+		if payload.PersonaCambio == "" {
+			fields["persona_del_cambio"] = "Ingresa la persona responsable del cambio."
+		}
+		if payload.Quantity <= 0 {
+			fields["quantity"] = "Ingresa una cantidad válida para la salida."
+		}
+		if payload.IncomingMode != "existing" && payload.IncomingMode != "new" {
+			fields["incoming_mode"] = "Selecciona el tipo de entrada."
+		}
+		if payload.IncomingMode == "existing" {
+			if payload.IncomingExistingID == "" {
+				fields["incoming_existing_id"] = "Selecciona el producto entrante."
+			} else if _, ok := findProduct(productsSnapshot, payload.IncomingExistingID); !ok {
+				fields["incoming_existing_id"] = "Selecciona un producto entrante válido."
+			}
+			if payload.IncomingExistingQty <= 0 {
+				fields["incoming_existing_qty"] = "Ingresa una cantidad válida para la entrada."
+			}
+		} else if payload.IncomingMode == "new" {
+			if payload.IncomingNewSKU == "" {
+				fields["incoming_new_sku"] = "Ingresa el SKU del producto nuevo."
+			}
+			if payload.IncomingNewName == "" {
+				fields["incoming_new_name"] = "Ingresa el nombre del producto nuevo."
+			}
+			if payload.IncomingNewQty <= 0 {
+				fields["incoming_new_qty"] = "Ingresa una cantidad válida para la entrada."
+			}
+		}
+		if len(fields) > 0 {
+			writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
+			return
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "Error al iniciar el cambio.", nil)
+			return
+		}
+		defer tx.Rollback()
+		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, "Cambio")
+		if err != nil {
+			if err == errInsufficientStock {
+				writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar el cambio.", map[string]string{"quantity": "No hay stock disponible suficiente para completar el cambio."})
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "Error al actualizar unidades salientes.", nil)
+			return
+		}
+		now := time.Now().Format(time.RFC3339)
+		notaMovimiento := strings.TrimSpace(fmt.Sprintf("%s %s", payload.PersonaCambio, payload.Notes))
+		if err := logMovimientos(tx, payload.ProductID, salientesMarcadas, "cambio_salida", notaMovimiento, currentUser, now); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento del cambio.", nil)
+			return
+		}
+		incomingProductID := payload.IncomingExistingID
+		incomingQty := payload.IncomingExistingQty
+		if payload.IncomingMode == "new" {
+			incomingProductID = payload.IncomingNewSKU
+			incomingQty = payload.IncomingNewQty
+		}
+		for i := 0; i < incomingQty; i++ {
+			unitID := fmt.Sprintf("U-%d-%d", time.Now().UnixNano(), i+1)
+			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductID, "Disponible", now, nil); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al registrar unidades entrantes.", nil)
+				return
+			}
+		}
+		if err := logAuditEvent(tx, currentUser, "change_registered", "change", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
+			"producto_saliente_id": payload.ProductID,
+			"producto_saliente":    selectedProduct.Name,
+			"producto_entrante_id": incomingProductID,
+			"cantidad_saliente":    payload.Quantity,
+			"cantidad_entrante":    incomingQty,
+			"modo_entrada":         payload.IncomingMode,
+		})); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del cambio.", nil)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "Error al confirmar el cambio.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "product_id": payload.ProductID, "incoming_product_id": incomingProductID, "quantity": payload.Quantity, "incoming_quantity": incomingQty, "message": "Cambio registrado correctamente."})
+	}
+}
+
+func handleAPIRetomas(db *sql.DB, syncProductPrice func(string, float64)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		switch r.Method {
+		case http.MethodGet:
+			q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+			items, err := listRetomasForUser(db, currentUser, q, 100)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las retomas.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+		case http.MethodPost:
+			if currentUser == nil || !isStaffRole(currentUser.Role) {
+				writeAPIError(w, http.StatusForbidden, "Solo personal autorizado puede registrar retomas.", nil)
+				return
+			}
+			var payload struct {
+				ProductID      string   `json:"product_id"`
+				Quantity       int      `json:"quantity"`
+				ValueReceived  float64  `json:"value_received"`
+				ReceivedState  string   `json:"received_state"`
+				PublishToStock bool     `json:"publish_to_stock"`
+				FinalSalePrice *float64 `json:"final_sale_price"`
+				Notes          string   `json:"notes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+				return
+			}
+			result, err := registerRetoma(db, currentUser, retomaOperationInput{
+				ProductID:      payload.ProductID,
+				Quantity:       payload.Quantity,
+				ValueReceived:  payload.ValueReceived,
+				ReceivedState:  payload.ReceivedState,
+				PublishToStock: payload.PublishToStock,
+				FinalSalePrice: payload.FinalSalePrice,
+				Notes:          payload.Notes,
+			}, "api", func(item map[string]any) map[string]any {
+				return withAPIAuditMetadata(r, item)
+			})
+			if err != nil {
+				var reqErr requestError
+				if errors.As(err, &reqErr) {
+					writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la retoma.", nil)
+				return
+			}
+			if result.FinalSalePrice != nil && syncProductPrice != nil {
+				syncProductPrice(result.ProductID, *result.FinalSalePrice)
+			}
+			writeAPIJSON(w, http.StatusCreated, map[string]any{
+				"ok":                 true,
+				"retoma_id":          result.RetomaID,
+				"product_id":         result.ProductID,
+				"product_name":       result.ProductName,
+				"quantity":           result.Quantity,
+				"value_received":     result.ValueReceived,
+				"received_state":     result.ReceivedState,
+				"published_to_stock": result.PublishedToStock,
+				"units_created":      result.UnitsCreated,
+				"message":            result.Message,
+			})
+		default:
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+		}
+	}
+}
+
+func handleAPICreditInstallments(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "credito") {
+			writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
+			return
+		}
+		var payload struct {
+			CreditSaleID int      `json:"credit_sale_id"`
+			AmountPaid   *float64 `json:"amount_paid"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+			return
+		}
+		if payload.CreditSaleID <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "Crédito inválido.", map[string]string{"credit_sale_id": "Crédito inválido."})
+			return
+		}
+		result, err := addCreditInstallment(db, payload.CreditSaleID, payload.AmountPaid, currentUser, "api", func(item map[string]any) map[string]any {
+			return withAPIAuditMetadata(r, item)
+		})
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, nil)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la cuota.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusCreated, map[string]any{
+			"ok":                 true,
+			"credit_sale_id":     result.CreditSaleID,
+			"product_id":         result.ProductID,
+			"amount_paid":        result.AmountPaid,
+			"installment_number": result.InstallmentNumber,
+			"message":            fmt.Sprintf("Cuota %d registrada correctamente.", result.InstallmentNumber),
+		})
+	}
+}
+
+func setAPIContextHeaders(w http.ResponseWriter, r *http.Request) {
+	if tenant := tenantFromContext(r); tenant != nil {
+		w.Header().Set("X-Stocki-Tenant-ID", strconv.Itoa(normalizeTenantID(tenant.ID)))
+		w.Header().Set("X-Stocki-Tenant-Slug", strings.TrimSpace(tenant.Slug))
+	}
+	if authMode := apiAuthModeFromContext(r); authMode != "" {
+		w.Header().Set("X-Stocki-Auth-Mode", authMode)
+	}
+	if integrationName := apiIntegrationNameFromContext(r); integrationName != "" {
+		w.Header().Set("X-Stocki-Integration-Name", integrationName)
+	}
 }
 
 func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
@@ -3279,7 +5096,7 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 		}
 
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			user, integrationName, err := apiAuthFromRequest(db, r)
+			user, integrationName, authMode, err := apiAuthFromRequest(db, r)
 			if err != nil {
 				writeAPIError(w, http.StatusUnauthorized, "Autenticación requerida para la API.", nil)
 				return
@@ -3294,7 +5111,12 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 			if integrationName != "" {
 				ctx = context.WithValue(ctx, apiIntegrationNameContextKey, integrationName)
 			}
-			next.ServeHTTP(w, r.WithContext(ctx))
+			if authMode != "" {
+				ctx = context.WithValue(ctx, apiAuthModeContextKey, authMode)
+			}
+			reqWithCtx := r.WithContext(ctx)
+			setAPIContextHeaders(w, reqWithCtx)
+			next.ServeHTTP(w, reqWithCtx)
 			return
 		}
 
@@ -3318,12 +5140,30 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 func adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := userFromContext(r)
-		if user == nil || user.Role != "admin" {
+		if user == nil || !isAdminRole(user.Role) {
 			http.Error(w, "Acceso restringido a administradores.", http.StatusForbidden)
 			return
 		}
 		next(w, r)
 	}
+}
+
+func platformAdminOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := userFromContext(r)
+		if !isPlatformAdmin(user) {
+			http.Error(w, "Acceso restringido a administración de plataforma.", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func canManagePlatformUser(currentUser *User, targetRole string) bool {
+	if targetRole != rolePlatformAdmin {
+		return true
+	}
+	return isPlatformAdmin(currentUser)
 }
 
 func redirectWithMessage(w http.ResponseWriter, r *http.Request, path, message, errMsg string) {
@@ -3538,7 +5378,7 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		password_hash TEXT NOT NULL,
-		role TEXT NOT NULL CHECK (role IN ('admin', 'empleado')),
+		role TEXT NOT NULL CHECK (role IN ('platform_admin', 'admin', 'empleado')),
 		tenant_id INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL,
 		is_active INTEGER NOT NULL DEFAULT 1
@@ -4104,7 +5944,13 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 		}
 	}
 
+	if err := ensureUsersRoleSupport(db); err != nil {
+		return nil, err
+	}
 	if err := seedAdminUser(db, path); err != nil {
+		return nil, err
+	}
+	if err := ensurePlatformAdminUser(db, adminUserNameForBootstrap()); err != nil {
 		return nil, err
 	}
 	if err := seedPaymentMethodsIfMissing(db); err != nil {
@@ -4212,7 +6058,7 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		password_hash TEXT NOT NULL,
-		role TEXT NOT NULL CHECK (role IN ('admin', 'empleado')),
+		role TEXT NOT NULL CHECK (role IN ('platform_admin', 'admin', 'empleado')),
 		tenant_id INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL,
 		is_active INTEGER NOT NULL DEFAULT 1
@@ -4363,7 +6209,15 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := ensureUsersRoleSupport(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := seedAdminUser(db, dsn); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensurePlatformAdminUser(db, adminUserNameForBootstrap()); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -4455,6 +6309,125 @@ const (
 	localBootstrapAdminPass = "SuperSecreto123"
 )
 
+func adminUserNameForBootstrap() string {
+	adminUser := strings.TrimSpace(os.Getenv("ADMIN_USER"))
+	if adminUser != "" {
+		return adminUser
+	}
+	return localBootstrapAdminUser
+}
+
+func ensureUsersRoleSupport(db *sql.DB) error {
+	if isPostgresDB() {
+		if _, err := db.Exec(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`
+			ALTER TABLE users
+			ADD CONSTRAINT users_role_check
+			CHECK (role IN ('platform_admin', 'admin', 'empleado'))
+		`); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	sqlText, err := tableSQL(db, "users")
+	if err != nil {
+		return err
+	}
+	if strings.Contains(strings.ToLower(sqlText), "platform_admin") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS users__role_new`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		CREATE TABLE users__role_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL CHECK (role IN ('platform_admin', 'admin', 'empleado')),
+			tenant_id INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			is_active INTEGER NOT NULL DEFAULT 1
+		)
+	`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO users__role_new (id, username, password_hash, role, tenant_id, created_at, is_active)
+		SELECT id, username, password_hash, role, COALESCE(NULLIF(tenant_id, 0), ?), created_at, is_active
+		FROM users
+	`, defaultTenantID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE users`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE users__role_new RENAME TO users`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_users_role ON users (role)`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users (tenant_id)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func ensurePlatformAdminUser(db *sql.DB, preferredUsername string) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ?`, rolePlatformAdmin).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	preferredUsername = strings.TrimSpace(preferredUsername)
+	if preferredUsername != "" {
+		result, err := db.Exec(`
+			UPDATE users
+			SET role = ?
+			WHERE username = ?
+		`, rolePlatformAdmin, preferredUsername)
+		if err != nil {
+			return err
+		}
+		if affected, err := result.RowsAffected(); err == nil && affected > 0 {
+			return nil
+		}
+	}
+
+	result, err := db.Exec(`
+		UPDATE users
+		SET role = ?
+		WHERE id = (
+			SELECT id
+			FROM users
+			WHERE role = ? AND COALESCE(NULLIF(tenant_id, 0), ?) = ?
+			ORDER BY id
+			LIMIT 1
+		)
+	`, rolePlatformAdmin, roleAdmin, defaultTenantID, defaultTenantID)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected > 0 {
+		return nil
+	}
+	return nil
+}
+
 func seedAdminUser(db *sql.DB, dbPath string) error {
 	adminUser := os.Getenv("ADMIN_USER")
 	adminPass := os.Getenv("ADMIN_PASS")
@@ -4488,8 +6461,8 @@ func seedAdminUser(db *sql.DB, dbPath string) error {
 	}
 	_, err = db.Exec(`
 		INSERT INTO users (username, password_hash, role, tenant_id, created_at, is_active)
-		VALUES (?, ?, 'admin', ?, ?, 1)
-	`, adminUser, string(hashed), defaultTenantID, time.Now().Format(time.RFC3339))
+		VALUES (?, ?, ?, ?, ?, 1)
+	`, adminUser, string(hashed), rolePlatformAdmin, defaultTenantID, time.Now().Format(time.RFC3339))
 	return err
 }
 
@@ -4500,21 +6473,51 @@ func main() {
 	}
 	dbConfig := loadDatabaseConfig("data.db")
 
+	paymentMethods := defaultPaymentMethodNames()
+
+	db, err := initDBWithConfig(dbConfig, paymentMethods)
+	if err != nil {
+		log.Fatalf("Error al abrir %s: %v", dbConfig.Label, err)
+	}
+	defer db.Close()
+	if err := ensureUploadDirs(); err != nil {
+		log.Fatalf("Error al preparar uploads: %v", err)
+	}
+	settings, err := loadBusinessSettings(db)
+	if err != nil {
+		log.Fatalf("Error al cargar configuración del negocio: %v", err)
+	}
+	setCurrentBusinessSettings(settings)
+
+	resolveTemplateSettings := func(data any) BusinessSettings {
+		if settings, ok := businessSettingsFromTemplateData(data); ok {
+			return settings
+		}
+		if user, ok := currentUserFromTemplateData(data); ok {
+			settings, err := loadBusinessSettingsForTenant(db, tenantIDFromUser(user))
+			if err == nil {
+				return settings
+			}
+			log.Printf("branding template settings tenant_id=%d: %v", tenantIDFromUser(user), err)
+		}
+		return currentBusinessSettings()
+	}
+
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
-		"businessName": func() string {
-			return currentBusinessSettings().BusinessName
+		"businessName": func(data any) string {
+			return resolveTemplateSettings(data).BusinessName
 		},
-		"businessLogoPath": func() string {
-			return currentBusinessSettings().LogoPath
+		"businessLogoPath": func(data any) string {
+			return effectiveBusinessLogoPath(resolveTemplateSettings(data), data)
 		},
-		"businessPrimaryColor": func() string {
-			return currentBusinessSettings().PrimaryColor
+		"businessPrimaryColor": func(data any) string {
+			return resolveTemplateSettings(data).PrimaryColor
 		},
-		"businessPrimaryStrong": func() string {
-			return shadeHexColor(currentBusinessSettings().PrimaryColor, -24)
+		"businessPrimaryStrong": func(data any) string {
+			return shadeHexColor(resolveTemplateSettings(data).PrimaryColor, -24)
 		},
-		"businessPrimarySoft": func() string {
-			return shadeHexColor(currentBusinessSettings().PrimaryColor, 208)
+		"businessPrimarySoft": func(data any) string {
+			return shadeHexColor(resolveTemplateSettings(data).PrimaryColor, 208)
 		},
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
@@ -4534,22 +6537,6 @@ func main() {
 		"templates/csv_export.html",
 		"templates/partials/header.html",
 	))
-
-	paymentMethods := defaultPaymentMethodNames()
-
-	db, err := initDBWithConfig(dbConfig, paymentMethods)
-	if err != nil {
-		log.Fatalf("Error al abrir %s: %v", dbConfig.Label, err)
-	}
-	defer db.Close()
-	if err := ensureUploadDirs(); err != nil {
-		log.Fatalf("Error al preparar uploads: %v", err)
-	}
-	settings, err := loadBusinessSettings(db)
-	if err != nil {
-		log.Fatalf("Error al cargar configuración del negocio: %v", err)
-	}
-	setCurrentBusinessSettings(settings)
 	activePaymentMethods, err := loadPaymentMethods(db, true)
 	if err != nil {
 		log.Fatalf("Error al cargar métodos de pago: %v", err)
@@ -4677,25 +6664,32 @@ func main() {
 	}
 
 	type businessSettingsPageData struct {
-		Title             string
-		Subtitle          string
-		Flash             string
-		Error             string
-		VersionLabel      string
-		Settings          BusinessSettings
-		Lines             []BusinessLine
-		PaymentMethods    []PaymentMethod
-		APIKeys           []APIKey
-		NewAPIKeyName     string
-		CreatedAPIToken   string
-		MovementSettings  []MovementSetting
-		NewPaymentMethod  string
-		NewLineName       string
-		EditingLineID     int
-		EditingLineName   string
-		CurrencyOptions   []string
-		DateFormatOptions []string
-		CurrentUser       *User
+		Title                string
+		Subtitle             string
+		Flash                string
+		Error                string
+		VersionLabel         string
+		Settings             BusinessSettings
+		Lines                []BusinessLine
+		PaymentMethods       []PaymentMethod
+		APIKeys              []APIKey
+		NewAPIKeyName        string
+		CreatedAPIToken      string
+		MovementSettings     []MovementSetting
+		NewPaymentMethod     string
+		NewLineName          string
+		Tenants              []Tenant
+		CanManageTenants     bool
+		NewTenantName        string
+		NewTenantSlug        string
+		NewTenantAdmin       string
+		CreatedTenantToken   string
+		CreatedTenantKeyName string
+		EditingLineID        int
+		EditingLineName      string
+		CurrencyOptions      []string
+		DateFormatOptions    []string
+		CurrentUser          *User
 	}
 
 	type auditPageData struct {
@@ -4736,6 +6730,18 @@ func main() {
 		CurrentUser       *User
 	}
 
+	settingsForUser := func(user *User) BusinessSettings {
+		if user == nil {
+			return currentBusinessSettings()
+		}
+		settings, err := loadBusinessSettingsForTenant(db, tenantIDFromUser(user))
+		if err != nil {
+			log.Printf("load tenant branding tenant_id=%d: %v", tenantIDFromUser(user), err)
+			return currentBusinessSettings()
+		}
+		return settings
+	}
+
 	mux := http.NewServeMux()
 
 	// Serve static assets from ./static at /static/.
@@ -4751,9 +6757,22 @@ func main() {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 			return
 		}
+		tenant := tenantFromContext(r)
+		tenantSlug := ""
+		tenantName := ""
+		if tenant != nil {
+			tenantSlug = strings.TrimSpace(tenant.Slug)
+			tenantName = strings.TrimSpace(tenant.Name)
+		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{
-			"ok":      true,
-			"service": "stocki-app",
+			"ok":        true,
+			"service":   "stocki-app",
+			"auth_mode": apiAuthModeFromContext(r),
+			"tenant": map[string]any{
+				"id":   normalizeTenantID(tenantIDFromRequest(r)),
+				"slug": tenantSlug,
+				"name": tenantName,
+			},
 		})
 	})
 
@@ -4827,6 +6846,21 @@ func main() {
 			return
 		}
 
+		tenant, err := resolveTenantByID(db, user.TenantID)
+		if err != nil || tenant == nil || !tenant.Active {
+			log.Printf("login: tenant inactive username=%q tenant_id=%d err=%v", username, user.TenantID, err)
+			data := loginPageData{
+				Title:    "Iniciar sesión",
+				Error:    "La empresa asociada a este usuario está inactiva.",
+				Username: username,
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			if err := tmpl.ExecuteTemplate(w, "login.html", data); err != nil {
+				http.Error(w, "Error al renderizar login", http.StatusInternalServerError)
+			}
+			return
+		}
+
 		token, err := generateToken()
 		if err != nil {
 			http.Error(w, "No se pudo generar sesión", http.StatusInternalServerError)
@@ -4861,6 +6895,7 @@ func main() {
 	mux.HandleFunc("/admin/users", adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		flash := r.URL.Query().Get("mensaje")
 		errText := r.URL.Query().Get("error")
+		currentUser := userFromContext(r)
 
 		// Support legacy schemas by selecting optional columns if they exist.
 		selectCols := []string{"id", "username"}
@@ -4888,7 +6923,15 @@ func main() {
 			selectCols = append(selectCols, "'' as created_at")
 		}
 
-		rows, err := db.Query(fmt.Sprintf("SELECT %s FROM users WHERE tenant_id = ? ORDER BY id", strings.Join(selectCols, ", ")), tenantIDFromRequest(r))
+		query := fmt.Sprintf("SELECT %s FROM users WHERE tenant_id = ?", strings.Join(selectCols, ", "))
+		args := []any{tenantIDFromRequest(r)}
+		if !isPlatformAdmin(currentUser) {
+			query += " AND role <> ?"
+			args = append(args, rolePlatformAdmin)
+		}
+		query += " ORDER BY id"
+
+		rows, err := db.Query(query, args...)
 		if err != nil {
 			http.Error(w, "Error al consultar usuarios", http.StatusInternalServerError)
 			return
@@ -4924,7 +6967,7 @@ func main() {
 			Flash:       flash,
 			Error:       errText,
 			Users:       users,
-			CurrentUser: userFromContext(r),
+			CurrentUser: currentUser,
 		}
 		if err := tmpl.ExecuteTemplate(w, "admin_users.html", data); err != nil {
 			http.Error(w, "Error al renderizar usuarios", http.StatusInternalServerError)
@@ -5019,8 +7062,10 @@ func main() {
 		}
 	}))
 
-	renderBusinessSettingsPage := func(w http.ResponseWriter, r *http.Request, flash, errText, createdToken, newAPIKeyName string) {
+	renderBusinessSettingsPage := func(w http.ResponseWriter, r *http.Request, flash, errText, createdToken, newAPIKeyName, createdTenantToken, createdTenantKeyName string) {
 		tenantID := tenantIDFromRequest(r)
+		currentUser := userFromContext(r)
+		settings := settingsForUser(currentUser)
 		lines, err := loadBusinessLinesForTenant(db, tenantID, false)
 		if err != nil {
 			http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
@@ -5041,6 +7086,15 @@ func main() {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
 		}
+		tenants := []Tenant(nil)
+		canManageTenants := canManageTenants(currentUser)
+		if canManageTenants {
+			tenants, err = listTenants(db)
+			if err != nil {
+				http.Error(w, "Error al cargar empresas", http.StatusInternalServerError)
+				return
+			}
+		}
 		editingID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("edit_line")))
 		editingName := ""
 		for _, line := range lines {
@@ -5050,25 +7104,32 @@ func main() {
 			}
 		}
 		data := businessSettingsPageData{
-			Title:             "Configuración",
-			Subtitle:          "Separa branding general del negocio y catálogos operativos desde un único panel.",
-			Flash:             flash,
-			Error:             errText,
-			VersionLabel:      "Versión 0.95 23032026",
-			Settings:          currentBusinessSettings(),
-			Lines:             lines,
-			PaymentMethods:    paymentMethodsCfg,
-			APIKeys:           apiKeys,
-			NewAPIKeyName:     strings.TrimSpace(newAPIKeyName),
-			CreatedAPIToken:   strings.TrimSpace(createdToken),
-			MovementSettings:  movementSettings,
-			NewPaymentMethod:  strings.TrimSpace(r.URL.Query().Get("new_payment_method")),
-			NewLineName:       strings.TrimSpace(r.URL.Query().Get("new_line")),
-			EditingLineID:     editingID,
-			EditingLineName:   editingName,
-			CurrencyOptions:   currencyOptions,
-			DateFormatOptions: dateFormatOptions,
-			CurrentUser:       userFromContext(r),
+			Title:                "Configuración",
+			Subtitle:             "Separa branding general del negocio y catálogos operativos desde un único panel.",
+			Flash:                flash,
+			Error:                errText,
+			VersionLabel:         "Versión 0.95 23032026",
+			Settings:             settings,
+			Lines:                lines,
+			PaymentMethods:       paymentMethodsCfg,
+			APIKeys:              apiKeys,
+			NewAPIKeyName:        strings.TrimSpace(newAPIKeyName),
+			CreatedAPIToken:      strings.TrimSpace(createdToken),
+			MovementSettings:     movementSettings,
+			NewPaymentMethod:     strings.TrimSpace(r.URL.Query().Get("new_payment_method")),
+			NewLineName:          strings.TrimSpace(r.URL.Query().Get("new_line")),
+			Tenants:              tenants,
+			CanManageTenants:     canManageTenants,
+			NewTenantName:        strings.TrimSpace(r.URL.Query().Get("new_tenant_name")),
+			NewTenantSlug:        strings.TrimSpace(r.URL.Query().Get("new_tenant_slug")),
+			NewTenantAdmin:       strings.TrimSpace(r.URL.Query().Get("new_tenant_admin")),
+			CreatedTenantToken:   strings.TrimSpace(createdTenantToken),
+			CreatedTenantKeyName: strings.TrimSpace(createdTenantKeyName),
+			EditingLineID:        editingID,
+			EditingLineName:      editingName,
+			CurrencyOptions:      currencyOptions,
+			DateFormatOptions:    dateFormatOptions,
+			CurrentUser:          currentUser,
 		}
 		if err := tmpl.ExecuteTemplate(w, "business_settings.html", data); err != nil {
 			http.Error(w, "Error al renderizar configuración", http.StatusInternalServerError)
@@ -5077,7 +7138,7 @@ func main() {
 
 	mux.HandleFunc("/configuracion", adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			renderBusinessSettingsPage(w, r, r.URL.Query().Get("mensaje"), r.URL.Query().Get("error"), "", strings.TrimSpace(r.URL.Query().Get("new_api_key_name")))
+			renderBusinessSettingsPage(w, r, r.URL.Query().Get("mensaje"), r.URL.Query().Get("error"), "", strings.TrimSpace(r.URL.Query().Get("new_api_key_name")), "", "")
 			return
 		}
 
@@ -5091,7 +7152,12 @@ func main() {
 			return
 		}
 
-		settings := currentBusinessSettings()
+		tenantID := tenantIDFromRequest(r)
+		settings, err := loadBusinessSettingsForTenant(db, tenantID)
+		if err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo cargar la configuración del tenant.")
+			return
+		}
 		settings.BusinessName = strings.TrimSpace(r.FormValue("business_name"))
 		settings.PrimaryColor = normalizeHexColor(r.FormValue("primary_color"), settings.PrimaryColor)
 		settings.Currency = normalizeCurrency(r.FormValue("currency"))
@@ -5117,21 +7183,222 @@ func main() {
 			settings.LogoPath = logoPath
 		}
 
-		if _, err := saveBusinessSettings(db, settings); err != nil {
+		savedSettings, err := saveBusinessSettingsForTenant(db, tenantID, settings)
+		if err != nil {
 			redirectWithMessage(w, r, "/configuracion", "", "No se pudo guardar la configuración.")
 			return
 		}
-		if err := logAuditEvent(db, userFromContext(r), "business_settings_updated", "business_settings", strconv.Itoa(settings.ID), "manual", map[string]any{
-			"business_name": settings.BusinessName,
-			"logo_path":     settings.LogoPath,
-			"primary_color": settings.PrimaryColor,
-			"currency":      settings.Currency,
-			"date_format":   settings.DateFormat,
+		if tenantID == defaultTenantID {
+			setCurrentBusinessSettings(savedSettings)
+		}
+		if err := logAuditEvent(db, userFromContext(r), "business_settings_updated", "business_settings", strconv.Itoa(savedSettings.ID), "manual", map[string]any{
+			"business_name": savedSettings.BusinessName,
+			"logo_path":     savedSettings.LogoPath,
+			"primary_color": savedSettings.PrimaryColor,
+			"currency":      savedSettings.Currency,
+			"date_format":   savedSettings.DateFormat,
 		}); err != nil {
 			log.Printf("audit business settings: %v", err)
 		}
 
 		redirectWithMessage(w, r, "/configuracion", "Configuración actualizada.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/tenants/create", platformAdminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		currentUser := userFromContext(r)
+		if !canManageTenants(currentUser) {
+			redirectWithMessage(w, r, "/configuracion", "", "Solo un platform admin puede crear nuevas empresas en esta fase.")
+			return
+		}
+
+		name := strings.TrimSpace(r.FormValue("name"))
+		slug := strings.TrimSpace(r.FormValue("slug"))
+		adminUsername := strings.TrimSpace(r.FormValue("admin_username"))
+		adminPassword := r.FormValue("admin_password")
+		adminPasswordConfirm := r.FormValue("admin_password_confirm")
+		if adminUsername == "" {
+			target := "/configuracion?new_tenant_name=" + url.QueryEscape(name) + "&new_tenant_slug=" + url.QueryEscape(slug) + "&new_tenant_admin=" + url.QueryEscape(adminUsername) + "&error=" + url.QueryEscape("El usuario admin inicial es obligatorio.")
+			http.Redirect(w, r, target, http.StatusSeeOther)
+			return
+		}
+		if adminPassword == "" {
+			target := "/configuracion?new_tenant_name=" + url.QueryEscape(name) + "&new_tenant_slug=" + url.QueryEscape(slug) + "&new_tenant_admin=" + url.QueryEscape(adminUsername) + "&error=" + url.QueryEscape("La contraseña inicial del admin es obligatoria.")
+			http.Redirect(w, r, target, http.StatusSeeOther)
+			return
+		}
+		if adminPassword != adminPasswordConfirm {
+			target := "/configuracion?new_tenant_name=" + url.QueryEscape(name) + "&new_tenant_slug=" + url.QueryEscape(slug) + "&new_tenant_admin=" + url.QueryEscape(adminUsername) + "&error=" + url.QueryEscape("La confirmación de la contraseña no coincide.")
+			http.Redirect(w, r, target, http.StatusSeeOther)
+			return
+		}
+
+		provisioned, err := createTenantWithSeed(db, currentUser, usersCols, name, slug, adminUsername, adminPassword)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				target := "/configuracion?new_tenant_name=" + url.QueryEscape(name) + "&new_tenant_slug=" + url.QueryEscape(slug) + "&new_tenant_admin=" + url.QueryEscape(adminUsername) + "&error=" + url.QueryEscape(reqErr.Message)
+				http.Redirect(w, r, target, http.StatusSeeOther)
+				return
+			}
+			log.Printf("create tenant: %v", err)
+			target := "/configuracion?new_tenant_name=" + url.QueryEscape(name) + "&new_tenant_slug=" + url.QueryEscape(slug) + "&new_tenant_admin=" + url.QueryEscape(adminUsername) + "&error=" + url.QueryEscape("No se pudo crear la empresa.")
+			http.Redirect(w, r, target, http.StatusSeeOther)
+			return
+		}
+
+		renderBusinessSettingsPage(
+			w,
+			r,
+			fmt.Sprintf("Empresa %s creada correctamente. Guarda la API key inicial ahora; no volverá a mostrarse.", provisioned.Tenant.Name),
+			"",
+			"",
+			"",
+			provisioned.InitialAPIToken,
+			provisioned.InitialAPIKeyName,
+		)
+	}))
+
+	mux.HandleFunc("/configuracion/tenants/update", platformAdminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+
+		currentUser := userFromContext(r)
+		if !canManageTenants(currentUser) {
+			redirectWithMessage(w, r, "/configuracion", "", "Solo un platform admin puede editar empresas en esta fase.")
+			return
+		}
+
+		tenantID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("tenant_id")))
+		if err != nil || tenantID <= 0 {
+			redirectWithMessage(w, r, "/configuracion", "", "Empresa inválida.")
+			return
+		}
+		updatedTenant, err := updateTenantBasics(
+			db,
+			currentUser,
+			tenantID,
+			r.FormValue("name"),
+			r.FormValue("slug"),
+		)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				redirectWithMessage(w, r, "/configuracion", "", reqErr.Message)
+				return
+			}
+			log.Printf("update tenant: %v", err)
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar la empresa.")
+			return
+		}
+
+		redirectWithMessage(w, r, "/configuracion", fmt.Sprintf("Empresa %s actualizada correctamente.", updatedTenant.Name), "")
+	}))
+
+	mux.HandleFunc("/configuracion/tenants/toggle", platformAdminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+
+		currentUser := userFromContext(r)
+		if !canManageTenants(currentUser) {
+			redirectWithMessage(w, r, "/configuracion", "", "Solo un platform admin puede administrar empresas en esta fase.")
+			return
+		}
+
+		tenantID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("tenant_id")))
+		if err != nil || tenantID <= 0 {
+			redirectWithMessage(w, r, "/configuracion", "", "Empresa inválida.")
+			return
+		}
+		nextState := strings.TrimSpace(r.FormValue("active")) == "1"
+		updatedTenant, err := setTenantActiveState(db, currentUser, tenantID, nextState)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				redirectWithMessage(w, r, "/configuracion", "", reqErr.Message)
+				return
+			}
+			log.Printf("toggle tenant: %v", err)
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar el estado de la empresa.")
+			return
+		}
+
+		flashMessage := fmt.Sprintf("Empresa %s activada.", updatedTenant.Name)
+		if !updatedTenant.Active {
+			flashMessage = fmt.Sprintf("Empresa %s inactivada.", updatedTenant.Name)
+		}
+		redirectWithMessage(w, r, "/configuracion", flashMessage, "")
+	}))
+
+	mux.HandleFunc("/configuracion/tenants/api-key/rotate", platformAdminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+
+		currentUser := userFromContext(r)
+		if !canManageTenants(currentUser) {
+			redirectWithMessage(w, r, "/configuracion", "", "Solo un platform admin puede regenerar la API key inicial.")
+			return
+		}
+
+		tenantID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("tenant_id")))
+		if err != nil || tenantID <= 0 {
+			redirectWithMessage(w, r, "/configuracion", "", "Empresa inválida.")
+			return
+		}
+
+		tenant, err := resolveTenantByID(db, tenantID)
+		if err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo cargar la empresa.")
+			return
+		}
+
+		keyName, token, err := rotateTenantInitialAPIKey(db, currentUser, tenantID)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				redirectWithMessage(w, r, "/configuracion", "", reqErr.Message)
+				return
+			}
+			log.Printf("rotate tenant initial api key: %v", err)
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo regenerar la API key inicial.")
+			return
+		}
+
+		renderBusinessSettingsPage(
+			w,
+			r,
+			fmt.Sprintf("API key inicial regenerada para %s. Copia el token ahora; no volverá a mostrarse.", tenant.Name),
+			"",
+			"",
+			"",
+			token,
+			keyName,
+		)
 	}))
 
 	mux.HandleFunc("/configuracion/lineas/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -5322,6 +7589,10 @@ func main() {
 			redirectWithMessage(w, r, "/configuracion", "", "El nombre de la API key es obligatorio.")
 			return
 		}
+		if isReservedInitialAPIKeyName(name) {
+			redirectWithMessage(w, r, "/configuracion", "", "Los nombres terminados en -inicial están reservados para la API key inicial del tenant.")
+			return
+		}
 		token, err := generateToken()
 		if err != nil {
 			redirectWithMessage(w, r, "/configuracion", "", "No se pudo generar el token.")
@@ -5348,7 +7619,7 @@ func main() {
 		}); err != nil {
 			log.Printf("audit api key created: %v", err)
 		}
-		renderBusinessSettingsPage(w, r, "API key creada. Copia el token ahora; no volverá a mostrarse.", "", token, "")
+		renderBusinessSettingsPage(w, r, "API key creada. Copia el token ahora; no volverá a mostrarse.", "", token, "", "", "")
 	}))
 
 	mux.HandleFunc("/configuracion/api-keys/update", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -5370,17 +7641,11 @@ func main() {
 			redirectWithMessage(w, r, "/configuracion", "", "El nombre de la API key es obligatorio.")
 			return
 		}
-		active := 0
-		if r.FormValue("active") != "" {
-			active = 1
-		}
-		if _, err := db.Exec(`
-			UPDATE api_keys
-			SET name = ?, active = ?, updated_at = ?
-			WHERE id = ?
-		`, name, active, time.Now().Format(time.RFC3339), keyID); err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "unique") {
-				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una API key con ese nombre.")
+		active := r.FormValue("active") != ""
+		if err := updateTenantAPIKey(db, userFromContext(r), keyID, name, active); err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				redirectWithMessage(w, r, "/configuracion", "", reqErr.Message)
 				return
 			}
 			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar la API key.")
@@ -5388,7 +7653,7 @@ func main() {
 		}
 		if err := logAuditEvent(db, userFromContext(r), "api_key_updated", "api_key", strconv.Itoa(keyID), "manual", map[string]any{
 			"name":   name,
-			"active": active == 1,
+			"active": active,
 		}); err != nil {
 			log.Printf("audit api key updated: %v", err)
 		}
@@ -5448,6 +7713,7 @@ func main() {
 		password := r.FormValue("password")
 		role := strings.TrimSpace(r.FormValue("role"))
 		isActive := r.FormValue("is_active") != ""
+		currentUser := userFromContext(r)
 
 		if username == "" {
 			redirectWithMessage(w, r, "/admin/users", "", "Usuario obligatorio.")
@@ -5457,7 +7723,7 @@ func main() {
 			redirectWithMessage(w, r, "/admin/users", "", "Contraseña obligatoria.")
 			return
 		}
-		if role != "admin" && role != "empleado" {
+		if !isValidManagedRole(role, isPlatformAdmin(currentUser)) {
 			redirectWithMessage(w, r, "/admin/users", "", "Rol inválido.")
 			return
 		}
@@ -5518,8 +7784,11 @@ func main() {
 		}
 		if usersCols["tenant_id"] {
 			tenantID := defaultTenantID
-			if currentUser := userFromContext(r); currentUser != nil {
+			if currentUser != nil {
 				tenantID = normalizeTenantID(currentUser.TenantID)
+			}
+			if role == rolePlatformAdmin {
+				tenantID = defaultTenantID
 			}
 			cols = append(cols, "tenant_id")
 			args = append(args, tenantID)
@@ -5573,12 +7842,13 @@ func main() {
 		email := strings.TrimSpace(r.FormValue("email"))
 		role := strings.TrimSpace(r.FormValue("role"))
 		isActive := r.FormValue("is_active") != ""
+		currentUser := userFromContext(r)
 
 		if username == "" {
 			redirectWithMessage(w, r, "/admin/users", "", "Usuario obligatorio.")
 			return
 		}
-		if role != "admin" && role != "empleado" {
+		if !isValidManagedRole(role, isPlatformAdmin(currentUser)) {
 			redirectWithMessage(w, r, "/admin/users", "", "Rol inválido.")
 			return
 		}
@@ -5600,15 +7870,19 @@ func main() {
 			redirectWithMessage(w, r, "/admin/users", "", "Usuario no encontrado.")
 			return
 		}
+		if currentRole == rolePlatformAdmin && !isPlatformAdmin(currentUser) {
+			redirectWithMessage(w, r, "/admin/users", "", "Solo un platform admin puede editar ese usuario.")
+			return
+		}
 		willBeActive := 0
 		if isActive {
 			willBeActive = 1
 		}
-		isDemotingAdmin := currentRole == "admin" && role != "admin" && currentActive == 1
-		isDeactivatingAdmin := currentRole == "admin" && currentActive == 1 && willBeActive == 0
+		isDemotingAdmin := isAdminRole(currentRole) && !isAdminRole(role) && currentActive == 1
+		isDeactivatingAdmin := isAdminRole(currentRole) && currentActive == 1 && willBeActive == 0
 		if isDemotingAdmin || isDeactivatingAdmin {
 			var otherActiveAdmins int
-			if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1 AND id != ?`, userID).Scan(&otherActiveAdmins); err == nil {
+			if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE role IN (?, ?) AND is_active = 1 AND id != ?`, rolePlatformAdmin, roleAdmin, userID).Scan(&otherActiveAdmins); err == nil {
 				if otherActiveAdmins == 0 {
 					redirectWithMessage(w, r, "/admin/users", "", "Debe existir al menos un admin activo.")
 					return
@@ -5666,6 +7940,16 @@ func main() {
 			redirectWithMessage(w, r, "/admin/users", "", "ID inválido.")
 			return
 		}
+		currentUser := userFromContext(r)
+		var targetRole string
+		if err := db.QueryRow(`SELECT role FROM users WHERE id = ?`, userID).Scan(&targetRole); err != nil {
+			redirectWithMessage(w, r, "/admin/users", "", "Usuario no encontrado.")
+			return
+		}
+		if !canManagePlatformUser(currentUser, targetRole) {
+			redirectWithMessage(w, r, "/admin/users", "", "Solo un platform admin puede cambiar la contraseña de ese usuario.")
+			return
+		}
 		password := r.FormValue("password")
 		if password == "" {
 			redirectWithMessage(w, r, "/admin/users", "", "Contraseña obligatoria.")
@@ -5721,9 +8005,13 @@ func main() {
 			redirectWithMessage(w, r, "/admin/users", "", "Usuario no encontrado.")
 			return
 		}
-		if role == "admin" && isActive == 1 {
+		if role == rolePlatformAdmin && !isPlatformAdmin(current) {
+			redirectWithMessage(w, r, "/admin/users", "", "Solo un platform admin puede eliminar ese usuario.")
+			return
+		}
+		if isAdminRole(role) && isActive == 1 {
 			var otherActiveAdmins int
-			if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1 AND id != ?`, userID).Scan(&otherActiveAdmins); err == nil {
+			if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE role IN (?, ?) AND is_active = 1 AND id != ?`, rolePlatformAdmin, roleAdmin, userID).Scan(&otherActiveAdmins); err == nil {
 				if otherActiveAdmins == 0 {
 					redirectWithMessage(w, r, "/admin/users", "", "No puedes eliminar el último admin activo.")
 					return
@@ -6157,7 +8445,7 @@ func main() {
 			return
 		}
 		currentUser := userFromContext(r)
-		if currentUser == nil || currentUser.Role != "admin" {
+		if currentUser == nil || !isAdminRole(currentUser.Role) {
 			writeAPIError(w, http.StatusForbidden, "Solo administrador puede crear productos vía API.", nil)
 			return
 		}
@@ -6426,7 +8714,7 @@ func main() {
 			return
 		}
 		currentUser := userFromContext(r)
-		if currentUser == nil || currentUser.Role != "admin" {
+		if currentUser == nil || !isAdminRole(currentUser.Role) {
 			writeJSONError(http.StatusForbidden, "Solo administrador puede eliminar ventas.")
 			return
 		}
@@ -6561,7 +8849,7 @@ func main() {
 		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
 		editableLines := []string{}
 		assignableUsers := []assignableUser{}
-		if currentUser != nil && currentUser.Role == "admin" {
+		if currentUser != nil && isAdminRole(currentUser.Role) {
 			lines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), false)
 			if err != nil {
 				http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
@@ -6830,7 +9118,7 @@ func main() {
 		}
 
 		currentUser := userFromContext(r)
-		if currentUser == nil || (currentUser.Role != "admin" && currentUser.Role != "empleado") {
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
 			writeJSONError(http.StatusForbidden, "Solo personal autorizado puede editar productos.")
 			return
 		}
@@ -6937,7 +9225,7 @@ func main() {
 		finalInstallmentsPaid := previous.InstallmentsPaid
 		finalTotalValue := previous.TotalValue
 		finalInstallmentValue := previous.InstallmentValue
-		if currentUser.Role == "admin" {
+		if isAdminRole(currentUser.Role) {
 			if newName == "" {
 				writeJSONError(http.StatusBadRequest, "El nombre del producto es obligatorio.")
 				return
@@ -7054,7 +9342,7 @@ func main() {
 			}
 		}
 
-		if currentUser.Role == "admin" {
+		if isAdminRole(currentUser.Role) {
 			if _, err := tx.Exec(`
 				UPDATE productos
 				SET nombre = ?, linea = ?, owner_user_id = ?, precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?
@@ -7103,7 +9391,7 @@ func main() {
 			payload["previous_notes"] = previous.Notes
 			payload["new_notes"] = notesValue
 		}
-		if currentUser.Role == "admin" {
+		if isAdminRole(currentUser.Role) {
 			if previous.Name != finalName {
 				payload["previous_name"] = previous.Name
 				payload["new_name"] = finalName
@@ -7151,7 +9439,7 @@ func main() {
 				return
 			}
 		}
-		if currentUser.Role == "admin" && ((previous.CreditEnabled == 1) || finalCreditEnabled) {
+		if isAdminRole(currentUser.Role) && ((previous.CreditEnabled == 1) || finalCreditEnabled) {
 			creditPayload := map[string]any{
 				"product_id":         newSKU,
 				"debtor_name":        finalDebtorName,
@@ -7175,7 +9463,7 @@ func main() {
 		for idx := range products {
 			if products[idx].ID == previous.SKU {
 				products[idx].ID = newSKU
-				if currentUser.Role == "admin" {
+				if isAdminRole(currentUser.Role) {
 					products[idx].Name = finalName
 					products[idx].Line = finalLine
 					products[idx].CreditEnabled = finalCreditEnabled
@@ -7416,7 +9704,7 @@ func main() {
 		}
 
 		currentUser := userFromContext(r)
-		if currentUser == nil || (currentUser.Role != "admin" && currentUser.Role != "empleado") {
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
 			writeJSONError(http.StatusForbidden, "Solo personal autorizado puede registrar retomas.")
 			return
 		}
@@ -7510,7 +9798,7 @@ func main() {
 		}
 
 		currentUser := userFromContext(r)
-		if currentUser == nil || (currentUser.Role != "admin" && currentUser.Role != "empleado") {
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
 			writeJSONError(http.StatusForbidden, "Solo personal autorizado puede ajustar stock y precio.")
 			return
 		}
@@ -7624,7 +9912,7 @@ func main() {
 		}
 
 		currentUser := userFromContext(r)
-		if currentUser == nil || currentUser.Role != "admin" {
+		if currentUser == nil || !isAdminRole(currentUser.Role) {
 			writeJSONError(http.StatusForbidden, "Solo administrador puede eliminar productos.")
 			return
 		}
@@ -7849,7 +10137,18 @@ func main() {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 			return
 		}
-		settings := currentBusinessSettings()
+		settings, err := apiBusinessSettingsForRequest(db, r)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar la configuracion del negocio.", nil)
+			return
+		}
+		tenant := tenantFromContext(r)
+		tenantSlug := ""
+		tenantName := ""
+		if tenant != nil {
+			tenantSlug = strings.TrimSpace(tenant.Slug)
+			tenantName = strings.TrimSpace(tenant.Name)
+		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{
 			"ok": true,
 			"settings": map[string]any{
@@ -7858,6 +10157,11 @@ func main() {
 				"primary_color": settings.PrimaryColor,
 				"currency":      settings.Currency,
 				"date_format":   settings.DateFormat,
+			},
+			"tenant": map[string]any{
+				"id":   normalizeTenantID(tenantIDFromRequest(r)),
+				"slug": tenantSlug,
+				"name": tenantName,
 			},
 		})
 	})
@@ -7868,7 +10172,7 @@ func main() {
 			return
 		}
 		activeOnly := true
-		if user := userFromContext(r); user != nil && user.Role == "admin" {
+		if user := userFromContext(r); user != nil && isAdminRole(user.Role) {
 			includeInactive := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("include_inactive")))
 			if includeInactive == "1" || includeInactive == "true" {
 				activeOnly = false
@@ -7898,11 +10202,11 @@ func main() {
 			return
 		}
 		currentUser := userFromContext(r)
-		if currentUser == nil || currentUser.Role != "admin" {
+		if currentUser == nil || !isAdminRole(currentUser.Role) {
 			writeAPIError(w, http.StatusForbidden, "Solo administrador puede consultar owners asignables.", nil)
 			return
 		}
-		users, err := loadAssignableUsers(db)
+		users, err := apiAssignableUsersForRequest(db, r)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los usuarios asignables.", nil)
 			return
@@ -7922,13 +10226,32 @@ func main() {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 			return
 		}
-		settings := currentBusinessSettings()
+		settings, err := apiBusinessSettingsForRequest(db, r)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar la configuracion del negocio.", nil)
+			return
+		}
+		tenant := tenantFromContext(r)
+		tenantSlug := ""
+		tenantName := ""
+		if tenant != nil {
+			tenantSlug = strings.TrimSpace(tenant.Slug)
+			tenantName = strings.TrimSpace(tenant.Name)
+		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{
 			"ok": true,
 			"item": map[string]any{
 				"business_name": settings.BusinessName,
+				"primary_color": settings.PrimaryColor,
 				"currency":      settings.Currency,
 				"date_format":   settings.DateFormat,
+				"tenant": map[string]any{
+					"id":   normalizeTenantID(tenantIDFromRequest(r)),
+					"slug": tenantSlug,
+					"name": tenantName,
+				},
+				"auth_mode":        apiAuthModeFromContext(r),
+				"integration_name": apiIntegrationNameFromContext(r),
 			},
 		})
 	})
@@ -7963,7 +10286,7 @@ func main() {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
 			return
 		}
-		includeOwner := currentUser != nil && currentUser.Role == "admin"
+		includeOwner := currentUser != nil && isAdminRole(currentUser.Role)
 		items := make([]map[string]any, 0, len(filtered))
 		for _, product := range filtered {
 			items = append(items, agentProductItem(product, countsByProduct[product.ID], includeOwner))
@@ -8038,7 +10361,7 @@ func main() {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
 			return
 		}
-		includeOwner := currentUser != nil && currentUser.Role == "admin"
+		includeOwner := currentUser != nil && isAdminRole(currentUser.Role)
 		items := make([]map[string]any, 0, len(filtered))
 		for _, product := range filtered {
 			items = append(items, agentProductItem(product, countsByProduct[product.ID], includeOwner))
@@ -8158,7 +10481,7 @@ func main() {
 			return
 		}
 		currentUser := userFromContext(r)
-		if currentUser == nil || (currentUser.Role != "admin" && currentUser.Role != "empleado") {
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
 			writeAPIError(w, http.StatusForbidden, "Solo personal autorizado puede ajustar stock y precio.", nil)
 			return
 		}
@@ -8235,533 +10558,28 @@ func main() {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 			return
 		}
-		visibilitySQL, visibilityArgs := productVisibilityPredicate("p", userFromContext(r))
-		rows, err := db.Query(`
-			SELECT v.id, v.fecha, v.producto_id, COALESCE(p.nombre, v.producto_id), v.cantidad, v.precio_final, v.metodo_pago
-			FROM ventas v
-			LEFT JOIN productos p ON p.sku = v.producto_id
-			WHERE `+visibilitySQL+`
-			ORDER BY v.fecha DESC, v.id DESC
-			LIMIT 50
-		`, visibilityArgs...)
+		items, err := listRecentSalesForUser(db, userFromContext(r), 50)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las ventas.", nil)
 			return
 		}
-		defer rows.Close()
-		items := make([]map[string]any, 0, 50)
-		for rows.Next() {
-			var id int
-			var fecha, productoID, producto, metodo string
-			var cantidad int
-			var precioFinal float64
-			if err := rows.Scan(&id, &fecha, &productoID, &producto, &cantidad, &precioFinal, &metodo); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer las ventas.", nil)
-				return
-			}
-			items = append(items, map[string]any{
-				"id":           id,
-				"fecha":        formatDateWithSettings(fecha),
-				"producto_id":  productoID,
-				"producto":     producto,
-				"cantidad":     cantidad,
-				"precio_final": precioFinal,
-				"metodo_pago":  metodo,
-				"total":        precioFinal * float64(cantidad),
-			})
-		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
 	})
 
-	mux.HandleFunc("/api/retomas", func(w http.ResponseWriter, r *http.Request) {
-		currentUser := userFromContext(r)
-		switch r.Method {
-		case http.MethodGet:
-			q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
-			visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
-			args := append([]any{}, visibilityArgs...)
-			query := `
-				SELECT
-					r.id,
-					r.fecha,
-					r.producto_id,
-					COALESCE(p.nombre, r.producto_id),
-					r.cantidad,
-					r.valor_recibido,
-					r.estado_recibido,
-					r.publicado_stock,
-					r.precio_publicado,
-					COALESCE(r.notas, '')
-				FROM retomas r
-				LEFT JOIN productos p ON p.sku = r.producto_id
-				WHERE ` + visibilitySQL
-			if q != "" {
-				query += ` AND (LOWER(r.producto_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(r.estado_recibido, '')) LIKE ? OR LOWER(COALESCE(r.notas, '')) LIKE ?)`
-				qLike := "%" + q + "%"
-				args = append(args, qLike, qLike, qLike, qLike)
+	mux.HandleFunc("/api/retomas", handleAPIRetomas(db, func(productID string, salePrice float64) {
+		productsMu.Lock()
+		defer productsMu.Unlock()
+		for idx := range products {
+			if products[idx].ID == productID {
+				products[idx].SalePrice = salePrice
+				break
 			}
-			query += ` ORDER BY r.fecha DESC, r.id DESC LIMIT 100`
-
-			rows, err := db.Query(query, args...)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las retomas.", nil)
-				return
-			}
-			defer rows.Close()
-
-			items := make([]map[string]any, 0, 64)
-			for rows.Next() {
-				var (
-					id               int
-					fecha            string
-					productID        string
-					productName      string
-					quantity         int
-					valueReceived    float64
-					receivedState    string
-					publishedToStock int
-					finalSalePrice   sql.NullFloat64
-					notes            string
-				)
-				if err := rows.Scan(&id, &fecha, &productID, &productName, &quantity, &valueReceived, &receivedState, &publishedToStock, &finalSalePrice, &notes); err != nil {
-					writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer las retomas.", nil)
-					return
-				}
-				var publishedPrice any = nil
-				if finalSalePrice.Valid {
-					publishedPrice = finalSalePrice.Float64
-				}
-				items = append(items, map[string]any{
-					"id":                 id,
-					"fecha":              formatDateWithSettings(fecha),
-					"product_id":         productID,
-					"product_name":       productName,
-					"quantity":           quantity,
-					"value_received":     valueReceived,
-					"received_state":     receivedState,
-					"published_to_stock": publishedToStock == 1,
-					"final_sale_price":   publishedPrice,
-					"notes":              notes,
-				})
-			}
-			if err := rows.Err(); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron procesar las retomas.", nil)
-				return
-			}
-			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
-		case http.MethodPost:
-			if currentUser == nil || (currentUser.Role != "admin" && currentUser.Role != "empleado") {
-				writeAPIError(w, http.StatusForbidden, "Solo personal autorizado puede registrar retomas.", nil)
-				return
-			}
-			var payload struct {
-				ProductID      string   `json:"product_id"`
-				Quantity       int      `json:"quantity"`
-				ValueReceived  float64  `json:"value_received"`
-				ReceivedState  string   `json:"received_state"`
-				PublishToStock bool     `json:"publish_to_stock"`
-				FinalSalePrice *float64 `json:"final_sale_price"`
-				Notes          string   `json:"notes"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-				return
-			}
-			result, err := registerRetoma(db, currentUser, retomaOperationInput{
-				ProductID:      payload.ProductID,
-				Quantity:       payload.Quantity,
-				ValueReceived:  payload.ValueReceived,
-				ReceivedState:  payload.ReceivedState,
-				PublishToStock: payload.PublishToStock,
-				FinalSalePrice: payload.FinalSalePrice,
-				Notes:          payload.Notes,
-			}, "api", func(item map[string]any) map[string]any {
-				return withAPIAuditMetadata(r, item)
-			})
-			if err != nil {
-				var reqErr requestError
-				if errors.As(err, &reqErr) {
-					writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
-					return
-				}
-				writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la retoma.", nil)
-				return
-			}
-			if result.FinalSalePrice != nil {
-				productsMu.Lock()
-				for idx := range products {
-					if products[idx].ID == result.ProductID {
-						products[idx].SalePrice = *result.FinalSalePrice
-						break
-					}
-				}
-				productsMu.Unlock()
-			}
-			writeAPIJSON(w, http.StatusCreated, map[string]any{
-				"ok":                 true,
-				"retoma_id":          result.RetomaID,
-				"product_id":         result.ProductID,
-				"product_name":       result.ProductName,
-				"quantity":           result.Quantity,
-				"value_received":     result.ValueReceived,
-				"received_state":     result.ReceivedState,
-				"published_to_stock": result.PublishedToStock,
-				"units_created":      result.UnitsCreated,
-				"message":            result.Message,
-			})
-		default:
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/api/credits", func(w http.ResponseWriter, r *http.Request) {
-		currentUser := userFromContext(r)
-		switch r.Method {
-		case http.MethodGet:
-			q := strings.TrimSpace(r.URL.Query().Get("q"))
-			visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
-			args := append([]any{}, visibilityArgs...)
-			query := `
-				SELECT
-					cs.id,
-					cs.created_at,
-					cs.product_id,
-					COALESCE(p.nombre, cs.product_id),
-					cs.quantity,
-					COALESCE(cs.debtor_name, ''),
-					COALESCE(cs.debtor_document_type, ''),
-					COALESCE(cs.debtor_document_number, ''),
-					COALESCE(cs.debtor_phone, ''),
-					COALESCE(cs.installments_total, 0),
-					COALESCE(cs.installments_paid, 0),
-					COALESCE(cs.total_value, 0),
-					COALESCE(cs.interest_percent, 0),
-					COALESCE(cs.installment_value, 0),
-					COALESCE(cs.notes, ''),
-					COALESCE((
-						SELECT ci.amount_paid
-						FROM credit_installments ci
-						WHERE ci.credit_sale_id = cs.id
-						ORDER BY ci.installment_number DESC, ci.id DESC
-						LIMIT 1
-					), 0),
-					COALESCE((
-						SELECT ci.created_at
-						FROM credit_installments ci
-						WHERE ci.credit_sale_id = cs.id
-						ORDER BY ci.installment_number DESC, ci.id DESC
-						LIMIT 1
-					), '')
-				FROM credit_sales cs
-				LEFT JOIN productos p ON p.sku = cs.product_id
-				WHERE ` + visibilitySQL
-			if q != "" {
-				query += ` AND (LOWER(cs.product_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_name, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_document_type, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_document_number, '')) LIKE ? OR LOWER(COALESCE(cs.debtor_phone, '')) LIKE ?)`
-				qLike := "%" + strings.ToLower(q) + "%"
-				args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
-			}
-			query += ` ORDER BY cs.created_at DESC, cs.id DESC LIMIT 100`
+	mux.HandleFunc("/api/credits", handleAPICredits(db))
 
-			rows, err := db.Query(query, args...)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los créditos.", nil)
-				return
-			}
-			defer rows.Close()
-
-			items := make([]map[string]any, 0, 64)
-			for rows.Next() {
-				var (
-					id                int
-					createdAt         string
-					productID         string
-					productName       string
-					quantity          int
-					debtorName        string
-					debtorDocType     string
-					debtorDocNumber   string
-					debtorPhone       string
-					installmentsTotal int
-					installmentsPaid  int
-					totalValue        float64
-					interestPercent   float64
-					installmentValue  float64
-					notes             string
-					lastPaymentAmount float64
-					lastPaymentAt     string
-				)
-				if err := rows.Scan(&id, &createdAt, &productID, &productName, &quantity, &debtorName, &debtorDocType, &debtorDocNumber, &debtorPhone, &installmentsTotal, &installmentsPaid, &totalValue, &interestPercent, &installmentValue, &notes, &lastPaymentAmount, &lastPaymentAt); err != nil {
-					writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer los créditos.", nil)
-					return
-				}
-				status := "active"
-				if installmentsTotal > 0 && installmentsPaid >= installmentsTotal {
-					status = "completed"
-				}
-				item := map[string]any{
-					"id":                     id,
-					"created_at":             formatDateWithSettings(createdAt),
-					"product_id":             productID,
-					"product":                productName,
-					"quantity":               quantity,
-					"debtor_name":            debtorName,
-					"debtor_document_type":   debtorDocType,
-					"debtor_document_number": debtorDocNumber,
-					"debtor_phone":           debtorPhone,
-					"installments_total":     installmentsTotal,
-					"installments_paid":      installmentsPaid,
-					"installments_pending":   max(installmentsTotal-installmentsPaid, 0),
-					"total_value":            totalValue,
-					"interest_percent":       interestPercent,
-					"installment_value":      installmentValue,
-					"notes":                  notes,
-					"status":                 status,
-				}
-				if lastPaymentAt != "" {
-					item["last_payment_at"] = formatDateWithSettings(lastPaymentAt)
-					item["last_payment_amount"] = lastPaymentAmount
-				} else {
-					item["last_payment_at"] = ""
-					item["last_payment_amount"] = 0
-				}
-				items = append(items, item)
-			}
-			if err := rows.Err(); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron procesar los créditos.", nil)
-				return
-			}
-			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
-		case http.MethodPost:
-			_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
-				return
-			}
-			if !movementEnabled(movementEnabledMap, "credito") {
-				writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
-				return
-			}
-			var payload struct {
-				ProductID            string   `json:"product_id"`
-				Quantity             int      `json:"quantity"`
-				DebtorName           string   `json:"debtor_name"`
-				DebtorDocumentType   string   `json:"debtor_document_type"`
-				DebtorDocumentNumber string   `json:"debtor_document_number"`
-				DebtorPhone          string   `json:"debtor_phone"`
-				InstallmentsTotal    int      `json:"installments_total"`
-				TotalValue           float64  `json:"total_value"`
-				InterestPercent      float64  `json:"interest_percent"`
-				InstallmentValue     *float64 `json:"installment_value"`
-				Notes                string   `json:"notes"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-				return
-			}
-			payload.ProductID = strings.TrimSpace(payload.ProductID)
-			payload.DebtorName = strings.TrimSpace(payload.DebtorName)
-			payload.DebtorDocumentType = strings.TrimSpace(payload.DebtorDocumentType)
-			payload.DebtorDocumentNumber = strings.TrimSpace(payload.DebtorDocumentNumber)
-			payload.DebtorPhone = strings.TrimSpace(payload.DebtorPhone)
-			payload.Notes = strings.TrimSpace(payload.Notes)
-
-			productsMu.RLock()
-			productsSnapshot := make([]productOption, len(products))
-			copy(productsSnapshot, products)
-			productsMu.RUnlock()
-			productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
-
-			stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
-				return
-			}
-
-			fields := map[string]string{}
-			if payload.ProductID == "" {
-				fields["product_id"] = "Selecciona un producto válido."
-			}
-			if payload.Quantity <= 0 {
-				fields["quantity"] = "La cantidad debe ser un número positivo."
-			}
-			if payload.DebtorName == "" {
-				fields["debtor_name"] = "El nombre del deudor es obligatorio."
-			}
-			switch payload.DebtorDocumentType {
-			case "CC", "C Extranjeria", "Pasaporte":
-			default:
-				fields["debtor_document_type"] = "Selecciona un tipo de documento válido."
-			}
-			if payload.DebtorDocumentNumber == "" {
-				fields["debtor_document_number"] = "El número de documento del deudor es obligatorio."
-			}
-			if payload.DebtorPhone == "" {
-				fields["debtor_phone"] = "El teléfono del deudor es obligatorio."
-			}
-			if payload.InstallmentsTotal <= 0 {
-				fields["installments_total"] = "La cantidad total de cuotas debe ser mayor a 0."
-			}
-			if payload.TotalValue <= 0 {
-				fields["total_value"] = "El valor total debe ser mayor a 0."
-			}
-			if payload.InterestPercent < 0 {
-				fields["interest_percent"] = "El porcentaje de interés debe ser un número mayor o igual a 0."
-			}
-			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
-				return
-			} else if !allowed {
-				fields["product_id"] = "No tienes acceso a este producto."
-			}
-			selectedProduct, ok := findProduct(productsSnapshot, payload.ProductID)
-			if !ok && len(productsSnapshot) > 0 {
-				selectedProduct = productsSnapshot[0]
-			}
-			if payload.ProductID != "" && payload.Quantity > 0 {
-				if available := stockByProd[payload.ProductID]; available > 0 && payload.Quantity > available {
-					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
-				}
-			}
-			installmentValue := 0.0
-			if payload.TotalValue > 0 && payload.InstallmentsTotal > 0 {
-				financedTotal := payload.TotalValue + (payload.TotalValue * payload.InterestPercent / 100)
-				installmentValue = math.Round((financedTotal/float64(payload.InstallmentsTotal))*100) / 100
-			}
-			if payload.InstallmentValue != nil {
-				if *payload.InstallmentValue <= 0 {
-					fields["installment_value"] = "El valor por cuota debe ser mayor a 0."
-				} else {
-					installmentValue = *payload.InstallmentValue
-				}
-			}
-			if installmentValue <= 0 {
-				fields["installment_value"] = "El valor por cuota debe ser mayor a 0."
-			}
-			if len(fields) > 0 {
-				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
-				return
-			}
-
-			tx, err := db.Begin()
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta a crédito.", nil)
-				return
-			}
-			defer tx.Rollback()
-
-			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity)
-			if err != nil {
-				if err == errInsufficientStock {
-					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
-					return
-				}
-				writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
-				return
-			}
-
-			now := time.Now().Format(time.RFC3339)
-			creditSummary := fmt.Sprintf("VENTA A CREDITO | Deudor: %s | Cuotas: %d | Interes: %.2f%% | Valor cuota: %.2f", payload.DebtorName, payload.InstallmentsTotal, payload.InterestPercent, installmentValue)
-			movementNote := creditSummary
-			if payload.Notes != "" {
-				movementNote += " | " + payload.Notes
-			}
-			if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta_credito", movementNote, currentUser, now); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
-				return
-			}
-			creditSaleID, err := insertAndReturnID(tx,
-				`INSERT INTO credit_sales (tenant_id, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-				tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, payload.DebtorName, payload.DebtorDocumentType, payload.DebtorDocumentNumber, payload.DebtorPhone, payload.InstallmentsTotal, payload.TotalValue, payload.InterestPercent, installmentValue, movementNote, now, nullableUserID(currentUser),
-			)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta a crédito.", nil)
-				return
-			}
-			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "api", withAPIAuditMetadata(r, map[string]any{
-				"credit_sale_id":         creditSaleID,
-				"product_id":             payload.ProductID,
-				"producto":               selectedProduct.Name,
-				"debtor_name":            payload.DebtorName,
-				"debtor_document_type":   payload.DebtorDocumentType,
-				"debtor_document_number": payload.DebtorDocumentNumber,
-				"debtor_phone":           payload.DebtorPhone,
-				"installments_total":     payload.InstallmentsTotal,
-				"installments_paid":      0,
-				"total_value":            payload.TotalValue,
-				"interest_percent":       payload.InterestPercent,
-				"installment_value":      installmentValue,
-				"quantity":               payload.Quantity,
-			})); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del crédito.", nil)
-				return
-			}
-			if err := tx.Commit(); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta a crédito.", nil)
-				return
-			}
-			writeAPIJSON(w, http.StatusCreated, map[string]any{
-				"ok":                true,
-				"credit_sale_id":    creditSaleID,
-				"product_id":        payload.ProductID,
-				"product_name":      selectedProduct.Name,
-				"quantity":          payload.Quantity,
-				"installment_value": installmentValue,
-				"message":           "Venta a crédito registrada correctamente.",
-			})
-		default:
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
-		}
-	})
-
-	mux.HandleFunc("/api/credits/installments", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
-			return
-		}
-		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
-			return
-		}
-		if !movementEnabled(movementEnabledMap, "credito") {
-			writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
-			return
-		}
-		var payload struct {
-			CreditSaleID int      `json:"credit_sale_id"`
-			AmountPaid   *float64 `json:"amount_paid"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-			return
-		}
-		if payload.CreditSaleID <= 0 {
-			writeAPIError(w, http.StatusBadRequest, "Crédito inválido.", map[string]string{"credit_sale_id": "Crédito inválido."})
-			return
-		}
-		result, err := addCreditInstallment(db, payload.CreditSaleID, payload.AmountPaid, currentUser, "api", func(item map[string]any) map[string]any {
-			return withAPIAuditMetadata(r, item)
-		})
-		if err != nil {
-			var reqErr requestError
-			if errors.As(err, &reqErr) {
-				writeAPIError(w, reqErr.Status, reqErr.Message, nil)
-				return
-			}
-			writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la cuota.", nil)
-			return
-		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{
-			"ok":                 true,
-			"credit_sale_id":     result.CreditSaleID,
-			"product_id":         result.ProductID,
-			"amount_paid":        result.AmountPaid,
-			"installment_number": result.InstallmentNumber,
-			"message":            fmt.Sprintf("Cuota %d registrada correctamente.", result.InstallmentNumber),
-		})
-	})
+	mux.HandleFunc("/api/credits/installments", handleAPICreditInstallments(db))
 
 	mux.HandleFunc("/venta/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -8975,429 +10793,9 @@ func main() {
 		redirectWithMessage(w, r, "/inventario", "Retoma habilitada. El flujo detallado queda pendiente para una tarea posterior.", "")
 	})
 
-	mux.HandleFunc("/api/sales", func(w http.ResponseWriter, r *http.Request) {
-		currentUser := userFromContext(r)
-		switch r.Method {
-		case http.MethodGet:
-			q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
-			fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
-			toStr := strings.TrimSpace(r.URL.Query().Get("to"))
-			fields := map[string]string{}
-			if fromStr != "" {
-				if _, err := time.Parse("2006-01-02", fromStr); err != nil {
-					fields["from"] = "Fecha inválida. Usa formato YYYY-MM-DD."
-				}
-			}
-			if toStr != "" {
-				if _, err := time.Parse("2006-01-02", toStr); err != nil {
-					fields["to"] = "Fecha inválida. Usa formato YYYY-MM-DD."
-				}
-			}
-			if len(fields) > 0 {
-				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
-				return
-			}
+	mux.HandleFunc("/api/sales", handleAPISales(db))
 
-			visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
-			args := append([]any{}, visibilityArgs...)
-			query := `
-				SELECT
-					v.id,
-					v.fecha,
-					v.producto_id,
-					COALESCE(p.nombre, v.producto_id),
-					v.cantidad,
-					v.precio_final,
-					COALESCE(v.channel, ''),
-					COALESCE(v.sold_by, ''),
-					COALESCE(v.notas, ''),
-					COALESCE(v.metodo_pago, '')
-				FROM ventas v
-				LEFT JOIN productos p ON p.sku = v.producto_id
-				WHERE ` + visibilitySQL
-			if q != "" {
-				query += ` AND (LOWER(v.producto_id) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(v.channel, '')) LIKE ? OR LOWER(COALESCE(v.sold_by, '')) LIKE ? OR LOWER(COALESCE(v.notas, '')) LIKE ? OR LOWER(COALESCE(v.metodo_pago, '')) LIKE ?)`
-				qLike := "%" + q + "%"
-				args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
-			}
-			if fromStr != "" {
-				query += ` AND ` + sqlDatePrefixExpr("v.fecha") + ` >= ?`
-				args = append(args, fromStr)
-			}
-			if toStr != "" {
-				query += ` AND ` + sqlDatePrefixExpr("v.fecha") + ` <= ?`
-				args = append(args, toStr)
-			}
-			query += ` ORDER BY v.fecha DESC, v.id DESC LIMIT 100`
-
-			rows, err := db.Query(query, args...)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las ventas.", nil)
-				return
-			}
-			defer rows.Close()
-
-			items := make([]map[string]any, 0, 64)
-			for rows.Next() {
-				var (
-					id            int
-					fecha         string
-					productID     string
-					productName   string
-					quantity      int
-					salePrice     float64
-					channel       string
-					soldBy        string
-					notes         string
-					paymentMethod string
-				)
-				if err := rows.Scan(&id, &fecha, &productID, &productName, &quantity, &salePrice, &channel, &soldBy, &notes, &paymentMethod); err != nil {
-					writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer las ventas.", nil)
-					return
-				}
-				items = append(items, map[string]any{
-					"id":             id,
-					"fecha":          formatDateWithSettings(fecha),
-					"product_id":     productID,
-					"product_name":   productName,
-					"quantity":       quantity,
-					"sale_price":     salePrice,
-					"channel":        channel,
-					"sold_by":        soldBy,
-					"notes":          notes,
-					"payment_method": paymentMethod,
-				})
-			}
-			if err := rows.Err(); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron procesar las ventas.", nil)
-				return
-			}
-			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
-
-		case http.MethodPost:
-			_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
-				return
-			}
-			if !movementEnabled(movementEnabledMap, "venta") {
-				writeAPIError(w, http.StatusForbidden, "La venta está deshabilitada en Configuración.", nil)
-				return
-			}
-			var payload struct {
-				ProductID     string   `json:"product_id"`
-				Quantity      *int     `json:"quantity"`
-				PaymentMethod string   `json:"payment_method"`
-				UnitPrice     *float64 `json:"unit_price"`
-				Total         *float64 `json:"total"`
-				SalePrice     *float64 `json:"sale_price"`
-				Channel       string   `json:"channel"`
-				SoldBy        string   `json:"sold_by"`
-				Notes         string   `json:"notes"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-				return
-			}
-			payload.ProductID = strings.TrimSpace(payload.ProductID)
-			payload.PaymentMethod = strings.TrimSpace(payload.PaymentMethod)
-			payload.Channel = strings.TrimSpace(payload.Channel)
-			payload.SoldBy = strings.TrimSpace(payload.SoldBy)
-			payload.Notes = strings.TrimSpace(payload.Notes)
-
-			quantity := 1
-			if payload.Quantity != nil {
-				quantity = *payload.Quantity
-			}
-
-			activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los métodos de pago.", nil)
-				return
-			}
-			paymentMethodOptions := paymentMethodNames(activePaymentMethods)
-
-			fields := map[string]string{}
-			if payload.ProductID == "" {
-				fields["product_id"] = "Selecciona un producto válido."
-			}
-			if quantity <= 0 {
-				fields["quantity"] = "La cantidad debe ser un número positivo."
-			}
-
-			var (
-				productName      string
-				productSalePrice float64
-			)
-			if payload.ProductID != "" {
-				if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND (sku = ? OR id = ?) LIMIT 1`, tenantIDFromUser(currentUser), payload.ProductID, payload.ProductID).Scan(&productName, &productSalePrice); err != nil {
-					if err == sql.ErrNoRows {
-						fields["product_id"] = "Selecciona un producto válido."
-					} else {
-						writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el producto.", nil)
-						return
-					}
-				}
-			}
-
-			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
-				return
-			} else if !allowed && fields["product_id"] == "" {
-				fields["product_id"] = "No tienes acceso a este producto."
-			}
-
-			stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
-				return
-			}
-			if payload.ProductID != "" && quantity > 0 {
-				if available := stockByProd[payload.ProductID]; available > 0 && quantity > available {
-					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
-				}
-			}
-
-			paymentMethod := payload.PaymentMethod
-			if paymentMethod == "" && len(paymentMethodOptions) > 0 {
-				paymentMethod = paymentMethodOptions[0]
-			}
-			validMethod := false
-			for _, method := range paymentMethodOptions {
-				if paymentMethod == method {
-					validMethod = true
-					break
-				}
-			}
-			if !validMethod {
-				fields["payment_method"] = "Selecciona un método de pago válido."
-			}
-
-			salePrice := productSalePrice
-			switch {
-			case payload.Total != nil && *payload.Total > 0 && quantity > 0:
-				salePrice = *payload.Total / float64(quantity)
-			case payload.SalePrice != nil:
-				salePrice = *payload.SalePrice
-			case payload.UnitPrice != nil:
-				salePrice = *payload.UnitPrice
-			}
-			if salePrice <= 0 {
-				fields["sale_price"] = "Ingresa sale_price o configura un precio de venta válido para el producto."
-			}
-
-			if len(fields) > 0 {
-				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
-				return
-			}
-
-			tx, err := db.Begin()
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta.", nil)
-				return
-			}
-			defer tx.Rollback()
-
-			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, quantity)
-			if err != nil {
-				if err == errInsufficientStock {
-					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
-					return
-				}
-				writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
-				return
-			}
-
-			now := time.Now().Format(time.RFC3339)
-			if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta", payload.Notes, currentUser, now); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
-				return
-			}
-			saleID, err := insertAndReturnID(tx, `INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, tenantIDFromUser(currentUser), payload.ProductID, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
-				return
-			}
-			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
-				"sale_id":     saleID,
-				"producto_id": payload.ProductID,
-				"producto":    productName,
-				"cantidad":    quantity,
-				"sale_price":  salePrice,
-				"metodo_pago": paymentMethod,
-				"channel":     payload.Channel,
-				"sold_by":     payload.SoldBy,
-				"notes":       payload.Notes,
-				"total":       salePrice * float64(quantity),
-			})); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
-				return
-			}
-			if err := tx.Commit(); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta.", nil)
-				return
-			}
-			writeAPIJSON(w, http.StatusCreated, map[string]any{
-				"ok":           true,
-				"sale_id":      saleID,
-				"product_id":   payload.ProductID,
-				"product_name": productName,
-				"quantity":     quantity,
-				"sale_price":   salePrice,
-				"message":      "Venta registrada correctamente.",
-			})
-
-		default:
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
-		}
-	})
-
-	mux.HandleFunc("/api/swaps", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
-			return
-		}
-		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
-			return
-		}
-		if !movementEnabled(movementEnabledMap, "cambio") {
-			writeAPIError(w, http.StatusForbidden, "El cambio está deshabilitado en Configuración.", nil)
-			return
-		}
-		var payload struct {
-			ProductID           string `json:"product_id"`
-			Quantity            int    `json:"quantity"`
-			PersonaCambio       string `json:"persona_del_cambio"`
-			Notes               string `json:"notes"`
-			IncomingMode        string `json:"incoming_mode"`
-			IncomingExistingID  string `json:"incoming_existing_id"`
-			IncomingExistingQty int    `json:"incoming_existing_qty"`
-			IncomingNewSKU      string `json:"incoming_new_sku"`
-			IncomingNewName     string `json:"incoming_new_name"`
-			IncomingNewLine     string `json:"incoming_new_line"`
-			IncomingNewQty      int    `json:"incoming_new_qty"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-			return
-		}
-		payload.ProductID = strings.TrimSpace(payload.ProductID)
-		payload.PersonaCambio = strings.TrimSpace(payload.PersonaCambio)
-		payload.Notes = strings.TrimSpace(payload.Notes)
-		payload.IncomingMode = strings.TrimSpace(payload.IncomingMode)
-		payload.IncomingExistingID = strings.TrimSpace(payload.IncomingExistingID)
-		payload.IncomingNewSKU = strings.TrimSpace(payload.IncomingNewSKU)
-		payload.IncomingNewName = strings.TrimSpace(payload.IncomingNewName)
-		payload.IncomingNewLine = strings.TrimSpace(payload.IncomingNewLine)
-		productsMu.RLock()
-		productsSnapshot := make([]productOption, len(products))
-		copy(productsSnapshot, products)
-		productsMu.RUnlock()
-		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
-		if len(productsSnapshot) == 0 {
-			writeAPIError(w, http.StatusForbidden, "No tienes productos disponibles para cambio.", nil)
-			return
-		}
-		fields := map[string]string{}
-		if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
-			return
-		} else if !allowed {
-			fields["product_id"] = "No tienes acceso a este producto."
-		}
-		selectedProduct, ok := findProduct(productsSnapshot, payload.ProductID)
-		if !ok {
-			fields["product_id"] = "Selecciona un producto válido."
-			selectedProduct = productsSnapshot[0]
-			payload.ProductID = selectedProduct.ID
-		}
-		if payload.PersonaCambio == "" {
-			fields["persona_del_cambio"] = "Ingresa la persona responsable del cambio."
-		}
-		if payload.Quantity <= 0 {
-			fields["quantity"] = "Ingresa una cantidad válida para la salida."
-		}
-		if payload.IncomingMode != "existing" && payload.IncomingMode != "new" {
-			fields["incoming_mode"] = "Selecciona el tipo de entrada."
-		}
-		if payload.IncomingMode == "existing" {
-			if payload.IncomingExistingID == "" {
-				fields["incoming_existing_id"] = "Selecciona el producto entrante."
-			} else if _, ok := findProduct(productsSnapshot, payload.IncomingExistingID); !ok {
-				fields["incoming_existing_id"] = "Selecciona un producto entrante válido."
-			}
-			if payload.IncomingExistingQty <= 0 {
-				fields["incoming_existing_qty"] = "Ingresa una cantidad válida para la entrada."
-			}
-		} else if payload.IncomingMode == "new" {
-			if payload.IncomingNewSKU == "" {
-				fields["incoming_new_sku"] = "Ingresa el SKU del producto nuevo."
-			}
-			if payload.IncomingNewName == "" {
-				fields["incoming_new_name"] = "Ingresa el nombre del producto nuevo."
-			}
-			if payload.IncomingNewQty <= 0 {
-				fields["incoming_new_qty"] = "Ingresa una cantidad válida para la entrada."
-			}
-		}
-		if len(fields) > 0 {
-			writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
-			return
-		}
-		tx, err := db.Begin()
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al iniciar el cambio.", nil)
-			return
-		}
-		defer tx.Rollback()
-		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, "Cambio")
-		if err != nil {
-			if err == errInsufficientStock {
-				writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar el cambio.", map[string]string{"quantity": "No hay stock disponible suficiente para completar el cambio."})
-				return
-			}
-			writeAPIError(w, http.StatusInternalServerError, "Error al actualizar unidades salientes.", nil)
-			return
-		}
-		now := time.Now().Format(time.RFC3339)
-		notaMovimiento := strings.TrimSpace(fmt.Sprintf("%s %s", payload.PersonaCambio, payload.Notes))
-		if err := logMovimientos(tx, payload.ProductID, salientesMarcadas, "cambio_salida", notaMovimiento, currentUser, now); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento del cambio.", nil)
-			return
-		}
-		incomingProductID := payload.IncomingExistingID
-		incomingQty := payload.IncomingExistingQty
-		if payload.IncomingMode == "new" {
-			incomingProductID = payload.IncomingNewSKU
-			incomingQty = payload.IncomingNewQty
-		}
-		for i := 0; i < incomingQty; i++ {
-			unitID := fmt.Sprintf("U-%d-%d", time.Now().UnixNano(), i+1)
-			if _, err := tx.Exec(`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?)`, unitID, incomingProductID, "Disponible", now, nil); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar unidades entrantes.", nil)
-				return
-			}
-		}
-		if err := logAuditEvent(tx, currentUser, "change_registered", "change", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
-			"producto_saliente_id": payload.ProductID,
-			"producto_saliente":    selectedProduct.Name,
-			"producto_entrante_id": incomingProductID,
-			"cantidad_saliente":    payload.Quantity,
-			"cantidad_entrante":    incomingQty,
-			"modo_entrada":         payload.IncomingMode,
-		})); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del cambio.", nil)
-			return
-		}
-		if err := tx.Commit(); err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al confirmar el cambio.", nil)
-			return
-		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "product_id": payload.ProductID, "incoming_product_id": incomingProductID, "quantity": payload.Quantity, "incoming_quantity": incomingQty, "message": "Cambio registrado correctamente."})
-	})
+	mux.HandleFunc("/api/swaps", handleAPISwaps(db))
 
 	mux.HandleFunc("/venta", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -10233,8 +11631,13 @@ func main() {
 			}
 			index[name] = i
 		}
-		required := []string{"sku", "linea", "nombre", "cantidad", "precio_venta"}
-		for _, col := range required {
+		if _, ok := index["id"]; !ok {
+			if _, legacyOK := index["sku"]; !legacyOK {
+				writeJSONError(http.StatusBadRequest, "Falta la columna requerida id.")
+				return
+			}
+		}
+		for _, col := range []string{"linea", "nombre", "cantidad", "precio_venta"} {
 			if _, ok := index[col]; !ok {
 				writeJSONError(http.StatusBadRequest, "Faltan columnas requeridas en el CSV.")
 				return

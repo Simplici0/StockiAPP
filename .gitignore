@@ -3,7 +3,31 @@
 *.db-shm
 *.db-wal
 *.db.bak*
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
 data/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Dumps / backups
+*.dump
+*.bak
+backup*.sql
+*.local.sql
+
+# Local Postgres artifacts / temp
+pgdata/
+postgres-data/
+.tmp/
+tmp/
+
+# Logs
+*.log
 
 # macOS
 .DS_Store
@@ -12,4 +36,5 @@ data/
 .gocache/
 
 # Local build artifacts
+stockiapp
 GranEmpresaINV

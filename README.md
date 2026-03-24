@@ -133,8 +133,39 @@ Environment=ADMIN_PASS=SuperSecreto123
 sudo -u granempresa DB_PATH=/srv/granempresa/data/data.db BACKUP_DIR=/srv/granempresa/backups /srv/granempresa/scripts/backup_db.sh
 ```
 
+## 7.2) Desarrollo local con Postgres
+
+Para desarrollo local, usa Postgres como motor principal:
+
+```bash
+cp .env.example .env.local
+export DB_ENGINE=postgres
+export DATABASE_URL=postgres://stockiapp:stockiapp@127.0.0.1:5432/stockiapp_dev?sslmode=disable
+export PORT=8092
+go run .
+```
+
+Atajo recomendado:
+
+```bash
+./stockiapp
+```
+
+Para detener el Postgres local:
+
+```bash
+./scripts/stop-postgres-local.sh
+```
+
+Notas:
+
+- La app no carga `.env` automáticamente; `.env.example` es solo plantilla/documentación.
+- No subas `.env.local`, dumps ni datos locales al repo.
+- Mantén las credenciales reales fuera de archivos versionados.
+
 ## 8) Ajustes útiles
 
 - Cambiar el puerto interno: edita `Environment=PORT=8080` en `/etc/systemd/system/granempresa.service`.
 - Cambiar la ruta de DB: edita `Environment=DB_PATH=/ruta/nueva.db`.
+- Cambiar el motor DB: usa `DB_ENGINE=postgres` junto con `DB_DSN` o `DATABASE_URL`.
 - Ver logs: `journalctl -u granempresa.service -f`
