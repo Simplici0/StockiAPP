@@ -1,863 +1,1013 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Agregar productos</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7f5f2;
-      --card: #ffffff;
-      --text: #26221f;
-      --muted: #6f6a65;
-      --primary: #e85d3c;
-      --primary-strong: #cf4528;
-      --primary-soft: #fff1e6;
-      --success: #2d9d78;
-      --warning: #f59e42;
-      --danger: #d64545;
-      --border: #e6dfd8;
-      --shadow-soft: 0 8px 18px rgba(18, 23, 38, 0.08);
-    }
-
-    * {
-      box-sizing: border-box;
-      font-family: "Inter", "Segoe UI", sans-serif;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-
-    .global-banner {
-      background: #f47a24;
-      padding: 10px 32px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .banner-logos {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .logo-placeholder {
-      height: 26px;
-      min-width: 76px;
-      padding: 0 10px;
-      border-radius: 999px;
-      border: 1px dashed rgba(255, 255, 255, 0.7);
-      color: #ffffff;
-      font-size: 11px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      background: rgba(255, 255, 255, 0.2);
-    }
-
-    .page-header {
-      padding: 18px 32px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      background: var(--card);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .page-header h1 {
-      margin: 0;
-      font-size: 24px;
-    }
-
-    .page-header p {
-      margin: 0;
-      color: var(--muted);
-    }
-
-    .page-content {
-      padding: 24px 32px 40px;
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-
-    .nav-buttons {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      padding: 8px;
-      border-radius: 16px;
-      border: 1px solid var(--border);
-      background: var(--card);
-      box-shadow: var(--shadow-soft);
-      width: fit-content;
-    }
-
-    .nav-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px 14px;
-      border-radius: 999px;
-      text-decoration: none;
-      font-size: 13px;
-      font-weight: 600;
-      transition: all 0.2s ease;
-      border: 1px solid transparent;
-      background: var(--primary-soft);
-      color: var(--primary);
-      cursor: pointer;
-    }
-
-    .nav-button:hover {
-      background: var(--primary);
-      color: #ffffff;
-    }
-
-    .actions {
-      margin-bottom: 24px;
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    button {
-      border: 1px solid var(--border);
-      padding: 12px 24px;
-      border-radius: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      font-size: 14px;
-      transition: all 0.2s;
-      background: var(--card);
-      color: var(--text);
-    }
-
-    button:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-
-    .primary {
-      background: var(--primary);
-      border-color: var(--primary);
-      color: #ffffff;
-    }
-
-    .primary:hover {
-      background: var(--primary-strong);
-    }
-
-    .secondary {
-      background: var(--primary-soft);
-      color: var(--primary);
-      border-color: #f2c6a8;
-    }
-
-    .secondary:hover {
-      background: #d0d9f0;
-    }
-
-    .import-panel {
-      background: var(--card);
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      padding: 24px;
-      margin-bottom: 24px;
-    }
-
-    .import-panel h2 {
-      margin: 0 0 12px 0;
-      font-size: 18px;
-    }
-
-    .import-panel p {
-      margin: 0 0 16px 0;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    .import-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .import-actions input[type="file"] {
-      font-size: 13px;
-    }
-
-    .csv-columns {
-      display: grid;
-      gap: 8px;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      font-size: 13px;
-      color: var(--muted);
-      margin: 16px 0;
-    }
-
-    .csv-columns span {
-      background: #f4f6fb;
-      border-radius: 8px;
-      padding: 6px 10px;
-      border: 1px dashed var(--border);
-    }
-
-    .example-list {
-      margin: 16px 0;
-      padding-left: 18px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .example-list code {
-      color: #2a335a;
-      background: #f3f2f0;
-      padding: 2px 6px;
-      border-radius: 8px;
-    }
-
-    .import-meta {
-      margin-top: 24px;
-      display: grid;
-      gap: 12px;
-    }
-
-    .upload-status {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      font-size: 13px;
-      color: var(--muted);
-    }
-
-    .upload-status span {
-      background: #fbfaf8;
-      border-radius: 999px;
-      padding: 6px 12px;
-      border: 1px solid var(--border);
-    }
-
-    .upload-preview {
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      overflow-x: auto;
-      background: var(--card);
-      box-shadow: var(--shadow-soft);
-      margin-top: 12px;
-    }
-
-    .upload-preview table {
-      width: 100%;
-      min-width: 720px;
-      border-collapse: collapse;
-      border: none;
-      background: transparent;
-    }
-
-    .upload-preview th,
-    .upload-preview td {
-      font-size: 12px;
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-    }
-
-    .upload-preview th {
-      background: #f9f7f4;
-      font-weight: 600;
-    }
-
-    .error-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: #ffeef0;
-      color: var(--danger);
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    .success-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: #e9f7f1;
-      color: var(--success);
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    .movement-log {
-      margin-top: 16px;
-      display: grid;
-      gap: 8px;
-      font-size: 13px;
-      color: var(--muted);
-    }
-
-    .movement-log strong {
-      color: var(--text);
-    }
-
-    .status-card {
-      background: #f9fafc;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      display: grid;
-      gap: 10px;
-      font-size: 13px;
-      color: var(--muted);
-    }
-
-    .status-card ul {
-      margin: 0;
-      padding-left: 18px;
-    }
-
-    .status-card li {
-      margin-bottom: 4px;
-    }
-
-    .status-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .status-pill {
-      background: #eef1f8;
-      color: #2a335a;
-      padding: 4px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    @media (max-width: 768px) {
-      .page-content {
-        padding: 16px;
-      }
-      
-      .actions {
-        flex-direction: column;
-      }
-      
-      .import-actions {
-        flex-direction: column;
-        align-items: stretch;
-      }
-    }
-  </style>
-  {{template "app_styles" .}}
-</head>
-<body>
-  {{template "header" .}}
-  <main class="page-content">
-    <div class="container">
-      <section class="import-panel">
-      <div>
-        <h2>Agregar productos con CSV</h2>
-        <p>Carga un CSV para crear/actualizar productos y crear unidades según cantidad.</p>
-      </div>
-      <div class="import-actions">
-        <button class="secondary" id="download-template">Descargar plantilla CSV</button>
-        <label class="secondary" for="csv-upload">
-          <input id="csv-upload" type="file" accept=".csv,text/csv" />
-        </label>
-        <button class="secondary" id="validate-csv" disabled>Validar archivo</button>
-        <button class="primary" id="upload-products" disabled>Subir productos</button>
-      </div>
-      <p>Regla de importación: por cada fila se crea o encuentra el producto por <strong>SKU</strong> y se crean <strong>N unidades DISPONIBLE</strong> según el campo cantidad.</p>
-      
-      <div>
-        <p>Columnas requeridas y opcionales:</p>
-        <div class="csv-columns">
-          <span>sku</span>
-          <span>linea</span>
-          <span>nombre</span>
-          <span>cantidad</span>
-          <span>precio_base</span>
-          <span>precio_venta</span>
-          <span>precio_consultora</span>
-          <span>descuento (opcional)</span>
-          <span>anotaciones (opcional)</span>
-          <span>fecha_caducidad (YYYY-MM-DD, opcional)</span>
-          <span>aplica_caducidad (true/false opcional)</span>
-        </div>
-      </div>
-      
-      <div>
-        <p>Ejemplos válidos:</p>
-        <ul class="example-list">
-          <li><code>SKU-001,Nutrición,Proteína Balance 500g,5,120000,135000,98000,0,Lote inicial,2025-01-12,true</code></li>
-          <li><code>SKU-002,Dermocosmética,Crema Regeneradora,12,89000,99000,70000,10,Promoción abril,,false</code></li>
-        </ul>
-      </div>
-      
-      <div class="import-meta">
-        <div class="upload-status" id="upload-status">
-          <span>Preview: 0 filas</span>
-          <span>Válidas: 0</span>
-          <span>Errores: 0</span>
-        </div>
-        <div class="status-card" id="validation-summary">
-          <div class="status-row">
-            <span class="status-pill" id="validation-pill">Validación pendiente</span>
-            <span>Sube un CSV para validar columnas y filas.</span>
-          </div>
-          <ul id="validation-errors"></ul>
-        </div>
-        <div class="movement-log" id="movement-log">
-          <div><strong>Resultado de carga</strong></div>
-          <div id="upload-result">Aún no se ha subido ningún archivo.</div>
-          <div><a href="/inventario" class="nav-button" id="inventory-link" style="display: none;">Ver inventario</a></div>
-        </div>
-        <div class="upload-preview" id="upload-preview">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>SKU</th>
-                <th>Línea</th>
-                <th>Nombre</th>
-                <th>Cantidad</th>
-                <th>Precio base</th>
-                <th>Precio venta</th>
-                <th>Precio consultora</th>
-                <th>Descuento</th>
-                <th>Anotaciones</th>
-                <th>Fecha caducidad</th>
-                <th>Aplica caducidad</th>
-                <th>Resultado</th>
-              </tr>
-            </thead>
-            <tbody id="upload-preview-body">
-              <tr>
-                <td colspan="13" style="text-align: center; color: var(--muted);">Sin archivo cargado.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      </section>
-    </div>
-  </main>
-
-  <script>
-    const downloadTemplateButton = document.getElementById("download-template");
-    const uploadStatus = document.getElementById("upload-status");
-    const uploadPreviewBody = document.getElementById("upload-preview-body");
-    const validationErrors = document.getElementById("validation-errors");
-    const validationPill = document.getElementById("validation-pill");
-    const uploadResult = document.getElementById("upload-result");
-    const inventoryLink = document.getElementById("inventory-link");
-    const uploadButton = document.getElementById("upload-products");
-    const fileInput = document.getElementById("csv-upload");
-    const validateButton = document.getElementById("validate-csv");
-    const escapeCSV = (value) => {
-      const stringValue = String(value);
-      if (/[",\n]/.test(stringValue)) {
-        return `"${stringValue.replace(/"/g, '""')}"`;
-      }
-      return stringValue;
-    };
-
-    // Funciones similares a las del archivo original
-    const parseCSV = (text) => {
-      const rows = [];
-      let current = [];
-      let value = "";
-      let inQuotes = false;
-      for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        const next = text[i + 1];
-
-        if (char === '"' && inQuotes && next === '"') {
-          value += '"';
-          i++;
-          continue;
-        }
-
-        if (char === '"') {
-          inQuotes = !inQuotes;
-          continue;
-        }
-
-        if (char === "," && !inQuotes) {
-          current.push(value);
-          value = "";
-          continue;
-        }
-
-        if ((char === "\n" || char === "\r") && !inQuotes) {
-          if (value !== "" || current.length > 0) {
-            current.push(value);
-            rows.push(current);
-            current = [];
-            value = "";
-          }
-          continue;
-        }
-
-        value += char;
-      }
-
-      if (value !== "" || current.length > 0) {
-        current.push(value);
-        rows.push(current);
-      }
-
-      return rows;
-    };
-
-    if (downloadTemplateButton) {
-      downloadTemplateButton.addEventListener("click", () => {
-        const header = [
-          "sku",
-          "linea",
-          "nombre",
-          "cantidad",
-          "precio_base",
-          "precio_venta",
-          "precio_consultora",
-          "descuento",
-          "anotaciones",
-          "fecha_caducidad",
-          "aplica_caducidad"
-        ];
-        const rows = [
-          [
-            "SKU-001",
-            "Nutrición",
-            "Proteína Balance 500g",
-            "5",
-            "120000",
-            "135000",
-            "98000",
-            "0",
-            "Lote inicial",
-            "2025-01-12",
-            "true"
-          ],
-          ["SKU-002", "Dermocosmética", "Crema Regeneradora", "12", "89000", "99000", "70000", "10", "Promoción abril", "", "false"]
-        ];
-
-        const csvContent = [header, ...rows]
-          .map((row) => row.map(escapeCSV).join(","))
-          .join("\n");
-
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "plantilla_productos_mvp.csv";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-      });
-    }
-
-    const validateRows = (rows) => {
-      const header = rows[0].map((cell) => cell.trim().toLowerCase());
-      const required = [
-        "sku",
-        "linea",
-        "nombre",
-        "cantidad",
-        "precio_base",
-        "precio_venta",
-        "precio_consultora"
-      ];
-      const missingColumns = required.filter((column) => !header.includes(column));
-      if (missingColumns.length) {
-        return {
-          rows: [],
-          errors: [`Faltan columnas requeridas: ${missingColumns.join(", ")}`]
-        };
-      }
-
-      const indexMap = header.reduce((map, column, idx) => {
-        map[column] = idx;
-        return map;
-      }, {});
-
-      const dataRows = rows.slice(1);
-      const parsedRows = [];
-      dataRows.forEach((row, idx) => {
-        const get = (column) => (row[indexMap[column]] || "").trim();
-        const sku = get("sku");
-        const linea = get("linea");
-        const nombre = get("nombre");
-        const cantidadRaw = get("cantidad");
-        const cantidad = cantidadRaw === "-" ? "0" : cantidadRaw;
-        const precioBase = get("precio_base");
-        const precioVenta = get("precio_venta");
-        const precioConsultora = get("precio_consultora");
-        const descuento = get("descuento");
-        const anotaciones = get("anotaciones");
-        const fechaCaducidad = get("fecha_caducidad");
-        const aplicaCaducidad = get("aplica_caducidad");
-
-        const errors = [];
-        if (!sku) errors.push("SKU obligatorio.");
-        if (!linea) errors.push("Línea obligatoria.");
-        if (!nombre) errors.push("Nombre obligatorio.");
-
-        const cantidadNum = Number(cantidad);
-        if (cantidad === "" || !Number.isInteger(cantidadNum) || cantidadNum < 0) {
-          errors.push("Cantidad debe ser entero mayor o igual a 0.");
-        }
-
-        const parseNumber = (value) => Number(String(value).replace(",", "."));
-        const precioBaseNum = parseNumber(precioBase);
-        if (precioBase === "" || Number.isNaN(precioBaseNum) || precioBaseNum < 0) {
-          errors.push("Precio base inválido.");
-        }
-        const precioVentaNum = parseNumber(precioVenta);
-        if (precioVenta === "" || Number.isNaN(precioVentaNum) || precioVentaNum < 0) {
-          errors.push("Precio venta inválido.");
-        }
-        const precioConsultoraNum = parseNumber(precioConsultora);
-        if (precioConsultora === "" || Number.isNaN(precioConsultoraNum) || precioConsultoraNum < 0) {
-          errors.push("Precio consultora inválido.");
-        }
-
-        if (descuento) {
-          const descuentoNum = parseNumber(descuento);
-          if (Number.isNaN(descuentoNum) || descuentoNum < 0) {
-            errors.push("Descuento inválido.");
-          }
-        }
-
-        if (aplicaCaducidad) {
-          const aplicaValue = aplicaCaducidad.toLowerCase();
-          if (aplicaValue !== "true" && aplicaValue !== "false") {
-            errors.push("Aplica caducidad debe ser true/false.");
-          }
-          if (aplicaValue === "true" && !fechaCaducidad) {
-            errors.push("Fecha caducidad requerida si aplica.");
-          }
-        }
-
-        if (fechaCaducidad && !/^\d{4}-\d{2}-\d{2}$/.test(fechaCaducidad)) {
-          errors.push("Fecha caducidad debe ser YYYY-MM-DD.");
-        }
-
-        parsedRows.push({
-          index: idx + 1,
-          sku,
-          linea,
-          nombre,
-          cantidad,
-          precioBase,
-          precioVenta,
-          precioConsultora,
-          descuento,
-          anotaciones,
-          fechaCaducidad,
-          aplicaCaducidad,
-          errors
-        });
-      });
-
-      return { rows: parsedRows, errors: [] };
-    };
-
-    const renderPreview = (rows) => {
-      const previewRows = rows.slice(0, 10);
-      uploadPreviewBody.innerHTML = "";
-      if (previewRows.length === 0) {
-        uploadPreviewBody.innerHTML = `
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Agregar productos</title>
+        <style>
+            :root {
+                color-scheme: light;
+                --bg: #f7f5f2;
+                --card: #ffffff;
+                --text: #26221f;
+                --muted: #6f6a65;
+                --primary: #e85d3c;
+                --primary-strong: #cf4528;
+                --primary-soft: #fff1e6;
+                --success: #2d9d78;
+                --warning: #f59e42;
+                --danger: #d64545;
+                --border: #e6dfd8;
+                --shadow-soft: 0 8px 18px rgba(18, 23, 38, 0.08);
+            }
+
+            * {
+                box-sizing: border-box;
+                font-family: "Inter", "Segoe UI", sans-serif;
+            }
+
+            body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--text);
+            }
+
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+
+            .global-banner {
+                background: #f47a24;
+                padding: 10px 32px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 16px;
+            }
+
+            .banner-logos {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+
+            .logo-placeholder {
+                height: 26px;
+                min-width: 76px;
+                padding: 0 10px;
+                border-radius: 999px;
+                border: 1px dashed rgba(255, 255, 255, 0.7);
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                background: rgba(255, 255, 255, 0.2);
+            }
+
+            .page-header {
+                padding: 18px 32px 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                background: var(--card);
+                border-bottom: 1px solid var(--border);
+            }
+
+            .page-header h1 {
+                margin: 0;
+                font-size: 24px;
+            }
+
+            .page-header p {
+                margin: 0;
+                color: var(--muted);
+            }
+
+            .page-content {
+                padding: 24px 32px 40px;
+                max-width: 1400px;
+                margin: 0 auto;
+            }
+
+            .nav-buttons {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                padding: 8px;
+                border-radius: 16px;
+                border: 1px solid var(--border);
+                background: var(--card);
+                box-shadow: var(--shadow-soft);
+                width: fit-content;
+            }
+
+            .nav-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 8px 14px;
+                border-radius: 999px;
+                text-decoration: none;
+                font-size: 13px;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                border: 1px solid transparent;
+                background: var(--primary-soft);
+                color: var(--primary);
+                cursor: pointer;
+            }
+
+            .nav-button:hover {
+                background: var(--primary);
+                color: #ffffff;
+            }
+
+            .actions {
+                margin-bottom: 24px;
+                display: flex;
+                gap: 16px;
+                flex-wrap: wrap;
+            }
+
+            button {
+                border: 1px solid var(--border);
+                padding: 12px 24px;
+                border-radius: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s;
+                background: var(--card);
+                color: var(--text);
+            }
+
+            button:disabled {
+                cursor: not-allowed;
+                opacity: 0.6;
+            }
+
+            .primary {
+                background: var(--primary);
+                border-color: var(--primary);
+                color: #ffffff;
+            }
+
+            .primary:hover {
+                background: var(--primary-strong);
+            }
+
+            .secondary {
+                background: var(--primary-soft);
+                color: var(--primary);
+                border-color: #f2c6a8;
+            }
+
+            .secondary:hover {
+                background: #d0d9f0;
+            }
+
+            .import-panel {
+                background: var(--card);
+                border-radius: 12px;
+                border: 1px solid var(--border);
+                padding: 24px;
+                margin-bottom: 24px;
+            }
+
+            .import-panel h2 {
+                margin: 0 0 12px 0;
+                font-size: 18px;
+            }
+
+            .import-panel p {
+                margin: 0 0 16px 0;
+                color: var(--muted);
+                font-size: 14px;
+                line-height: 1.5;
+            }
+
+            .import-actions {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+
+            .import-actions input[type="file"] {
+                font-size: 13px;
+            }
+
+            .csv-columns {
+                display: grid;
+                gap: 8px;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                font-size: 13px;
+                color: var(--muted);
+                margin: 16px 0;
+            }
+
+            .csv-columns span {
+                background: #f4f6fb;
+                border-radius: 8px;
+                padding: 6px 10px;
+                border: 1px dashed var(--border);
+            }
+
+            .example-list {
+                margin: 16px 0;
+                padding-left: 18px;
+                color: var(--muted);
+                font-size: 13px;
+            }
+
+            .example-list code {
+                color: #2a335a;
+                background: #f3f2f0;
+                padding: 2px 6px;
+                border-radius: 8px;
+            }
+
+            .import-meta {
+                margin-top: 24px;
+                display: grid;
+                gap: 12px;
+            }
+
+            .upload-status {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                font-size: 13px;
+                color: var(--muted);
+            }
+
+            .upload-status span {
+                background: #fbfaf8;
+                border-radius: 999px;
+                padding: 6px 12px;
+                border: 1px solid var(--border);
+            }
+
+            .upload-preview {
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                overflow-x: auto;
+                background: var(--card);
+                box-shadow: var(--shadow-soft);
+                margin-top: 12px;
+            }
+
+            .upload-preview table {
+                width: 100%;
+                min-width: 720px;
+                border-collapse: collapse;
+                border: none;
+                background: transparent;
+            }
+
+            .upload-preview th,
+            .upload-preview td {
+                font-size: 12px;
+                padding: 8px 10px;
+                border-bottom: 1px solid var(--border);
+                text-align: left;
+            }
+
+            .upload-preview th {
+                background: #f9f7f4;
+                font-weight: 600;
+            }
+
+            .error-tag {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 8px;
+                border-radius: 999px;
+                background: #ffeef0;
+                color: var(--danger);
+                font-size: 11px;
+                font-weight: 600;
+            }
+
+            .success-tag {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 8px;
+                border-radius: 999px;
+                background: #e9f7f1;
+                color: var(--success);
+                font-size: 11px;
+                font-weight: 600;
+            }
+
+            .movement-log {
+                margin-top: 16px;
+                display: grid;
+                gap: 8px;
+                font-size: 13px;
+                color: var(--muted);
+            }
+
+            .movement-log strong {
+                color: var(--text);
+            }
+
+            .status-card {
+                background: #f9fafc;
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 16px;
+                display: grid;
+                gap: 10px;
+                font-size: 13px;
+                color: var(--muted);
+            }
+
+            .status-card ul {
+                margin: 0;
+                padding-left: 18px;
+            }
+
+            .status-card li {
+                margin-bottom: 4px;
+            }
+
+            .status-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: center;
+            }
+
+            .status-pill {
+                background: #eef1f8;
+                color: #2a335a;
+                padding: 4px 10px;
+                border-radius: 999px;
+                border: 1px solid var(--border);
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            @media (max-width: 768px) {
+                .page-content {
+                    padding: 16px;
+                }
+
+                .actions {
+                    flex-direction: column;
+                }
+
+                .import-actions {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="container">
+                <section class="import-panel">
+                    <div>
+                        <h2>Agregar productos con CSV</h2>
+                        <p>
+                            Carga un CSV alineado con el modelo actual de
+                            StockiAPP para crear o actualizar productos y sumar
+                            unidades según cantidad.
+                        </p>
+                    </div>
+                    <div class="import-actions">
+                        <button class="secondary" id="download-template">
+                            Descargar plantilla CSV
+                        </button>
+                        <label class="secondary" for="csv-upload">
+                            <input
+                                id="csv-upload"
+                                type="file"
+                                accept=".csv,text/csv"
+                            />
+                        </label>
+                        <button class="secondary" id="validate-csv" disabled>
+                            Validar archivo
+                        </button>
+                        <button class="primary" id="upload-products" disabled>
+                            Subir productos
+                        </button>
+                    </div>
+                    <p>
+                        Regla de importación: por cada fila se crea o encuentra
+                        el producto por <strong>ID</strong>, se actualizan sus
+                        datos vigentes y se crean
+                        <strong>N unidades DISPONIBLE</strong> según
+                        <strong>cantidad</strong>.
+                    </p>
+
+                    <div class="import-meta">
+                        <div class="upload-status" id="upload-status">
+                            <span>Preview: 0 filas</span>
+                            <span>Válidas: 0</span>
+                            <span>Errores: 0</span>
+                        </div>
+                        <div class="status-card" id="validation-summary">
+                            <div class="status-row">
+                                <span class="status-pill" id="validation-pill"
+                                    >Validación pendiente</span
+                                >
+                                <span
+                                    >Sube un CSV para validar columnas y
+                                    filas.</span
+                                >
+                            </div>
+                            <ul id="validation-errors"></ul>
+                        </div>
+                        <div class="movement-log" id="movement-log">
+                            <div><strong>Resultado de carga</strong></div>
+                            <div id="upload-result">
+                                Aún no se ha subido ningún archivo.
+                            </div>
+                            <div>
+                                <a
+                                    href="/inventario"
+                                    class="nav-button"
+                                    id="inventory-link"
+                                    style="display: none"
+                                    >Ver inventario</a
+                                >
+                            </div>
+                        </div>
+                        <div class="upload-preview" id="upload-preview">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>ID</th>
+                                        <th>Línea</th>
+                                        <th>Nombre</th>
+                                        <th>Cantidad</th>
+                                        <th>Precio venta</th>
+                                        <th>Usuario asignado</th>
+                                        <th>Retoma</th>
+                                        <th>Crédito</th>
+                                        <th>Anotaciones</th>
+                                        <th>Fecha caducidad</th>
+                                        <th>Caducidad</th>
+                                        <th>Resultado</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="upload-preview-body">
+                                    <tr>
+                                        <td
+                                            colspan="12"
+                                            style="
+                                                text-align: center;
+                                                color: var(--muted);
+                                            "
+                                        >
+                                            Sin archivo cargado.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <script>
+            const downloadTemplateButton =
+                document.getElementById("download-template");
+            const uploadStatus = document.getElementById("upload-status");
+            const uploadPreviewBody = document.getElementById(
+                "upload-preview-body",
+            );
+            const validationErrors =
+                document.getElementById("validation-errors");
+            const validationPill = document.getElementById("validation-pill");
+            const uploadResult = document.getElementById("upload-result");
+            const inventoryLink = document.getElementById("inventory-link");
+            const uploadButton = document.getElementById("upload-products");
+            const fileInput = document.getElementById("csv-upload");
+            const validateButton = document.getElementById("validate-csv");
+            const escapeCSV = (value) => {
+                const stringValue = String(value);
+                if (/[",\n]/.test(stringValue)) {
+                    return `"${stringValue.replace(/"/g, '""')}"`;
+                }
+                return stringValue;
+            };
+
+            // Funciones similares a las del archivo original
+            const parseCSV = (text) => {
+                const rows = [];
+                let current = [];
+                let value = "";
+                let inQuotes = false;
+                for (let i = 0; i < text.length; i++) {
+                    const char = text[i];
+                    const next = text[i + 1];
+
+                    if (char === '"' && inQuotes && next === '"') {
+                        value += '"';
+                        i++;
+                        continue;
+                    }
+
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                        continue;
+                    }
+
+                    if (char === "," && !inQuotes) {
+                        current.push(value);
+                        value = "";
+                        continue;
+                    }
+
+                    if ((char === "\n" || char === "\r") && !inQuotes) {
+                        if (value !== "" || current.length > 0) {
+                            current.push(value);
+                            rows.push(current);
+                            current = [];
+                            value = "";
+                        }
+                        continue;
+                    }
+
+                    value += char;
+                }
+
+                if (value !== "" || current.length > 0) {
+                    current.push(value);
+                    rows.push(current);
+                }
+
+                return rows;
+            };
+
+            if (downloadTemplateButton) {
+                downloadTemplateButton.addEventListener("click", () => {
+                    const header = [
+                        "id",
+                        "linea",
+                        "nombre",
+                        "cantidad",
+                        "precio_venta",
+                        "owner_user_id",
+                        "retoma_enabled",
+                        "retoma_price",
+                        "anotaciones",
+                        "aplica_caducidad",
+                        "fecha_caducidad",
+                        "credit_enabled",
+                        "debtor_name",
+                        "installments_total",
+                        "total_value",
+                        "installment_value",
+                    ];
+                    const rows = [
+                        [
+                            "ID-001",
+                            "Nutrición",
+                            "Proteína Balance 500g",
+                            "5",
+                            "135000",
+                            "1",
+                            "true",
+                            "90000",
+                            "Lote inicial",
+                            "true",
+                            "2026-12-31",
+                            "false",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ],
+                        [
+                            "ID-002",
+                            "Dermocosmética",
+                            "Crema Regeneradora",
+                            "12",
+                            "99000",
+                            "",
+                            "false",
+                            "",
+                            "Promoción abril",
+                            "false",
+                            "",
+                            "false",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ],
+                    ];
+
+                    const csvContent = [header, ...rows]
+                        .map((row) => row.map(escapeCSV).join(","))
+                        .join("\n");
+
+                    const blob = new Blob([csvContent], {
+                        type: "text/csv;charset=utf-8;",
+                    });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = "plantilla_productos_mvp.csv";
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    URL.revokeObjectURL(url);
+                });
+            }
+
+            const validateRows = (rows) => {
+                const header = rows[0].map((cell) => cell.trim().toLowerCase());
+                const required = [
+                    "linea",
+                    "nombre",
+                    "cantidad",
+                    "precio_venta",
+                ];
+                const missingColumns = required.filter(
+                    (column) => !header.includes(column),
+                );
+                if (missingColumns.length) {
+                    return {
+                        rows: [],
+                        errors: [
+                            `Faltan columnas requeridas: ${missingColumns.join(", ")}`,
+                        ],
+                    };
+                }
+
+                const indexMap = header.reduce((map, column, idx) => {
+                    map[column] = idx;
+                    return map;
+                }, {});
+
+                const dataRows = rows.slice(1);
+                const parsedRows = [];
+                dataRows.forEach((row, idx) => {
+                    const get = (column) =>
+                        (row[indexMap[column]] || "").trim();
+                    const id = get("id") || get("sku");
+                    const linea = get("linea");
+                    const nombre = get("nombre");
+                    const cantidadRaw = get("cantidad");
+                    const cantidad = cantidadRaw === "-" ? "0" : cantidadRaw;
+                    const precioVenta = get("precio_venta");
+                    const ownerUserID = get("owner_user_id");
+                    const retomaEnabled = get("retoma_enabled");
+                    const retomaPrice = get("retoma_price");
+                    const anotaciones = get("anotaciones");
+                    const aplicaCaducidad = get("aplica_caducidad");
+                    const fechaCaducidad = get("fecha_caducidad");
+                    const creditEnabled = get("credit_enabled");
+                    const debtorName = get("debtor_name");
+                    const installmentsTotal = get("installments_total");
+                    const totalValue = get("total_value");
+                    const installmentValue = get("installment_value");
+
+                    const errors = [];
+                    if (!id) errors.push("ID obligatorio.");
+                    if (!linea) errors.push("Línea obligatoria.");
+                    if (!nombre) errors.push("Nombre obligatorio.");
+
+                    const cantidadNum = Number(cantidad);
+                    if (
+                        cantidad === "" ||
+                        !Number.isInteger(cantidadNum) ||
+                        cantidadNum < 0
+                    ) {
+                        errors.push(
+                            "Cantidad debe ser entero mayor o igual a 0.",
+                        );
+                    }
+
+                    const parseNumber = (value) =>
+                        Number(String(value).replace(",", "."));
+                    const precioVentaNum = parseNumber(precioVenta);
+                    if (
+                        precioVenta === "" ||
+                        Number.isNaN(precioVentaNum) ||
+                        precioVentaNum < 0
+                    ) {
+                        errors.push("Precio venta inválido.");
+                    }
+
+                    if (ownerUserID) {
+                        const ownerValue = Number(ownerUserID);
+                        if (!Number.isInteger(ownerValue) || ownerValue <= 0) {
+                            errors.push("owner_user_id inválido.");
+                        }
+                    }
+
+                    if (retomaEnabled) {
+                        const retomaValue = retomaEnabled.toLowerCase();
+                        if (retomaValue !== "true" && retomaValue !== "false") {
+                            errors.push("retoma_enabled debe ser true/false.");
+                        } else if (retomaValue === "true") {
+                            const retomaPriceNum = parseNumber(retomaPrice);
+                            if (
+                                retomaPrice === "" ||
+                                Number.isNaN(retomaPriceNum) ||
+                                retomaPriceNum < 0
+                            ) {
+                                errors.push("retoma_price inválido.");
+                            } else if (
+                                !Number.isNaN(precioVentaNum) &&
+                                retomaPriceNum > precioVentaNum
+                            ) {
+                                errors.push(
+                                    "retoma_price no debe superar precio_venta.",
+                                );
+                            }
+                        }
+                    }
+
+                    if (creditEnabled) {
+                        const creditValue = creditEnabled.toLowerCase();
+                        if (creditValue !== "true" && creditValue !== "false") {
+                            errors.push("credit_enabled debe ser true/false.");
+                        } else if (creditValue === "true") {
+                            if (!debtorName) {
+                                errors.push(
+                                    "debtor_name obligatorio si es crédito.",
+                                );
+                            }
+                            const installmentsTotalNum =
+                                Number(installmentsTotal);
+                            if (
+                                !Number.isInteger(installmentsTotalNum) ||
+                                installmentsTotalNum <= 0
+                            ) {
+                                errors.push(
+                                    "installments_total debe ser mayor a 0.",
+                                );
+                            }
+                            const totalValueNum = parseNumber(totalValue);
+                            if (
+                                totalValue === "" ||
+                                Number.isNaN(totalValueNum) ||
+                                totalValueNum <= 0
+                            ) {
+                                errors.push("total_value inválido.");
+                            }
+                            const installmentValueNum =
+                                parseNumber(installmentValue);
+                            if (
+                                installmentValue === "" ||
+                                Number.isNaN(installmentValueNum) ||
+                                installmentValueNum <= 0
+                            ) {
+                                errors.push("installment_value inválido.");
+                            }
+                        }
+                    }
+
+                    if (aplicaCaducidad) {
+                        const aplicaValue = aplicaCaducidad.toLowerCase();
+                        if (aplicaValue !== "true" && aplicaValue !== "false") {
+                            errors.push(
+                                "Aplica caducidad debe ser true/false.",
+                            );
+                        }
+                        if (aplicaValue === "true" && !fechaCaducidad) {
+                            errors.push("Fecha caducidad requerida si aplica.");
+                        }
+                    }
+
+                    if (
+                        fechaCaducidad &&
+                        !/^\d{4}-\d{2}-\d{2}$/.test(fechaCaducidad)
+                    ) {
+                        errors.push("Fecha caducidad debe ser YYYY-MM-DD.");
+                    }
+
+                    parsedRows.push({
+                        index: idx + 1,
+                        sku: id,
+                        linea,
+                        nombre,
+                        cantidad,
+                        precioVenta,
+                        ownerUserID,
+                        retomaEnabled,
+                        creditEnabled,
+                        anotaciones,
+                        fechaCaducidad,
+                        aplicaCaducidad,
+                        errors,
+                    });
+                });
+
+                return { rows: parsedRows, errors: [] };
+            };
+
+            const renderPreview = (rows) => {
+                const previewRows = rows.slice(0, 10);
+                uploadPreviewBody.innerHTML = "";
+                if (previewRows.length === 0) {
+                    uploadPreviewBody.innerHTML = `
           <tr>
-            <td colspan="13" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
+            <td colspan="12" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
           </tr>
         `;
-        return;
-      }
-      previewRows.forEach((row) => {
-        const errorMarkup = row.errors.length
-          ? `<span class="error-tag">Errores: ${row.errors.join(" ")}</span>`
-          : `<span class="success-tag">OK</span>`;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
+                    return;
+                }
+                previewRows.forEach((row) => {
+                    const errorMarkup = row.errors.length
+                        ? `<span class="error-tag">Errores: ${row.errors.join(" ")}</span>`
+                        : `<span class="success-tag">OK</span>`;
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
           <td>${row.index}</td>
           <td>${row.sku || "-"}</td>
           <td>${row.linea || "-"}</td>
           <td>${row.nombre || "-"}</td>
           <td>${row.cantidad === "" ? "-" : row.cantidad}</td>
-          <td>${row.precioBase || "-"}</td>
           <td>${row.precioVenta || "-"}</td>
-          <td>${row.precioConsultora || "-"}</td>
-          <td>${row.descuento || "-"}</td>
+          <td>${row.ownerUserID || "-"}</td>
+          <td>${row.retomaEnabled || "-"}</td>
+          <td>${row.creditEnabled || "-"}</td>
           <td>${row.anotaciones || "-"}</td>
           <td>${row.fechaCaducidad || "-"}</td>
           <td>${row.aplicaCaducidad || "-"}</td>
           <td>${errorMarkup}</td>
         `;
-        uploadPreviewBody.appendChild(tr);
-      });
-    };
+                    uploadPreviewBody.appendChild(tr);
+                });
+            };
 
-    const updateStatus = (rows, errors) => {
-      const validCount = rows.filter((row) => row.errors.length === 0).length;
-      uploadStatus.innerHTML = `
+            const updateStatus = (rows, errors) => {
+                const validCount = rows.filter(
+                    (row) => row.errors.length === 0,
+                ).length;
+                uploadStatus.innerHTML = `
         <span>Preview: ${rows.length} filas</span>
         <span>Válidas: ${validCount}</span>
         <span>Errores: ${rows.length - validCount}</span>
       `;
 
-      validationErrors.innerHTML = "";
-      if (errors.length) {
-        if (validationPill) validationPill.textContent = "Validación pendiente";
-        errors.forEach((error) => {
-          const li = document.createElement("li");
-          li.textContent = error;
-          validationErrors.appendChild(li);
-        });
-      } else if (rows.length === 0) {
-        if (validationPill) validationPill.textContent = "Sin datos";
-        const li = document.createElement("li");
-        li.textContent = "Aún no hay datos para validar.";
-        validationErrors.appendChild(li);
-      } else if (rows.length - validCount > 0) {
-        if (validationPill) validationPill.textContent = "Revisión requerida";
-        const li = document.createElement("li");
-        li.textContent = "Corrige las filas marcadas antes de subir.";
-        validationErrors.appendChild(li);
-      } else {
-        if (validationPill) validationPill.textContent = "Listo para subir";
-        const li = document.createElement("li");
-        li.textContent = "Archivo validado correctamente. Puedes subirlo.";
-        validationErrors.appendChild(li);
-      }
-    };
+                validationErrors.innerHTML = "";
+                if (errors.length) {
+                    if (validationPill)
+                        validationPill.textContent = "Validación pendiente";
+                    errors.forEach((error) => {
+                        const li = document.createElement("li");
+                        li.textContent = error;
+                        validationErrors.appendChild(li);
+                    });
+                } else if (rows.length === 0) {
+                    if (validationPill)
+                        validationPill.textContent = "Sin datos";
+                    const li = document.createElement("li");
+                    li.textContent = "Aún no hay datos para validar.";
+                    validationErrors.appendChild(li);
+                } else if (rows.length - validCount > 0) {
+                    if (validationPill)
+                        validationPill.textContent = "Revisión requerida";
+                    const li = document.createElement("li");
+                    li.textContent =
+                        "Corrige las filas marcadas antes de subir.";
+                    validationErrors.appendChild(li);
+                } else {
+                    if (validationPill)
+                        validationPill.textContent = "Listo para subir";
+                    const li = document.createElement("li");
+                    li.textContent =
+                        "Archivo validado correctamente. Puedes subirlo.";
+                    validationErrors.appendChild(li);
+                }
+            };
 
-    let currentFile = null;
-    let validatedRows = [];
-    let validationErrorsList = [];
+            let currentFile = null;
+            let validatedRows = [];
+            let validationErrorsList = [];
 
-    const handleCSV = (file) => {
-      if (!file) return;
-      currentFile = file;
+            const handleCSV = (file) => {
+                if (!file) return;
+                currentFile = file;
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = reader.result;
-        const rows = parseCSV(text).filter((row) => row.some((cell) => cell.trim() !== ""));
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const text = reader.result;
+                    const rows = parseCSV(text).filter((row) =>
+                        row.some((cell) => cell.trim() !== ""),
+                    );
 
-        if (rows.length === 0) {
-          uploadPreviewBody.innerHTML = `
+                    if (rows.length === 0) {
+                        uploadPreviewBody.innerHTML = `
             <tr>
-              <td colspan="13" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
+              <td colspan="12" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
             </tr>
           `;
-          validatedRows = [];
-          validationErrorsList = ["El archivo no contiene filas."];
-          updateStatus(validatedRows, validationErrorsList);
-          uploadButton.disabled = true;
-          return;
-        }
+                        validatedRows = [];
+                        validationErrorsList = [
+                            "El archivo no contiene filas.",
+                        ];
+                        updateStatus(validatedRows, validationErrorsList);
+                        uploadButton.disabled = true;
+                        return;
+                    }
 
-        const validation = validateRows(rows);
-        validatedRows = validation.rows;
-        validationErrorsList = validation.errors;
-        renderPreview(validatedRows);
-        updateStatus(validatedRows, validationErrorsList);
+                    const validation = validateRows(rows);
+                    validatedRows = validation.rows;
+                    validationErrorsList = validation.errors;
+                    renderPreview(validatedRows);
+                    updateStatus(validatedRows, validationErrorsList);
 
-        const hasErrors = validationErrorsList.length > 0 || validatedRows.some((row) => row.errors.length > 0);
-        uploadButton.disabled = hasErrors || validatedRows.length === 0;
-      };
-      reader.readAsText(file);
-    };
+                    const hasErrors =
+                        validationErrorsList.length > 0 ||
+                        validatedRows.some((row) => row.errors.length > 0);
+                    uploadButton.disabled =
+                        hasErrors || validatedRows.length === 0;
+                };
+                reader.readAsText(file);
+            };
 
-    if (fileInput) {
-      fileInput.addEventListener("change", (event) => {
-        const file = event.target.files[0];
-        currentFile = file || null;
-        validatedRows = [];
-        validationErrorsList = [];
-        uploadButton.disabled = true;
-        if (validateButton) validateButton.disabled = !currentFile;
-        uploadStatus.innerHTML = `
+            if (fileInput) {
+                fileInput.addEventListener("change", (event) => {
+                    const file = event.target.files[0];
+                    currentFile = file || null;
+                    validatedRows = [];
+                    validationErrorsList = [];
+                    uploadButton.disabled = true;
+                    if (validateButton) validateButton.disabled = !currentFile;
+                    uploadStatus.innerHTML = `
           <span>Preview: 0 filas</span>
           <span>Válidas: 0</span>
           <span>Errores: 0</span>
         `;
-        uploadPreviewBody.innerHTML = `
+                    uploadPreviewBody.innerHTML = `
           <tr>
-            <td colspan="13" style="text-align: center; color: var(--muted);">Sin archivo validado.</td>
+            <td colspan="12" style="text-align: center; color: var(--muted);">Sin archivo validado.</td>
           </tr>
         `;
-        if (validationPill) validationPill.textContent = "Validación pendiente";
-        validationErrors.innerHTML = "";
-        const li = document.createElement("li");
-        li.textContent = "Selecciona un archivo y valida para ver la vista previa.";
-        validationErrors.appendChild(li);
-      });
-    }
+                    if (validationPill)
+                        validationPill.textContent = "Validación pendiente";
+                    validationErrors.innerHTML = "";
+                    const li = document.createElement("li");
+                    li.textContent =
+                        "Selecciona un archivo y valida para ver la vista previa.";
+                    validationErrors.appendChild(li);
+                });
+            }
 
-    if (validateButton) {
-      validateButton.addEventListener("click", () => {
-        if (!currentFile) return;
-        handleCSV(currentFile);
-      });
-    }
+            if (validateButton) {
+                validateButton.addEventListener("click", () => {
+                    if (!currentFile) return;
+                    handleCSV(currentFile);
+                });
+            }
 
-    if (uploadButton) {
-      uploadButton.addEventListener("click", async () => {
-        if (!currentFile || uploadButton.disabled) return;
+            if (uploadButton) {
+                uploadButton.addEventListener("click", async () => {
+                    if (!currentFile || uploadButton.disabled) return;
 
-        uploadButton.disabled = true;
-        uploadButton.textContent = "Subiendo...";
-        uploadResult.textContent = "Procesando archivo, espera unos segundos...";
-        inventoryLink.style.display = "none";
+                    uploadButton.disabled = true;
+                    uploadButton.textContent = "Subiendo...";
+                    uploadResult.textContent =
+                        "Procesando archivo, espera unos segundos...";
+                    inventoryLink.style.display = "none";
 
-        const formData = new FormData();
-        formData.append("file", currentFile);
+                    const formData = new FormData();
+                    formData.append("file", currentFile);
 
-        try {
-          const response = await fetch("/productos/csv", {
-            method: "POST",
-            body: formData
-          });
-          let result = {};
-          try {
-            result = await response.json();
-          } catch (error) {
-            result = {};
-          }
+                    try {
+                        const response = await fetch("/productos/csv", {
+                            method: "POST",
+                            body: formData,
+                        });
+                        let result = {};
+                        try {
+                            result = await response.json();
+                        } catch (error) {
+                            result = {};
+                        }
 
-          if (!response.ok) {
-            uploadResult.textContent = result.error || "No se pudo subir el archivo.";
-            return;
-          }
+                        if (!response.ok) {
+                            uploadResult.textContent =
+                                result.error || "No se pudo subir el archivo.";
+                            return;
+                        }
 
-          const errorCount = result.failed_rows ? result.failed_rows.length : 0;
-          uploadResult.innerHTML = `
+                        const errorCount = result.failed_rows
+                            ? result.failed_rows.length
+                            : 0;
+                        uploadResult.innerHTML = `
             <strong>Resumen:</strong>
             Productos creados: ${result.created_products || 0} ·
             Productos actualizados: ${result.updated_products || 0} ·
@@ -865,22 +1015,32 @@
             Errores: ${errorCount}
           `;
 
-          if (errorCount > 0) {
-            const errorItems = result.failed_rows
-              .map((row) => `<li>Fila ${row.row} (SKU: ${row.sku || "-"}) → ${row.error}</li>`)
-              .join("");
-            uploadResult.insertAdjacentHTML("beforeend", `<ul>${errorItems}</ul>`);
-          }
+                        if (errorCount > 0) {
+                            const errorItems = result.failed_rows
+                                .map(
+                                    (row) =>
+                                        `<li>Fila ${row.row} (ID: ${row.sku || "-"}) → ${row.error}</li>`,
+                                )
+                                .join("");
+                            uploadResult.insertAdjacentHTML(
+                                "beforeend",
+                                `<ul>${errorItems}</ul>`,
+                            );
+                        }
 
-          inventoryLink.style.display = "inline-flex";
-        } catch (error) {
-          uploadResult.textContent = "Error inesperado al subir el archivo.";
-        } finally {
-          uploadButton.textContent = "Subir productos";
-          uploadButton.disabled = validatedRows.length === 0 || validationErrorsList.length > 0 || validatedRows.some((row) => row.errors.length > 0);
-        }
-      });
-    }
-  </script>
-</body>
+                        inventoryLink.style.display = "inline-flex";
+                    } catch (error) {
+                        uploadResult.textContent =
+                            "Error inesperado al subir el archivo.";
+                    } finally {
+                        uploadButton.textContent = "Subir productos";
+                        uploadButton.disabled =
+                            validatedRows.length === 0 ||
+                            validationErrorsList.length > 0 ||
+                            validatedRows.some((row) => row.errors.length > 0);
+                    }
+                });
+            }
+        </script>
+    </body>
 </html>

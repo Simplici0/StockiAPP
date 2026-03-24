@@ -479,7 +479,7 @@ func upsertProducto(exec sqlExecer, tenantID int, sku, nombre, linea, now string
 	_ = now // kept for backwards-compat in case we later add created_at.
 	_, err := exec.Exec(`
 		INSERT INTO productos (sku, tenant_id, id, linea, nombre, fecha_ingreso)
-		VALUES (?, ?, ?, ?, ?, COALESCE((SELECT fecha_ingreso FROM productos WHERE sku = ? AND tenant_id = ?), CURRENT_TIMESTAMP))
+		VALUES (?, ?, ?, ?, ?, COALESCE((SELECT fecha_ingreso FROM productos WHERE sku = ? AND tenant_id = ?), CURRENT_TIMESTAMP::text))
 		ON CONFLICT(sku) DO UPDATE SET
 			tenant_id = excluded.tenant_id,
 			id = excluded.id,
@@ -10233,7 +10233,7 @@ func main() {
 			}
 			index[name] = i
 		}
-		required := []string{"sku", "linea", "nombre", "cantidad", "precio_base", "precio_venta", "precio_consultora"}
+		required := []string{"sku", "linea", "nombre", "cantidad", "precio_venta"}
 		for _, col := range required {
 			if _, ok := index[col]; !ok {
 				writeJSONError(http.StatusBadRequest, "Faltan columnas requeridas en el CSV.")
@@ -10282,6 +10282,16 @@ func main() {
 		}
 
 		resp := csvUploadResponse{}
+		tenantID := tenantIDFromRequest(r)
+		assignableUsers, err := loadAssignableUsersForTenant(db, tenantID)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudieron cargar los usuarios asignables.")
+			return
+		}
+		validOwners := make(map[string]struct{}, len(assignableUsers))
+		for _, user := range assignableUsers {
+			validOwners[strconv.Itoa(user.ID)] = struct{}{}
+		}
 		tx, err := db.Begin()
 		if err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo iniciar la transacción.")
@@ -10291,38 +10301,128 @@ func main() {
 		now := time.Now().Format(time.RFC3339)
 		for i, row := range records[1:] {
 			rowIndex := i + 1 // matches the UI preview index (1-based excluding header)
-			sku := get(row, "sku")
+			productID := get(row, "id")
+			if productID == "" {
+				productID = get(row, "sku")
+			}
 			linea := get(row, "linea")
 			nombre := get(row, "nombre")
+			anotaciones := get(row, "anotaciones")
+			ownerUserIDRaw := get(row, "owner_user_id")
 			cantidadRaw := get(row, "cantidad")
 			if cantidadRaw == "-" {
 				cantidadRaw = "0"
 			}
 
-			if sku == "" || linea == "" || nombre == "" {
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "SKU, línea y nombre son obligatorios."})
+			if productID == "" || linea == "" || nombre == "" {
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "ID, línea y nombre son obligatorios."})
 				continue
 			}
 
 			cantidad, err := parseCSVInt(cantidadRaw)
 			if err != nil || cantidad < 0 {
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Cantidad inválida (debe ser 0 o mayor)."})
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "Cantidad inválida (debe ser 0 o mayor)."})
 				continue
 			}
 
-			// Validate numeric columns.
-			if _, err := parseCSVFloat(get(row, "precio_base")); err != nil {
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Precio base inválido."})
-				continue
-			}
 			precioVenta, err := parseCSVFloat(get(row, "precio_venta"))
 			if err != nil {
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Precio venta inválido."})
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "Precio venta inválido."})
 				continue
 			}
-			if _, err := parseCSVFloat(get(row, "precio_consultora")); err != nil {
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Precio consultora inválido."})
-				continue
+
+			var ownerUserID sql.NullInt64
+			if ownerUserIDRaw != "" {
+				if _, ok := validOwners[ownerUserIDRaw]; !ok {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "owner_user_id no corresponde a un usuario activo del tenant."})
+					continue
+				}
+				parsedOwnerID, err := parseCSVInt(ownerUserIDRaw)
+				if err != nil || parsedOwnerID <= 0 {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "owner_user_id inválido."})
+					continue
+				}
+				ownerUserID = sql.NullInt64{Int64: int64(parsedOwnerID), Valid: true}
+			}
+
+			retomaEnabled := false
+			retomaEnabledRaw := get(row, "retoma_enabled")
+			if retomaEnabledRaw != "" {
+				parsed, err := parseCSVBool(retomaEnabledRaw)
+				if err != nil {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "retoma_enabled debe ser true/false."})
+					continue
+				}
+				retomaEnabled = parsed
+			}
+			var retomaPrice sql.NullFloat64
+			retomaPriceRaw := get(row, "retoma_price")
+			if retomaEnabled {
+				if retomaPriceRaw == "" {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "retoma_price es obligatorio si retoma_enabled es true."})
+					continue
+				}
+				parsed, err := parseCSVFloat(retomaPriceRaw)
+				if err != nil || parsed < 0 {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "retoma_price inválido."})
+					continue
+				}
+				if parsed > precioVenta {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "retoma_price no debe superar precio_venta."})
+					continue
+				}
+				retomaPrice = sql.NullFloat64{Float64: parsed, Valid: true}
+			} else if retomaPriceRaw != "" {
+				if _, err := parseCSVFloat(retomaPriceRaw); err != nil {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "retoma_price inválido."})
+					continue
+				}
+			}
+
+			creditEnabled := false
+			creditEnabledRaw := get(row, "credit_enabled")
+			if creditEnabledRaw != "" {
+				parsed, err := parseCSVBool(creditEnabledRaw)
+				if err != nil {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "credit_enabled debe ser true/false."})
+					continue
+				}
+				creditEnabled = parsed
+			}
+			debtorName := get(row, "debtor_name")
+			installmentsTotal := 0
+			totalValue := 0.0
+			installmentValue := 0.0
+			if creditEnabled {
+				if debtorName == "" {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "debtor_name es obligatorio si credit_enabled es true."})
+					continue
+				}
+				installmentsTotalRaw := get(row, "installments_total")
+				parsedInstallments, err := parseCSVInt(installmentsTotalRaw)
+				if err != nil || parsedInstallments <= 0 {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "installments_total debe ser mayor a 0."})
+					continue
+				}
+				installmentsTotal = parsedInstallments
+
+				totalValueRaw := get(row, "total_value")
+				parsedTotalValue, err := parseCSVFloat(totalValueRaw)
+				if err != nil || parsedTotalValue <= 0 {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "total_value debe ser mayor a 0."})
+					continue
+				}
+				totalValue = parsedTotalValue
+
+				installmentValueRaw := get(row, "installment_value")
+				parsedInstallmentValue, err := parseCSVFloat(installmentValueRaw)
+				if err != nil || parsedInstallmentValue <= 0 {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "installment_value debe ser mayor a 0."})
+					continue
+				}
+				installmentValue = parsedInstallmentValue
+			} else {
+				debtorName = ""
 			}
 
 			fechaCaducidad := get(row, "fecha_caducidad")
@@ -10331,38 +10431,42 @@ func main() {
 			if aplicaCadRaw != "" {
 				parsed, err := parseCSVBool(aplicaCadRaw)
 				if err != nil {
-					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Aplica caducidad debe ser true/false."})
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "aplica_caducidad debe ser true/false."})
 					continue
 				}
 				aplicaCad = parsed
 			}
 			if aplicaCad && fechaCaducidad == "" {
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Fecha caducidad requerida si aplica."})
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "fecha_caducidad requerida si aplica."})
 				continue
 			}
 			if fechaCaducidad != "" {
 				if _, err := time.Parse("2006-01-02", fechaCaducidad); err != nil {
-					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Fecha caducidad debe ser YYYY-MM-DD."})
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "fecha_caducidad debe ser YYYY-MM-DD."})
 					continue
 				}
 			}
 
 			if _, err := tx.Exec("SAVEPOINT csv_row"); err != nil {
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Error al preparar la fila."})
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: "Error al preparar la fila."})
 				continue
 			}
 
 			// Persist catalog.
-			if err := upsertProducto(tx, tenantIDFromRequest(r), sku, nombre, linea, now); err != nil {
+			if err := upsertProducto(tx, tenantID, productID, nombre, linea, now); err != nil {
 				_, _ = tx.Exec("ROLLBACK TO csv_row")
 				_, _ = tx.Exec("RELEASE csv_row")
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Error al guardar producto."})
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: fmt.Sprintf("Error al guardar producto: %v", err)})
 				continue
 			}
-			if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE sku = ?`, precioVenta, sku); err != nil {
+			if _, err := tx.Exec(`
+				UPDATE productos
+				SET precio_venta = ?, anotaciones = ?, owner_user_id = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = 0, total_value = ?, installment_value = ?
+				WHERE tenant_id = ? AND sku = ?
+			`, precioVenta, anotaciones, ownerUserID, boolToInt(retomaEnabled), retomaPrice, boolToInt(creditEnabled), debtorName, installmentsTotal, totalValue, installmentValue, tenantID, productID); err != nil {
 				_, _ = tx.Exec("ROLLBACK TO csv_row")
 				_, _ = tx.Exec("RELEASE csv_row")
-				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Error al guardar precio de venta."})
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: fmt.Sprintf("Error al guardar los datos del producto: %v", err)})
 				continue
 			}
 
@@ -10370,22 +10474,58 @@ func main() {
 			productsMu.Lock()
 			found := false
 			for idx := range products {
-				if products[idx].ID == sku {
+				if products[idx].ID == productID {
 					products[idx].Name = nombre
 					products[idx].Line = linea
+					products[idx].Notes = anotaciones
 					products[idx].SalePrice = precioVenta
+					products[idx].RetomaEnabled = retomaEnabled
+					products[idx].HasRetomaPrice = retomaPrice.Valid
+					if retomaPrice.Valid {
+						products[idx].RetomaPrice = retomaPrice.Float64
+					} else {
+						products[idx].RetomaPrice = 0
+					}
+					products[idx].CreditEnabled = creditEnabled
+					products[idx].DebtorName = debtorName
+					products[idx].InstallmentsTotal = installmentsTotal
+					products[idx].InstallmentsPaid = 0
+					products[idx].TotalValue = totalValue
+					products[idx].InstallmentValue = installmentValue
+					products[idx].HasOwner = ownerUserID.Valid
+					if ownerUserID.Valid {
+						products[idx].OwnerUserID = int(ownerUserID.Int64)
+					} else {
+						products[idx].OwnerUserID = 0
+					}
 					found = true
 					break
 				}
 			}
 			if !found {
 				products = append(products, productOption{
-					ID:           sku,
-					Name:         nombre,
-					Line:         linea,
-					FechaIngreso: time.Now().Format("2006-01-02"),
-					SalePrice:    precioVenta,
+					ID:                productID,
+					Name:              nombre,
+					Line:              linea,
+					Notes:             anotaciones,
+					FechaIngreso:      time.Now().Format("2006-01-02"),
+					SalePrice:         precioVenta,
+					RetomaEnabled:     retomaEnabled,
+					HasRetomaPrice:    retomaPrice.Valid,
+					CreditEnabled:     creditEnabled,
+					DebtorName:        debtorName,
+					InstallmentsTotal: installmentsTotal,
+					InstallmentsPaid:  0,
+					TotalValue:        totalValue,
+					InstallmentValue:  installmentValue,
 				})
+				if retomaPrice.Valid {
+					products[len(products)-1].RetomaPrice = retomaPrice.Float64
+				}
+				if ownerUserID.Valid {
+					products[len(products)-1].HasOwner = true
+					products[len(products)-1].OwnerUserID = int(ownerUserID.Int64)
+				}
 				resp.CreatedProducts++
 			} else {
 				resp.UpdatedProducts++
@@ -10396,18 +10536,18 @@ func main() {
 			baseID := time.Now().UnixNano()
 			rowFailed := false
 			for j := 0; j < cantidad; j++ {
-				unitID := fmt.Sprintf("U-%s-%d", sku, baseID+int64(j))
+				unitID := fmt.Sprintf("U-%s-%d", productID, baseID+int64(j))
 				var caducidad any = nil
 				if aplicaCad && fechaCaducidad != "" {
 					caducidad = fechaCaducidad
 				}
 				if _, err := tx.Exec(
-					`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?)`,
-					unitID, sku, "Disponible", now, caducidad,
+					`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
+					unitID, tenantID, productID, "Disponible", now, caducidad,
 				); err != nil {
 					_, _ = tx.Exec("ROLLBACK TO csv_row")
 					_, _ = tx.Exec("RELEASE csv_row")
-					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Error al crear unidades."})
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: fmt.Sprintf("Error al crear unidades: %v", err)})
 					rowFailed = true
 					break
 				}
