@@ -1,4 +1,7 @@
 {{define "app_styles"}}
+<link rel="icon" href="{{businessLogoPath .}}" />
+<link rel="shortcut icon" href="{{businessLogoPath .}}" />
+<link rel="apple-touch-icon" href="{{businessLogoPath .}}" />
 <style>
     :root {
       color-scheme: light;
@@ -14,9 +17,9 @@
       --text-muted:     #4f627e;
       --text-soft:      #7f92aa;
 
-      --primary:        {{businessPrimaryColor}};
-      --primary-strong: {{businessPrimaryStrong}};
-      --primary-soft:   {{businessPrimarySoft}};
+      --primary:        {{businessPrimaryColor .}};
+      --primary-strong: {{businessPrimaryStrong .}};
+      --primary-soft:   {{businessPrimarySoft .}};
 
       --secondary:      #102a4c;
       --secondary-soft: #e7eef7;

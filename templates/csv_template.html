@@ -467,7 +467,7 @@
                                 <tbody id="upload-preview-body">
                                     <tr>
                                         <td
-                                            colspan="12"
+                                            colspan="13"
                                             style="
                                                 text-align: center;
                                                 color: var(--muted);
@@ -640,9 +640,14 @@
                     "cantidad",
                     "precio_venta",
                 ];
+                const hasIDColumn =
+                    header.includes("id") || header.includes("sku");
                 const missingColumns = required.filter(
                     (column) => !header.includes(column),
                 );
+                if (!hasIDColumn) {
+                    missingColumns.unshift("id");
+                }
                 if (missingColumns.length) {
                     return {
                         rows: [],
@@ -822,7 +827,7 @@
                 if (previewRows.length === 0) {
                     uploadPreviewBody.innerHTML = `
           <tr>
-            <td colspan="12" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
+            <td colspan="13" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
           </tr>
         `;
                     return;
@@ -911,7 +916,7 @@
                     if (rows.length === 0) {
                         uploadPreviewBody.innerHTML = `
             <tr>
-              <td colspan="12" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
+              <td colspan="13" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
             </tr>
           `;
                         validatedRows = [];
@@ -953,7 +958,7 @@
         `;
                     uploadPreviewBody.innerHTML = `
           <tr>
-            <td colspan="12" style="text-align: center; color: var(--muted);">Sin archivo validado.</td>
+            <td colspan="13" style="text-align: center; color: var(--muted);">Sin archivo validado.</td>
           </tr>
         `;
                     if (validationPill)

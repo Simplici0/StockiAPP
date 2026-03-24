@@ -172,6 +172,106 @@
       border-color: #f5c6cf;
     }
 
+    .scope-banner {
+      margin-bottom: 16px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, #ffffff 0%, #f8f5f2 100%);
+      box-shadow: var(--shadow-soft);
+      display: grid;
+      gap: 8px;
+    }
+
+    .scope-banner strong {
+      font-size: 14px;
+    }
+
+    .scope-banner p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .scope-pills {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .role-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: #f4f0eb;
+      color: var(--text);
+    }
+
+    .role-pill.platform {
+      background: #fff2de;
+      border-color: #f2cf96;
+      color: #8a5510;
+    }
+
+    .role-pill.tenant {
+      background: #edf3ff;
+      border-color: #c5d7fb;
+      color: #305ca8;
+    }
+
+    .section-kicker {
+      margin: 0 0 6px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--primary);
+    }
+
+    .role-legend {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    }
+
+    .role-legend-item {
+      display: grid;
+      gap: 6px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+    }
+
+    .role-legend-item p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .user-ident {
+      display: grid;
+      gap: 3px;
+    }
+
+    .user-ident strong {
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .user-meta {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
     .card {
       background: var(--card);
       border-radius: 18px;
@@ -316,8 +416,37 @@
       <div class="flash error">{{.Error}}</div>
     {{end}}
 
+    {{if eq .CurrentUser.Role "platform_admin"}}
+    <section class="scope-banner">
+      <div class="scope-pills">
+        <span class="role-pill platform">Platform admin</span>
+        <span class="role-pill tenant">Acceso global de plataforma</span>
+      </div>
+      <strong>Estás en administración de usuarios con alcance de plataforma.</strong>
+      <p>Puedes gestionar usuarios operativos y también cuentas <code>platform_admin</code>. El resto de admins solo gestiona usuarios de su negocio.</p>
+    </section>
+    {{end}}
+
+    <section class="role-legend">
+      {{if eq .CurrentUser.Role "platform_admin"}}
+      <article class="role-legend-item">
+        <span class="role-pill platform">Platform admin</span>
+        <p>Gestiona plataforma completa: empresas, credenciales iniciales y usuarios de alcance global.</p>
+      </article>
+      {{end}}
+      <article class="role-legend-item">
+        <span class="role-pill tenant">Admin</span>
+        <p>Gestiona operación de su empresa: catálogo, usuarios del negocio y configuración local.</p>
+      </article>
+      <article class="role-legend-item">
+        <span class="role-pill">Empleado</span>
+        <p>Opera flujos de negocio según visibilidad y ownership definidos para su empresa.</p>
+      </article>
+    </section>
+
     <section class="card">
-      <h2>Crear usuario</h2>
+      <p class="section-kicker">{{if eq .CurrentUser.Role "platform_admin"}}Administración de empresas y plataforma{{else}}Administración del negocio{{end}}</p>
+      <h2>Crear usuario operativo</h2>
       <form method="POST" action="/admin/users/create">
         <div class="row">
           <div>
@@ -341,6 +470,9 @@
             <select id="new-role" name="role" required>
               <option value="empleado">Empleado</option>
               <option value="admin">Admin</option>
+              {{if eq .CurrentUser.Role "platform_admin"}}
+              <option value="platform_admin">Platform admin</option>
+              {{end}}
             </select>
           </div>
           <div>
@@ -373,8 +505,23 @@
         {{range .Users}}
         <tr>
           <td>{{.ID}}</td>
-          <td>{{.Username}}</td>
-          <td>{{.Role}}</td>
+          <td>
+            <div class="user-ident">
+              <strong>{{.Username}}</strong>
+              <p class="user-meta">
+                {{if .Name}}{{.Name}}{{else}}Usuario operativo{{end}}{{if .Email}} · {{.Email}}{{end}}
+              </p>
+            </div>
+          </td>
+          <td>
+            {{if eq .Role "platform_admin"}}
+              <span class="role-pill platform">Platform admin</span>
+            {{else if eq .Role "admin"}}
+              <span class="role-pill tenant">Admin</span>
+            {{else}}
+              <span class="role-pill">Empleado</span>
+            {{end}}
+          </td>
           <td>
             {{if .IsActive}}
               <span class="status-pill">Activo</span>
@@ -386,6 +533,11 @@
           <td>
             <details>
               <summary>Administrar</summary>
+              {{if and (eq .Role "platform_admin") (ne $.CurrentUser.Role "platform_admin")}}
+              <div class="inline-form">
+                <p>Solo un platform admin puede editar o eliminar este usuario.</p>
+              </div>
+              {{else}}
               <div class="inline-form">
                 <form method="POST" action="/admin/users/update">
                   <input type="hidden" name="id" value="{{.ID}}" />
@@ -407,6 +559,9 @@
                       <select name="role" required>
                         <option value="empleado" {{if eq .Role "empleado"}}selected{{end}}>Empleado</option>
                         <option value="admin" {{if eq .Role "admin"}}selected{{end}}>Admin</option>
+                        {{if eq $.CurrentUser.Role "platform_admin"}}
+                        <option value="platform_admin" {{if eq .Role "platform_admin"}}selected{{end}}>Platform admin</option>
+                        {{end}}
                       </select>
                     </div>
                     <div>
@@ -446,6 +601,7 @@
                   </div>
                 </form>
               </div>
+              {{end}}
             </details>
           </td>
         </tr>

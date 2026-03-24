@@ -244,16 +244,42 @@
     }
 
     .topbar-role {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      min-height: 20px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.1);
       font-size: 10.5px;
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: {{businessPrimaryColor}};
+      color: {{businessPrimaryColor .}};
       white-space: nowrap;
     }
 
     .topbar-role.admin-muted {
       color: rgba(255,255,255,0.46);
+    }
+
+    .topbar-role.platform {
+      color: #ffd9a2;
+      border-color: rgba(255, 217, 162, 0.34);
+      background: rgba(255, 217, 162, 0.14);
+    }
+
+    .topbar-role.tenant {
+      color: #b5d4ff;
+      border-color: rgba(181, 212, 255, 0.34);
+      background: rgba(181, 212, 255, 0.14);
+    }
+
+    .topbar-role.employee {
+      color: rgba(255,255,255,0.72);
+      border-color: rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.1);
     }
 
     .topbar-logout {
@@ -390,9 +416,9 @@
             aria-label="Inicio Stocki App"
         >
             <div class="topbar-logo">
-                <img src="{{businessLogoPath}}" alt="Logo" />
+                <img src="{{businessLogoPath .}}" alt="Logo" />
             </div>
-            <span class="topbar-name">{{businessName}}</span>
+            <span class="topbar-name">{{businessName .}}</span>
         </a>
 
         <nav class="topbar-nav" aria-label="Navegación principal">
@@ -401,7 +427,8 @@
         </nav>
 
         <div class="topbar-admin-nav" aria-label="Menús administrativos">
-            {{if .CurrentUser}} {{if eq .CurrentUser.Role "admin"}}
+            {{if .CurrentUser}} {{if or (eq .CurrentUser.Role "admin") (eq
+            .CurrentUser.Role "platform_admin")}}
             <details class="topbar-menu">
                 <summary>
                     Productos
@@ -449,9 +476,10 @@
         <div class="topbar-user">
             <div class="topbar-user-copy">
                 <span class="topbar-username">{{.CurrentUser.Username}}</span>
-                <span class="topbar-role admin-muted"
-                    >{{if eq .CurrentUser.Role
-                    "admin"}}Panel{{else}}{{.CurrentUser.Role}}{{end}}</span
+                <span
+                    class="topbar-role {{if eq .CurrentUser.Role "platform_admin"}}platform{{else if eq .CurrentUser.Role "admin"}}tenant{{else}}employee{{end}}"
+                    >{{if eq .CurrentUser.Role "platform_admin"}}Platform
+                    admin{{else if eq .CurrentUser.Role "admin"}}Admin{{else}}Empleado{{end}}</span
                 >
             </div>
             <form class="topbar-logout-form" method="POST" action="/logout">
@@ -475,6 +503,15 @@
 </div>
 <script>
     (function () {
+        const closeMenus = () => {
+            document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
+                menu.open = false;
+            });
+        };
+
+        closeMenus();
+        window.addEventListener("pageshow", closeMenus);
+
         const path = window.location.pathname;
         const directLinks = document.querySelectorAll(".topbar-link");
         directLinks.forEach((link) => {
@@ -497,7 +534,6 @@
             });
             if (hasActiveChild) {
                 menu.classList.add("active");
-                menu.open = true;
             }
         });
 
@@ -505,6 +541,18 @@
             document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
                 if (!menu.contains(event.target)) menu.open = false;
             });
+        });
+
+        document
+            .querySelectorAll(".topbar-menu-panel a, .topbar-link")
+            .forEach((link) => {
+                link.addEventListener("click", () => {
+                    closeMenus();
+                });
+            });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") closeMenus();
         });
     })();
 </script>

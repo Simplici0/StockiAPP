@@ -92,6 +92,106 @@
                 border: 1px solid var(--border);
             }
 
+            .credential-callout {
+                display: grid;
+                gap: 10px;
+                padding: 16px 18px;
+                border-radius: 16px;
+                border: 1px solid rgba(16, 42, 76, 0.14);
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.98) 0%,
+                    rgba(237, 246, 255, 0.94) 100%
+                );
+                box-shadow: var(--shadow-xs);
+            }
+
+            .credential-callout strong {
+                color: var(--secondary);
+            }
+
+            .credential-token {
+                display: block;
+                padding: 12px;
+                border-radius: 12px;
+                background: #f4f8fc;
+                border: 1px solid rgba(15, 40, 80, 0.12);
+                word-break: break-all;
+                font-size: 12px;
+            }
+
+            .onboarding-checklist {
+                display: grid;
+                gap: 8px;
+                padding: 14px 16px;
+                border-radius: 14px;
+                border: 1px dashed var(--border-strong);
+                background: #ffffff;
+            }
+
+            .onboarding-checklist p {
+                margin: 0;
+                color: var(--text);
+                font-size: 13px;
+            }
+
+            .tenant-summary-grid {
+                display: grid;
+                gap: 10px;
+                grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            }
+
+            .tenant-summary-card {
+                display: grid;
+                gap: 4px;
+                padding: 10px 12px;
+                border-radius: 12px;
+                border: 1px solid var(--border);
+                background: #ffffff;
+            }
+
+            .tenant-summary-card span {
+                color: var(--text-muted);
+                font-size: 12px;
+            }
+
+            .tenant-summary-card strong {
+                color: var(--secondary);
+                font-size: 14px;
+                word-break: break-word;
+            }
+
+            .platform-block {
+                border-color: rgba(242, 207, 150, 0.9);
+                background: linear-gradient(
+                    180deg,
+                    #ffffff 0%,
+                    rgba(255, 247, 235, 0.98) 100%
+                );
+            }
+
+            .platform-kicker {
+                margin: 0;
+                font-size: 11px;
+                font-weight: 900;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #8a5510;
+            }
+
+            .tenant-scope-note {
+                display: grid;
+                gap: 8px;
+                padding: 16px 18px;
+                border-radius: 16px;
+                border: 1px dashed var(--border-strong);
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.95) 0%,
+                    var(--bg-card-muted) 100%
+                );
+            }
+
             .flash.error {
                 color: #9f2445;
                 background: rgba(217, 75, 99, 0.08);
@@ -366,9 +466,9 @@
                     <div class="settings-section-head">
                         <h2>Configuración</h2>
                         <p>
-                            La pantalla ahora se agrupa en bloques desplegables
-                            para reducir saturación visual y facilitar la
-                            búsqueda de ajustes.
+                            Panel consolidado para demo: branding, catálogo,
+                            credenciales e información de empresas en un solo
+                            flujo operativo.
                         </p>
                     </div>
 
@@ -377,8 +477,8 @@
                             <div class="settings-accordion-title">
                                 <h2>General</h2>
                                 <p>
-                                    Branding principal, moneda y formato visible
-                                    de fechas para toda la app.
+                                    Branding visible, moneda y formato de fecha
+                                    de tu negocio.
                                 </p>
                             </div>
                             <span
@@ -396,11 +496,12 @@
                                     enctype="multipart/form-data"
                                 >
                                     <div class="settings-subsection-head">
-                                        <h3>Branding del negocio</h3>
+                                        <h3>Branding de tu negocio</h3>
                                         <p>
                                             Configura nombre, logo, color
                                             principal, moneda y formato de fecha
-                                            con defaults seguros.
+                                            que verán los usuarios de este
+                                            negocio.
                                         </p>
                                     </div>
 
@@ -428,8 +529,16 @@
                                             accept=".png,.jpg,.jpeg,.svg,.webp"
                                         />
                                         <p>
-                                            Si no subes uno nuevo, se conserva
-                                            el actual.
+                                            Formatos soportados: PNG, JPG, JPEG,
+                                            WEBP y SVG.
+                                        </p>
+                                        <p>
+                                            Recomendado para mejor
+                                            visualización: imagen cuadrada de
+                                            512x512 px (mínimo 256x256 px) y
+                                            peso ideal menor a 300 KB. Si no
+                                            subes uno nuevo, se conserva el
+                                            actual.
                                         </p>
                                     </div>
 
@@ -514,8 +623,11 @@
                                         <div class="settings-subsection-head">
                                             <h3>Vista previa general</h3>
                                             <p>
-                                                Así se verá el branding base del
-                                                sistema al cargar la app.
+                                                Así se verá el branding visible
+                                                de este negocio en la app. El
+                                                logo se muestra en contenedores
+                                                compactos, por eso se recomienda
+                                                formato cuadrado.
                                             </p>
                                         </div>
 
@@ -802,6 +914,341 @@
                     </div>
                 </details>
 
+                {{if .CanManageTenants}}
+                <details class="settings-accordion">
+                    <summary>
+                        <div class="settings-accordion-title">
+                            <h2>Plataforma: empresas</h2>
+                            <p>
+                                Onboarding y gestión global de empresas para
+                                demo, separado de la configuración local del
+                                negocio actual.
+                            </p>
+                        </div>
+                        <span class="settings-accordion-icon" aria-hidden="true"
+                            >+</span
+                        >
+                    </summary>
+                    <div class="settings-accordion-body">
+                        <section class="card line-card platform-block">
+                            <div class="settings-subsection-head">
+                                <p class="platform-kicker">
+                                    Solo platform admin
+                                </p>
+                                <h3>Nueva empresa</h3>
+                                <p>
+                                    Crea una empresa lista para operar en un
+                                    solo paso: seed operativo, admin inicial y
+                                    API key inicial.
+                                </p>
+                            </div>
+
+                            <form
+                                class="line-form"
+                                method="POST"
+                                action="/configuracion/tenants/create"
+                            >
+                                <div class="line-form-grid">
+                                    <div>
+                                        <label for="new_tenant_name"
+                                            >Nombre de la empresa</label
+                                        >
+                                        <input
+                                            id="new_tenant_name"
+                                            name="name"
+                                            type="text"
+                                            value="{{.NewTenantName}}"
+                                            placeholder="Ej. Farma Norte"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label for="new_tenant_slug"
+                                            >Slug</label
+                                        >
+                                        <input
+                                            id="new_tenant_slug"
+                                            name="slug"
+                                            type="text"
+                                            value="{{.NewTenantSlug}}"
+                                            placeholder="ej. farma-norte"
+                                        />
+                                    </div>
+                                </div>
+                                <div class="line-form-grid">
+                                    <div>
+                                        <label for="new_tenant_admin"
+                                            >Usuario admin inicial</label
+                                        >
+                                        <input
+                                            id="new_tenant_admin"
+                                            name="admin_username"
+                                            type="text"
+                                            value="{{.NewTenantAdmin}}"
+                                            placeholder="ej. farma.norte.admin"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label for="new_tenant_admin_password"
+                                            >Contrasena inicial</label
+                                        >
+                                        <input
+                                            id="new_tenant_admin_password"
+                                            name="admin_password"
+                                            type="password"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                                <div class="line-form-grid">
+                                    <div>
+                                        <label
+                                            for="new_tenant_admin_password_confirm"
+                                            >Confirmar contrasena</label
+                                        >
+                                        <input
+                                            id="new_tenant_admin_password_confirm"
+                                            name="admin_password_confirm"
+                                            type="password"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                                <div class="actions">
+                                    <button class="primary" type="submit">
+                                        Crear empresa
+                                    </button>
+                                </div>
+                            </form>
+
+                            {{if .CreatedTenantToken}}
+                            <div class="credential-callout">
+                                <p>
+                                    <strong>API key inicial:</strong> guarda
+                                    este token ahora. No volverá a mostrarse.
+                                </p>
+                                {{if .CreatedTenantKeyName}}
+                                <p>
+                                    Nombre asignado:
+                                    <strong>{{.CreatedTenantKeyName}}</strong>
+                                </p>
+                                {{end}}
+                                <code class="credential-token"
+                                    >{{.CreatedTenantToken}}</code
+                                >
+                                <div class="onboarding-checklist">
+                                    <p>
+                                        1. Inicia sesión con el admin inicial
+                                        del tenant.
+                                    </p>
+                                    <p>
+                                        2. Prueba <code>/api/health</code> con
+                                        este token.
+                                    </p>
+                                    <p>
+                                        3. Guarda el token en el workflow n8n
+                                        del negocio.
+                                    </p>
+                                </div>
+                            </div>
+                            {{end}}
+                        </section>
+
+                        <section class="card line-card platform-block">
+                            <div class="settings-subsection-head">
+                                <p class="platform-kicker">
+                                    Solo platform admin
+                                </p>
+                                <h3>Empresas registradas</h3>
+                                <p>
+                                    Vista rápida de estado operativo por
+                                    empresa: identidad, credenciales iniciales y
+                                    acciones críticas.
+                                </p>
+                            </div>
+
+                            {{if .Tenants}}
+                            <div class="stack">
+                                {{range .Tenants}}
+                                <div class="line-row">
+                                    <form
+                                        class="stack"
+                                        method="POST"
+                                        action="/configuracion/tenants/update"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="tenant_id"
+                                            value="{{.ID}}"
+                                        />
+                                        <div class="line-form-grid">
+                                            <div>
+                                                <label for="tenant_name_{{.ID}}"
+                                                    >Nombre</label
+                                                >
+                                                <input
+                                                    id="tenant_name_{{.ID}}"
+                                                    name="name"
+                                                    type="text"
+                                                    value="{{.Name}}"
+                                                    required
+                                                />
+                                            </div>
+                                            <div>
+                                                <label for="tenant_slug_{{.ID}}"
+                                                    >Slug</label
+                                                >
+                                                <input
+                                                    id="tenant_slug_{{.ID}}"
+                                                    name="slug"
+                                                    type="text"
+                                                    value="{{.Slug}}"
+                                                    {{if
+                                                    .IsDefault}}readonly{{end}}
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+                                        <div class="line-meta">
+                                            <strong>ID {{.ID}}</strong>
+                                            <div class="tenant-summary-grid">
+                                                <div
+                                                    class="tenant-summary-card"
+                                                >
+                                                    <span>Admin inicial</span>
+                                                    <strong
+                                                        >{{if
+                                                        .InitialAdminUsername}}{{.InitialAdminUsername}}{{else}}No
+                                                        registrado{{end}}</strong
+                                                    >
+                                                </div>
+                                                <div
+                                                    class="tenant-summary-card"
+                                                >
+                                                    <span>API key inicial</span>
+                                                    <strong
+                                                        >{{if
+                                                        .InitialAPIKeyName}}{{.InitialAPIKeyName}}{{else}}No
+                                                        registrada{{end}}</strong
+                                                    >
+                                                </div>
+                                            </div>
+                                            <p>
+                                                {{if .InitialAPIKeyName}}
+                                                <strong
+                                                    >La regeneración invalida la
+                                                    credencial anterior y
+                                                    preserva este nombre
+                                                    operativo.</strong
+                                                >
+                                                {{else}}La regeneración crea una
+                                                credencial inicial si todavía no
+                                                existe.{{end}}
+                                            </p>
+                                            <p>
+                                                Creada: {{.CreatedAt}} ·
+                                                Actualizada: {{.UpdatedAt}} {{if
+                                                .IsDefault}}· Tenant base{{end}}
+                                            </p>
+                                        </div>
+                                        <div class="actions">
+                                            <button
+                                                class="secondary"
+                                                type="submit"
+                                            >
+                                                Guardar cambios
+                                            </button>
+                                        </div>
+                                    </form>
+                                    <div class="stack">
+                                        <div>
+                                            <span
+                                                class="line-status {{if not .Active}}inactive{{end}}"
+                                            >
+                                                {{if
+                                                .Active}}Activa{{else}}Inactiva{{end}}
+                                            </span>
+                                        </div>
+                                        {{if .IsDefault}}
+                                        <div class="settings-note">
+                                            <p>
+                                                El tenant base no se puede
+                                                inactivar en esta fase.
+                                            </p>
+                                        </div>
+                                        {{else}}
+                                        <form
+                                            class="actions"
+                                            method="POST"
+                                            action="/configuracion/tenants/toggle"
+                                        >
+                                            <input
+                                                type="hidden"
+                                                name="tenant_id"
+                                                value="{{.ID}}"
+                                            />
+                                            <input
+                                                type="hidden"
+                                                name="active"
+                                                value="{{if .Active}}0{{else}}1{{end}}"
+                                            />
+                                            <button
+                                                class="secondary"
+                                                type="submit"
+                                            >
+                                                {{if
+                                                .Active}}Inactivar{{else}}Activar{{end}}
+                                            </button>
+                                        </form>
+                                        <form
+                                            class="actions"
+                                            method="POST"
+                                            action="/configuracion/tenants/api-key/rotate"
+                                            onsubmit="
+                                                return confirm(
+                                                    'Se invalidará la API key inicial anterior y se generará una nueva. ¿Continuar?',
+                                                );
+                                            "
+                                        >
+                                            <input
+                                                type="hidden"
+                                                name="tenant_id"
+                                                value="{{.ID}}"
+                                            />
+                                            <button
+                                                class="secondary"
+                                                type="submit"
+                                            >
+                                                Regenerar API key inicial
+                                            </button>
+                                        </form>
+                                        <p>
+                                            {{if .Active}}Bloquea login, API y
+                                            sesiones activas del tenant al
+                                            inactivarlo.{{else}}Restaura acceso
+                                            web y API al volver a
+                                            activarlo.{{end}}
+                                        </p>
+                                        {{end}}
+                                    </div>
+                                </div>
+                                {{end}}
+                            </div>
+                            {{else}}
+                            <div class="empty-state">
+                                <h2>Sin empresas registradas</h2>
+                                <p>
+                                    Aun no hay tenants creados aparte del tenant
+                                    base.
+                                </p>
+                            </div>
+                            {{end}}
+                        </section>
+                    </div>
+                </details>
+                {{end}}
+
                 <details class="settings-accordion">
                     <summary>
                         <div class="settings-accordion-title">
@@ -825,25 +1272,32 @@
                                     momento de crearlo y luego se guarda
                                     únicamente como hash.
                                 </p>
+                                <p>
+                                    La API key inicial del tenant queda
+                                    reservada y se regenera desde el bloque de
+                                    empresas / tenants.
+                                </p>
                             </div>
 
                             {{if .CreatedAPIToken}}
-                            <div class="settings-note">
+                            <div class="credential-callout">
                                 <p>
                                     <strong>Token generado:</strong> guarda este
                                     valor ahora. No volverá a mostrarse.
                                 </p>
-                                <code
-                                    style="
-                                        display: block;
-                                        padding: 12px;
-                                        border-radius: 10px;
-                                        background: #f4f8fc;
-                                        border: 1px solid rgba(15, 40, 80, 0.1);
-                                        word-break: break-all;
-                                    "
+                                <code class="credential-token"
                                     >{{.CreatedAPIToken}}</code
                                 >
+                                <div class="onboarding-checklist">
+                                    <p>
+                                        Validación rápida:
+                                        <code
+                                            >curl -H "Authorization: Bearer
+                                            TOKEN"
+                                            https://login.stockiapp.co/api/health</code
+                                        >
+                                    </p>
+                                </div>
                             </div>
                             {{end}}
 
@@ -895,9 +1349,15 @@
                                             name="name"
                                             type="text"
                                             value="{{.Name}}"
+                                            {{if
+                                            .IsInitial}}readonly{{end}}
                                         />
                                         <p>
-                                            Creada: {{.CreatedAt}} ·
+                                            {{if .IsInitial}}
+                                            <span class="line-status"
+                                                >Inicial del tenant</span
+                                            >
+                                            · {{end}} Creada: {{.CreatedAt}} ·
                                             Actualizada: {{.UpdatedAt}}
                                         </p>
                                     </div>
@@ -910,6 +1370,27 @@
                                         </span>
                                     </div>
                                     <div class="stack">
+                                        {{if .IsInitial}}
+                                        <div class="settings-note">
+                                            <p>
+                                                {{if eq $.CurrentUser.Role
+                                                "platform_admin"}}Usa la acción
+                                                <strong
+                                                    >Regenerar API key
+                                                    inicial</strong
+                                                >
+                                                en Empresas / tenants para
+                                                invalidarla y emitir una nueva.
+                                                {{else}}La API key inicial no se
+                                                renombra ni se desactiva desde
+                                                este bloque. Si necesitas una
+                                                nueva, solicita la regeneración
+                                                a un
+                                                <code>platform_admin</code
+                                                >.{{end}}
+                                            </p>
+                                        </div>
+                                        {{else}}
                                         <label class="checkline">
                                             <input
                                                 type="checkbox"
@@ -927,6 +1408,7 @@
                                                 Guardar
                                             </button>
                                         </div>
+                                        {{end}}
                                     </div>
                                 </form>
                                 {{end}}
