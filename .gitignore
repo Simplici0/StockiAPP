@@ -38,3 +38,7 @@ tmp/
 # Local build artifacts
 stockiapp
 GranEmpresaINV
+
+# Local-only tooling and runtime uploads
+scripts/
+static/uploads/branding/

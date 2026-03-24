@@ -766,7 +766,13 @@
                 </div>
                 <div class="dashboard-toolbar-actions">
                     <details class="range-picker" id="dash-range">
-                        <summary><span id="dash-range-badge">{{.RangeStart}} → {{.RangeEnd}} · {{.RangeCount}} ventas</span> <span style="opacity:0.6;font-size:10px;">▾</span></summary>
+                        <summary>
+                            <span id="dash-range-badge"
+                                >{{.RangeStart}} → {{.RangeEnd}} ·
+                                {{.RangeCount}} ventas</span
+                            >
+                            <span style="opacity: 0.6; font-size: 10px">▾</span>
+                        </summary>
                         <div class="range-popover">
                             <form
                                 id="dash-range-form"
@@ -896,10 +902,7 @@
                                         <th>Cantidad</th>
                                         <th>Total</th>
                                         <th>Método</th>
-                                        {{if and .CurrentUser (eq
-                                        .CurrentUser.Role "admin")}}
-                                        <th>Acción</th>
-                                        {{end}}
+                                        <th>Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody id="sales-table-body">
@@ -911,9 +914,16 @@
                                         <td>{{.Cantidad}}</td>
                                         <td>{{.Total}}</td>
                                         <td>{{.MetodoPago}}</td>
-                                        {{if and $.CurrentUser (eq
-                                        $.CurrentUser.Role "admin")}}
                                         <td>
+                                            <a
+                                                class="button secondary"
+                                                href="/venta/comprobante?sale_id={{.ID}}"
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                >Comprobante</a
+                                            >
+                                            {{if and $.CurrentUser (eq
+                                            $.CurrentUser.Role "admin")}}
                                             <button
                                                 type="button"
                                                 class="button secondary"
@@ -921,8 +931,8 @@
                                             >
                                                 Eliminar
                                             </button>
+                                            {{end}}
                                         </td>
-                                        {{end}}
                                     </tr>
                                     {{end}}
                                 </tbody>
@@ -1091,20 +1101,31 @@
                                         Ventas por usuario
                                     </h3>
                                     <div class="summary-note">
-                                        Total vendido por cada usuario en el periodo.
+                                        Total vendido por cada usuario en el
+                                        periodo.
                                     </div>
                                 </div>
                                 <div class="state-list" id="summary-user-list">
                                     {{range .UserTimeline}}
                                     <div class="user-sale-row">
                                         <span class="user-sale-left">
-                                            <span class="legend-dot" style="background: {{.Color}};"></span>
+                                            <span
+                                                class="legend-dot"
+                                                style="background: {{.Color}};"
+                                            ></span>
                                             <span>{{.UserLabel}}</span>
                                         </span>
-                                        <span class="user-sale-total">{{.Total}}</span>
+                                        <span class="user-sale-total"
+                                            >{{.Total}}</span
+                                        >
                                     </div>
                                     {{else}}
-                                    <div class="empty-chart" style="min-height:60px;">Sin datos</div>
+                                    <div
+                                        class="empty-chart"
+                                        style="min-height: 60px"
+                                    >
+                                        Sin datos
+                                    </div>
                                     {{end}}
                                 </div>
                             </section>
@@ -1398,15 +1419,17 @@
                      String(s.producto || "-"),
                      String(s.cantidad ?? "-"),
                      String(s.total || "-"),
-                     String(s.metodo_pago || "-")
+                     String(s.metodo_pago || "-"),
+                     (() => {
+                       const receiptHref = `/venta/comprobante?sale_id=${encodeURIComponent(String(s.id ?? ""))}`;
+                       const receiptBtn = `<a class="button secondary" href="${receiptHref}" target="_blank" rel="noreferrer">Comprobante</a>`;
+                       if (isAdmin) {
+                         return `${receiptBtn} <button type="button" class="button secondary" data-sale-delete="${s.id}">Eliminar</button>`;
+                       }
+                       return receiptBtn;
+                     })()
                    ];
-                   if (isAdmin) {
-                     cells.push(`<button type="button" class="button secondary" data-sale-delete="${s.id}">Eliminar</button>`);
-                   }
-                   tr.innerHTML = cells.map((c, i) => {
-                     if (isAdmin && i === cells.length - 1) return `<td>${c}</td>`;
-                     return `<td>${c}</td>`;
-                   }).join("");
+                   tr.innerHTML = cells.map((c) => `<td>${c}</td>`).join("");
                    salesTableBody.appendChild(tr);
                  });
                };

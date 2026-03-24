@@ -123,6 +123,13 @@
 
             .table-wrap {
                 margin: 0;
+                overflow: visible;
+            }
+
+            .table-scroll {
+                overflow-x: auto;
+                overflow-y: visible;
+                border-radius: inherit;
             }
 
             /* Table local overrides */
@@ -369,9 +376,7 @@
             }
 
             .menu-panel {
-                position: absolute;
-                right: 0;
-                top: calc(100% + 8px);
+                position: fixed;
                 display: none;
                 min-width: 180px;
                 background: rgba(255, 255, 255, 0.96);
@@ -380,7 +385,7 @@
                 box-shadow: 0 18px 36px rgba(10, 25, 55, 0.14);
                 padding: 6px;
                 backdrop-filter: blur(12px);
-                z-index: 60;
+                z-index: 260;
             }
 
             .menu-panel.open {
@@ -784,20 +789,22 @@
 
             <main>
                 <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Producto</th>
-                                <th>Línea</th>
-                                <th>Valor</th>
-                                <th>Estado</th>
-                                <th>Stock</th>
-                                <th>Acciones</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody id="productTable"></tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    <th>Línea</th>
+                                    <th>Valor</th>
+                                    <th>Estado</th>
+                                    <th>Stock</th>
+                                    <th>Acciones</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="productTable"></tbody>
+                        </table>
+                    </div>
                 </div>
             </main>
 
@@ -2450,38 +2457,27 @@
             let retomaContext = null;
             let editContext = null;
             let openMenuContext = null;
+            let menuPortalHost = null;
             const actionSubtitleHint =
                 "Doble clic para editar nombre del producto.";
 
             const positionMenuPanel = (button, panel) => {
                 if (!button || !panel) return;
-                const container = button.closest(".menu");
-                if (!container) return;
                 const padding = 12;
                 const gap = 8;
 
                 const btnRect = button.getBoundingClientRect();
                 const panelRect = panel.getBoundingClientRect();
-                const containerRect = container.getBoundingClientRect();
-
-                let top = btnRect.bottom - containerRect.top + gap;
+                let top = btnRect.bottom + gap;
                 if (top + panelRect.height > window.innerHeight - padding) {
-                    top =
-                        btnRect.top -
-                        containerRect.top -
-                        panelRect.height -
-                        gap;
+                    top = btnRect.top - panelRect.height - gap;
                 }
-                top = Math.max(-containerRect.top + padding, top);
+                const maxTop = window.innerHeight - padding - panelRect.height;
+                top = Math.max(padding, Math.min(top, maxTop));
 
-                let left = btnRect.right - containerRect.left - panelRect.width;
-                const minLeft = padding - containerRect.left;
-                const maxLeft =
-                    window.innerWidth -
-                    padding -
-                    containerRect.left -
-                    panelRect.width;
-                left = Math.max(minLeft, Math.min(left, maxLeft));
+                let left = btnRect.right - panelRect.width;
+                const maxLeft = window.innerWidth - padding - panelRect.width;
+                left = Math.max(padding, Math.min(left, maxLeft));
 
                 panel.style.left = `${Math.round(left)}px`;
                 panel.style.top = `${Math.round(top)}px`;
@@ -2495,7 +2491,14 @@
                         panel.classList.remove("open");
                         panel.style.left = "";
                         panel.style.top = "";
+                        const host =
+                            panel.dataset.menuHostId &&
+                            document.getElementById(panel.dataset.menuHostId);
+                        if (host && panel.parentElement !== host) {
+                            host.appendChild(panel);
+                        }
                     });
+                menuPortalHost = null;
                 openMenuContext = null;
             };
 
@@ -3964,6 +3967,13 @@
                     const willOpen = !panel.classList.contains("open");
                     closeOpenMenuPanels();
                     if (willOpen) {
+                        const host = menuButton.closest(".menu");
+                        if (host) {
+                            if (!host.id) host.id = `menu-host-${menuId}`;
+                            panel.dataset.menuHostId = host.id;
+                            document.body.appendChild(panel);
+                            menuPortalHost = host;
+                        }
                         panel.classList.add("open");
                         positionMenuPanel(menuButton, panel);
                         openMenuContext = { button: menuButton, panel };

@@ -81,6 +81,9 @@ type saleReceiptData struct {
 	SoldBy         string
 	Channel        string
 	Notas          string
+	BuyerName      string
+	BuyerDocument  string
+	NeedsBuyerData bool
 	DownloadURL    string
 	CurrentUser    *User
 	Settings       BusinessSettings
@@ -3163,6 +3166,23 @@ func saleReceiptViewURL(saleID int) string {
 
 func saleReceiptDownloadURL(saleID int) string {
 	return fmt.Sprintf("/venta/comprobante?sale_id=%d&download=1", saleID)
+}
+
+func saleReceiptViewURLWithBuyer(saleID int, buyerName, buyerDocument string) string {
+	values := url.Values{}
+	values.Set("sale_id", strconv.Itoa(saleID))
+	values.Set("buyer_name", strings.TrimSpace(buyerName))
+	values.Set("buyer_document", strings.TrimSpace(buyerDocument))
+	return "/venta/comprobante?" + values.Encode()
+}
+
+func saleReceiptDownloadURLWithBuyer(saleID int, buyerName, buyerDocument string) string {
+	values := url.Values{}
+	values.Set("sale_id", strconv.Itoa(saleID))
+	values.Set("download", "1")
+	values.Set("buyer_name", strings.TrimSpace(buyerName))
+	values.Set("buyer_document", strings.TrimSpace(buyerDocument))
+	return "/venta/comprobante?" + values.Encode()
 }
 
 func saleReceiptNumber(saleID int, saleDate string) string {
@@ -8321,6 +8341,7 @@ func main() {
 		}
 
 		baseID := time.Now().UnixNano()
+		tenantID := normalizeTenantID(tenantIDFromRequest(r))
 		for j := 0; j < cantidad; j++ {
 			unitID := fmt.Sprintf("U-%s-%d", sku, baseID+int64(j))
 			var cad any = nil
@@ -8328,8 +8349,8 @@ func main() {
 				cad = caducidad
 			}
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?)`,
-				unitID, sku, "Disponible", now, cad,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
+				unitID, tenantID, sku, "Disponible", now, cad,
 			); err != nil {
 				http.Error(w, "No se pudieron crear unidades", http.StatusInternalServerError)
 				return
@@ -8560,7 +8581,7 @@ func main() {
 			if payload.AplicaCad && payload.FechaCaducidad != "" {
 				cad = payload.FechaCaducidad
 			}
-			if _, err := tx.Exec(`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?)`, unitID, sku, "Disponible", now, cad); err != nil {
+			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), sku, "Disponible", now, cad); err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudieron crear las unidades.", nil)
 				return
 			}
@@ -10681,6 +10702,22 @@ func main() {
 			return
 		}
 
+		buyerName := strings.TrimSpace(r.URL.Query().Get("buyer_name"))
+		buyerDocument := strings.TrimSpace(r.URL.Query().Get("buyer_document"))
+		if buyerName == "" || buyerDocument == "" {
+			data.NeedsBuyerData = true
+			data.BuyerName = buyerName
+			data.BuyerDocument = buyerDocument
+			data.DownloadURL = saleReceiptDownloadURL(saleID)
+			if err := tmpl.ExecuteTemplate(w, "sale_receipt.html", data); err != nil {
+				http.Error(w, "Error al renderizar el comprobante", http.StatusInternalServerError)
+			}
+			return
+		}
+		data.BuyerName = buyerName
+		data.BuyerDocument = buyerDocument
+		data.DownloadURL = saleReceiptDownloadURLWithBuyer(saleID, buyerName, buyerDocument)
+
 		download := r.URL.Query().Get("download") == "1"
 		if download {
 			filename := fmt.Sprintf("comprobante-venta-%d.html", saleID)
@@ -10691,6 +10728,8 @@ func main() {
 			"sale_id":        saleID,
 			"product_id":     data.ProductoID,
 			"receipt_number": data.ReceiptNumber,
+			"buyer_name":     buyerName,
+			"buyer_document": buyerDocument,
 			"download":       download,
 		}); auditErr != nil {
 			log.Printf("audit sale receipt generated: %v", auditErr)
