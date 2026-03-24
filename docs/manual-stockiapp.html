@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual de Uso | StockiAPP</title>
+  <style>
+    :root {
+      --bg: #eef3f7;
+      --paper: rgba(255, 255, 255, 0.86);
+      --paper-strong: #ffffff;
+      --ink: #16233a;
+      --muted: #5f6d83;
+      --line: rgba(22, 35, 58, 0.12);
+      --accent: #0b9bd7;
+      --accent-strong: #0b6ea7;
+      --accent-soft: rgba(11, 155, 215, 0.12);
+      --warm: #f7f0e7;
+      --shadow: 0 28px 60px rgba(27, 48, 77, 0.12);
+      --radius: 28px;
+      --nav-width: 320px;
+      --content-width: 960px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(11, 155, 215, 0.12), transparent 26rem),
+        radial-gradient(circle at top right, rgba(255, 178, 68, 0.12), transparent 22rem),
+        linear-gradient(180deg, #f4f7fb 0%, #eaf0f5 100%);
+    }
+
+    body.reading-mode {
+      --paper: rgba(255, 255, 255, 0.96);
+      --paper-strong: #ffffff;
+      --shadow: 0 18px 32px rgba(27, 48, 77, 0.08);
+      background: linear-gradient(180deg, #f9fafc 0%, #f1f4f8 100%);
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(280px, var(--nav-width)) minmax(0, 1fr);
+      gap: 24px;
+      width: min(1440px, calc(100% - 32px));
+      margin: 16px auto;
+      align-items: start;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 16px;
+      display: grid;
+      gap: 18px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 251, 255, 0.88));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      display: grid;
+      gap: 8px;
+    }
+
+    .eyebrow {
+      margin: 0;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-strong);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-family: "Iowan Old Style", "Palatino Linotype", serif;
+      font-size: clamp(2rem, 3vw, 2.6rem);
+      line-height: 0.96;
+      letter-spacing: -0.04em;
+    }
+
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.98rem;
+    }
+
+    .search {
+      display: grid;
+      gap: 10px;
+    }
+
+    .search input {
+      width: 100%;
+      min-height: 48px;
+      padding: 0 16px;
+      border: 1px solid rgba(22, 35, 58, 0.16);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+      font: inherit;
+      outline: none;
+    }
+
+    .search input:focus {
+      border-color: rgba(11, 155, 215, 0.5);
+      box-shadow: 0 0 0 4px rgba(11, 155, 215, 0.12);
+    }
+
+    .chip-row,
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .chip,
+    .tool {
+      border: 1px solid rgba(22, 35, 58, 0.12);
+      background: rgba(255, 255, 255, 0.76);
+      color: var(--ink);
+      padding: 10px 14px;
+      border-radius: 999px;
+      font: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+    }
+
+    .chip:hover,
+    .chip.is-active,
+    .tool:hover {
+      transform: translateY(-1px);
+      background: var(--accent-soft);
+      border-color: rgba(11, 155, 215, 0.24);
+    }
+
+    .nav-list {
+      display: grid;
+      gap: 6px;
+      max-height: min(58vh, 720px);
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .nav-link {
+      display: grid;
+      gap: 2px;
+      padding: 12px 14px;
+      border-radius: 18px;
+      text-decoration: none;
+      color: var(--ink);
+      transition: background 180ms ease, transform 180ms ease;
+    }
+
+    .nav-link:hover,
+    .nav-link.is-active {
+      background: rgba(22, 35, 58, 0.06);
+      transform: translateX(2px);
+    }
+
+    .nav-link strong {
+      font-size: 0.96rem;
+    }
+
+    .nav-link span {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .progress {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(22, 35, 58, 0.08);
+      overflow: hidden;
+    }
+
+    .progress > span {
+      display: block;
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), #4bc4f2);
+      transition: width 180ms ease-out;
+    }
+
+    .content {
+      max-width: var(--content-width);
+      padding-bottom: 48px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 28px;
+      margin-bottom: 8px;
+      border: 1px solid var(--line);
+      border-radius: 36px;
+      background:
+        linear-gradient(125deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 255, 0.86)),
+        linear-gradient(135deg, rgba(11, 155, 215, 0.08), transparent 42%);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -4rem;
+      top: -4rem;
+      width: 16rem;
+      height: 16rem;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(11, 155, 215, 0.18), transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 26px;
+      grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.9fr);
+      align-items: end;
+    }
+
+    .hero h2 {
+      margin: 0;
+      font-family: "Iowan Old Style", "Palatino Linotype", serif;
+      font-size: clamp(2.4rem, 4vw, 4.8rem);
+      line-height: 0.92;
+      letter-spacing: -0.055em;
+      max-width: 12ch;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 58ch;
+      color: var(--muted);
+      line-height: 1.68;
+      font-size: 1rem;
+    }
+
+    .hero-notes {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      border-radius: 24px;
+      background: rgba(246, 249, 253, 0.84);
+      border: 1px solid rgba(22, 35, 58, 0.08);
+    }
+
+    .hero-notes strong {
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-strong);
+    }
+
+    .hero-notes ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .section {
+      padding: 26px 20px 24px;
+      border-bottom: 1px solid rgba(22, 35, 58, 0.08);
+      scroll-margin-top: 28px;
+    }
+
+    .section:last-child {
+      border-bottom: none;
+    }
+
+    .section-head {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .section-head h3 {
+      margin: 0;
+      font-size: clamp(1.45rem, 2.6vw, 2rem);
+      line-height: 1.08;
+      letter-spacing: -0.04em;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.62;
+      max-width: 70ch;
+    }
+
+    .split {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .panel {
+      padding: 20px;
+      border-radius: 24px;
+      border: 1px solid rgba(22, 35, 58, 0.08);
+      background: var(--paper);
+      box-shadow: 0 12px 24px rgba(20, 37, 58, 0.06);
+      backdrop-filter: blur(12px);
+    }
+
+    .panel h4,
+    .steps h4 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+      letter-spacing: 0.02em;
+    }
+
+    .panel p,
+    .panel li,
+    .steps li {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .steps {
+      display: grid;
+      gap: 14px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: step-num;
+    }
+
+    .steps li {
+      counter-increment: step-num;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      column-gap: 14px;
+      row-gap: 4px;
+      padding: 14px 18px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(22, 35, 58, 0.08);
+      align-items: start;
+    }
+
+    .steps li::before {
+      content: counter(step-num);
+      grid-row: 1 / 3;
+      align-self: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 0.84rem;
+      font-weight: 800;
+      display: grid;
+      place-items: center;
+      border: 1.5px solid rgba(11, 155, 215, 0.18);
+    }
+
+    .steps li strong {
+      color: var(--ink);
+      font-size: 1rem;
+    }
+
+    .mini-kpi {
+      display: grid;
+      gap: 4px;
+      padding: 16px 18px;
+      border-radius: 22px;
+      background: var(--warm);
+      border: 1px solid rgba(210, 162, 83, 0.18);
+    }
+
+    .mini-kpi b {
+      font-size: 1.35rem;
+      letter-spacing: -0.04em;
+    }
+
+    .mini-kpi span {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .details-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    details {
+      border: 1px solid rgba(22, 35, 58, 0.08);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.78);
+      overflow: hidden;
+    }
+
+    details[open] {
+      background: var(--paper-strong);
+      box-shadow: 0 14px 24px rgba(18, 34, 56, 0.08);
+    }
+
+    summary {
+      position: relative;
+      padding: 18px 56px 18px 20px;
+      cursor: pointer;
+      list-style: none;
+      font-weight: 700;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    summary::after {
+      content: "+";
+      position: absolute;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(11, 155, 215, 0.12);
+      color: var(--accent-strong);
+      font-size: 1.1rem;
+      transition: transform 180ms ease;
+    }
+
+    details[open] summary::after {
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    .details-body {
+      padding: 0 20px 20px;
+      display: grid;
+      gap: 14px;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .callout {
+      padding: 18px 20px;
+      border-radius: 24px;
+      background: linear-gradient(135deg, rgba(11, 155, 215, 0.12), rgba(11, 155, 215, 0.04));
+      border: 1px solid rgba(11, 155, 215, 0.18);
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .toc-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .toc-card {
+      display: grid;
+      gap: 8px;
+      padding: 18px;
+      text-decoration: none;
+      color: var(--ink);
+      border-radius: 22px;
+      border: 1px solid rgba(22, 35, 58, 0.08);
+      background: rgba(255, 255, 255, 0.78);
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .toc-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(11, 155, 215, 0.24);
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    .toc-card span {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.92rem;
+    }
+
+    .split + ol,
+    .split + .details-stack,
+    .split + .callout,
+    ol + .details-stack,
+    ol + .callout,
+    .details-stack + .callout {
+      margin-top: 20px;
+    }
+
+    /* Callout variants */
+    .callout--success {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04));
+      border-color: rgba(16, 185, 129, 0.22);
+    }
+
+    .callout--warn {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+      border-color: rgba(245, 158, 11, 0.22);
+    }
+
+    .callout--close {
+      background: linear-gradient(135deg, rgba(22, 35, 58, 0.07), rgba(22, 35, 58, 0.03));
+      border-color: rgba(22, 35, 58, 0.12);
+    }
+
+    /* Sidebar toggle button */
+    .sidebar-toggle {
+      display: none;
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      z-index: 100;
+      width: 44px;
+      height: 44px;
+      border: none;
+      border-radius: 14px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 1.15rem;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(15, 26, 44, 0.26);
+      transition: background 180ms ease;
+    }
+
+    .sidebar-toggle:hover {
+      background: var(--accent-strong);
+    }
+
+    /* Sidebar overlay */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 49;
+      background: rgba(10, 20, 38, 0.38);
+      backdrop-filter: blur(2px);
+    }
+
+    .sidebar-overlay.is-visible {
+      display: block;
+    }
+
+    .section.is-hidden,
+    .nav-link.is-hidden {
+      display: none;
+    }
+
+    .floating-top {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 20;
+      min-width: 52px;
+      min-height: 52px;
+      border: none;
+      border-radius: 18px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 1rem;
+      box-shadow: 0 16px 26px rgba(15, 26, 44, 0.24);
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .floating-top.is-visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: relative;
+        top: 0;
+      }
+
+      .hero-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .sidebar-toggle {
+        display: grid;
+        place-items: center;
+      }
+
+      .shell {
+        width: min(100% - 20px, 1440px);
+        margin: 0 auto 24px;
+        padding-top: 64px;
+      }
+
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 50;
+        width: min(320px, 88vw);
+        border-radius: 0 28px 28px 0;
+        transform: translateX(-110%);
+        transition: transform 280ms cubic-bezier(0.22, 0.61, 0.36, 1);
+        overflow-y: auto;
+        max-height: 100dvh;
+        padding: 22px;
+      }
+
+      .sidebar.is-open {
+        transform: translateX(0);
+      }
+
+      .nav-list {
+        max-height: none;
+        overflow: visible;
+      }
+
+      .hero {
+        border-radius: 26px;
+        padding: 20px;
+      }
+
+      .toc-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .chip-row,
+      .toolbar {
+        overflow: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+      }
+
+      .chip,
+      .tool {
+        white-space: nowrap;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .split {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .shell {
+        width: calc(100% - 16px);
+      }
+
+      .hero {
+        border-radius: 20px;
+        padding: 18px;
+      }
+
+      .section {
+        padding: 20px 14px 18px;
+      }
+
+      .section-head h3 {
+        font-size: 1.35rem;
+      }
+
+      .toc-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .panel,
+      .mini-kpi {
+        padding: 14px 16px;
+      }
+
+      .floating-top {
+        right: 12px;
+        bottom: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Abrir menú" aria-expanded="false">☰</button>
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <p class="eyebrow">Manual operativo</p>
+        <h1>StockiAPP</h1>
+        <p>Guía práctica para usar la plataforma con claridad, sin depender de soporte técnico para cada operación del día.</p>
+      </div>
+
+      <div class="search">
+        <label for="manual-search" class="eyebrow" style="font-size:0.72rem;">Buscar tema</label>
+        <input id="manual-search" type="search" placeholder="Ejemplo: ventas, créditos, inventario">
+      </div>
+
+      <div class="chip-row" aria-label="Filtros por enfoque">
+        <button class="chip is-active" data-filter="all" type="button">Todo</button>
+        <button class="chip" data-filter="operacion" type="button">Operación diaria</button>
+        <button class="chip" data-filter="admin" type="button">Administración</button>
+        <button class="chip" data-filter="integracion" type="button">Integraciones</button>
+      </div>
+
+      <nav class="nav-list" id="manual-nav" aria-label="Secciones del manual">
+        <a class="nav-link" href="#inicio" data-filter="all" data-keywords="inicio portada resumen uso stockiapp">
+          <strong>🏠 Inicio</strong>
+          <span>Qué es StockiAPP y cómo está organizado este manual.</span>
+        </a>
+        <a class="nav-link" href="#mapa" data-filter="all" data-keywords="mapa indice secciones modulos">
+          <strong>🗺️ Mapa rápido</strong>
+          <span>Un vistazo general antes de empezar a operar.</span>
+        </a>
+        <a class="nav-link" href="#primeros-pasos" data-filter="operacion" data-keywords="login acceso sesion primeros pasos">
+          <strong>🚀 Primeros pasos</strong>
+          <span>Ingreso, navegación y lectura básica de la app.</span>
+        </a>
+        <a class="nav-link" href="#dashboard" data-filter="operacion" data-keywords="dashboard tablero resumen indicadores">
+          <strong>📊 Dashboard</strong>
+          <span>Cómo leer el estado general del negocio.</span>
+        </a>
+        <a class="nav-link" href="#inventario" data-filter="operacion" data-keywords="inventario productos stock buscar filtrar">
+          <strong>📦 Inventario</strong>
+          <span>Consulta, filtros y gestión del catálogo operativo.</span>
+        </a>
+        <a class="nav-link" href="#ventas" data-filter="operacion" data-keywords="ventas vender comprobante popup modal">
+          <strong>🏷️ Ventas</strong>
+          <span>Registro de ventas normales y descarga de comprobante.</span>
+        </a>
+        <a class="nav-link" href="#creditos" data-filter="operacion" data-keywords="creditos cuotas abonos deudor documento telefono">
+          <strong>💳 Créditos</strong>
+          <span>Ventas a crédito, datos del deudor y seguimiento de abonos.</span>
+        </a>
+        <a class="nav-link" href="#retomas-cambios" data-filter="operacion" data-keywords="retomas cambios recompra intercambio">
+          <strong>🔄 Retomas y cambios</strong>
+          <span>Cómo registrar operaciones especiales sin perder trazabilidad.</span>
+        </a>
+        <a class="nav-link" href="#configuracion" data-filter="admin" data-keywords="configuracion lineas owners metodos colores version">
+          <strong>⚙️ Configuración</strong>
+          <span>Ajustes visibles del negocio y controles administrativos.</span>
+        </a>
+        <a class="nav-link" href="#auditoria" data-filter="admin" data-keywords="auditoria eventos historial trazabilidad">
+          <strong>🔍 Auditoría</strong>
+          <span>Qué revisar cuando necesitas entender qué pasó y quién lo hizo.</span>
+        </a>
+        <a class="nav-link" href="#integraciones" data-filter="integracion" data-keywords="api n8n agentes automatizacion token bearer">
+          <strong>🔗 Integraciones</strong>
+          <span>Enfoque práctico para conectarla con automatizaciones.</span>
+        </a>
+        <a class="nav-link" href="#buenas-practicas" data-filter="all" data-keywords="buenas practicas recomendaciones orden">
+          <strong>✅ Buenas prácticas</strong>
+          <span>Hábitos simples para mantener la operación limpia.</span>
+        </a>
+      </nav>
+
+      <div class="toolbar" aria-label="Acciones del manual">
+        <button class="tool" type="button" id="expand-all">Expandir guías</button>
+        <button class="tool" type="button" id="collapse-all">Contraer</button>
+        <button class="tool" type="button" id="toggle-reading">Modo lectura</button>
+      </div>
+
+      <div>
+        <div class="progress" aria-hidden="true"><span id="reading-progress"></span></div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="hero" id="inicio" data-filter="all" data-keywords="inicio portada manual stockiapp inventario ventas creditos retomas auditoria">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">📋 Guía de uso</p>
+            <h2>Una sola herramienta para vender, controlar y seguir cada movimiento.</h2>
+            <p>StockiAPP está pensada para operar inventario, ventas, créditos, retomas, cambios y trazabilidad desde una misma interfaz. Este manual no explica desarrollo ni API: está escrito para personas que usan la plataforma, la supervisan o la administran.</p>
+          </div>
+
+          <div class="hero-notes">
+            <strong>Qué encontrarás aquí</strong>
+            <ul>
+              <li>Cómo moverte por la app sin perder contexto.</li>
+              <li>Qué hace cada módulo y cuándo usarlo.</li>
+              <li>Recomendaciones para evitar errores operativos.</li>
+              <li>Pistas para trabajar con automatizaciones sin entrar en detalle técnico.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="mapa" data-filter="all" data-keywords="mapa indice modulos secciones resumen">
+        <div class="section-head">
+          <p class="eyebrow">🗺️ Mapa rápido</p>
+          <h3>Si es tu primera vez, empieza aquí.</h3>
+          <p>La idea es simple: entender qué hace cada bloque antes de entrar en el detalle. Si ya conoces la herramienta, usa este mapa para saltar directo a la parte que necesitas.</p>
+        </div>
+
+        <div class="toc-grid">
+          <a class="toc-card" href="#primeros-pasos">
+            <strong>1. Primeros pasos</strong>
+            <span>Ingreso, navegación, roles y lógica general de uso.</span>
+          </a>
+          <a class="toc-card" href="#inventario">
+            <strong>2. Inventario</strong>
+            <span>Consulta de productos, stock, filtros y acciones disponibles.</span>
+          </a>
+          <a class="toc-card" href="#ventas">
+            <strong>3. Ventas</strong>
+            <span>Registro normal, confirmación y comprobante opcional.</span>
+          </a>
+          <a class="toc-card" href="#creditos">
+            <strong>4. Créditos</strong>
+            <span>Deudor, cuotas, abonos y seguimiento de estado.</span>
+          </a>
+          <a class="toc-card" href="#retomas-cambios">
+            <strong>5. Retomas y cambios</strong>
+            <span>Operaciones especiales con trazabilidad y actualización de stock.</span>
+          </a>
+          <a class="toc-card" href="#configuracion">
+            <strong>6. Configuración</strong>
+            <span>Líneas, usuarios asignables, métodos y ajustes del negocio.</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="section" id="primeros-pasos" data-filter="operacion" data-keywords="login acceso navegacion usuario sesion permisos">
+        <div class="section-head">
+          <p class="eyebrow">🚀 Primeros pasos</p>
+          <h3>La app está pensada para trabajar rápido, no para aprenderla de memoria.</h3>
+          <p>La navegación principal concentra las vistas operativas. En general, el patrón se repite: consultar, filtrar, abrir una acción y confirmar. La interfaz está optimizada para tablet, así que prioriza lectura amplia, formularios claros y acciones frecuentes al alcance.</p>
+        </div>
+
+        <div class="split">
+          <div class="panel">
+            <h4>Cómo orientarte desde el primer ingreso</h4>
+            <ul>
+              <li>Empieza por el dashboard si quieres una lectura general.</li>
+              <li>Ve a Inventario cuando ya sabes qué producto o movimiento necesitas.</li>
+              <li>Usa Configuración solo si administras el negocio o preparas catálogos y permisos.</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h4>Qué cambia según tu rol</h4>
+            <ul>
+              <li>El administrador tiene visión completa.</li>
+              <li>Los usuarios con ownership trabajan solo sobre productos asignados o públicos.</li>
+              <li>La interfaz muestra menos o más acciones según permisos y configuraciones activas.</li>
+            </ul>
+          </div>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <strong>Ingresa con tu usuario</strong>
+            <span>Al entrar, la app reconoce tu contexto de trabajo y te muestra lo que realmente puedes operar.</span>
+          </li>
+          <li>
+            <strong>Ubica el módulo</strong>
+            <span>No necesitas pasar por todas las vistas. Entra directo al área que resuelve la tarea del momento.</span>
+          </li>
+          <li>
+            <strong>Confirma antes de cerrar</strong>
+            <span>Ventas, retomas, cambios, créditos y ajustes dejan trazabilidad. Revisa el resumen final antes de salir.</span>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section" id="dashboard" data-filter="operacion" data-keywords="dashboard tablero indicadores resumen ingresos actividad">
+        <div class="section-head">
+          <p class="eyebrow">📊 Dashboard</p>
+          <h3>Úsalo como tablero de lectura, no como hoja de trabajo.</h3>
+          <p>El dashboard sirve para entender el pulso general: qué se vendió, qué se movió y qué necesita atención. No reemplaza los módulos operativos; te ayuda a decidir a dónde ir después.</p>
+        </div>
+
+        <div class="split">
+          <div class="mini-kpi">
+            <b>Ventas</b>
+            <span>Te ayudan a ver ritmo, métodos de pago y periodos con más movimiento.</span>
+          </div>
+          <div class="mini-kpi">
+            <b>Créditos</b>
+            <span>Úsalos para anticipar seguimiento, pendientes y comportamiento de cartera.</span>
+          </div>
+          <div class="mini-kpi">
+            <b>Retomas</b>
+            <span>Muestran recuperación de valor y cómo impacta el stock.</span>
+          </div>
+          <div class="mini-kpi">
+            <b>Actividad</b>
+            <span>La auditoría reciente muestra qué pasó y quién lo hizo.</span>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>💡 Consejo operativo</strong>
+          Si un número te llama la atención, no intentes resolverlo desde el dashboard. Ve al módulo correspondiente y trabaja desde la fuente del dato.
+        </div>
+      </section>
+
+      <section class="section" id="inventario" data-filter="operacion" data-keywords="inventario productos stock buscar filtros tabla acciones">
+        <div class="section-head">
+          <p class="eyebrow">📦 Inventario</p>
+          <h3>Es el centro operativo de la app.</h3>
+          <p>Aquí consultas productos, revisas stock, detectas estados y abres las acciones más frecuentes. La vista está pensada para operar sin salirte de contexto: buscar, filtrar, abrir popup, confirmar y seguir.</p>
+        </div>
+
+        <div class="details-stack">
+          <details open>
+            <summary>Qué puedes hacer desde Inventario</summary>
+            <div class="details-body">
+              <p>Buscar por producto, filtrar por línea o estado, abrir acciones rápidas, revisar créditos activos y entrar a operaciones como venta, cambio, retoma o ajuste de stock.</p>
+              <p>La lógica general es: primero ubicar el producto correcto, luego actuar. Evita abrir acciones antes de confirmar que estás sobre el item correcto.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Cómo leer la tabla sin perder tiempo</summary>
+            <div class="details-body">
+              <p>Prioriza estas columnas: producto, línea, valor, estado y stock. Después usa los menús de acciones o los botones directos según lo que necesites hacer.</p>
+              <p>Si ves un producto con crédito activo, retoma habilitada o stock en cero, la propia fila te da contexto antes de abrir otro módulo.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Qué revisar antes de editar o ajustar</summary>
+            <div class="details-body">
+              <p>Verifica nombre, SKU, línea, stock disponible y si el producto tiene ownership o reglas activas de retoma/crédito. Un buen hábito es revisar la fila completa antes de confirmar un cambio.</p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="section" id="ventas" data-filter="operacion" data-keywords="ventas vender comprobante popup modal confirmar descargar">
+        <div class="section-head">
+          <p class="eyebrow">🏷️ Ventas</p>
+          <h3>La venta normal debe sentirse corta, clara y cerrada en un solo flujo.</h3>
+          <p>Cuando vendes desde Inventario, el popup reúne la captura principal: cantidad, método de pago, precio y observaciones. Si la venta es normal, el cierre puede mostrar el comprobante de forma opcional, sin sacarte del contexto.</p>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <strong>Abre la venta desde el producto correcto</strong>
+            <span>Confirma que el item seleccionado coincide con lo que vas a vender y que el stock disponible es suficiente.</span>
+          </li>
+          <li>
+            <strong>Completa la información mínima</strong>
+            <span>Cantidad, método de pago y precio o valor final de la venta.</span>
+          </li>
+          <li>
+            <strong>Confirma y revisa el cierre</strong>
+            <span>Después del registro exitoso, el mismo popup puede mostrar el estado final y la acción de comprobante si aplica.</span>
+          </li>
+        </ol>
+
+        <div class="details-stack">
+          <details open>
+            <summary>Sobre el comprobante de venta</summary>
+            <div class="details-body">
+              <p>El comprobante es opcional y aplica solo a ventas normales. Su función es comunicar y descargar un respaldo simple de la venta, no reemplazar procesos fiscales formales.</p>
+              <p>Si no lo necesitas en el momento, la venta igual queda registrada normalmente.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Cuándo usar notas en una venta</summary>
+            <div class="details-body">
+              <p>Úsalas cuando necesites dejar contexto útil: canal, condición especial, aclaración comercial o cualquier detalle que te ayude a entender esa venta más adelante.</p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="section" id="creditos" data-filter="operacion" data-keywords="creditos cuotas abonos deudor documento telefono cartera">
+        <div class="section-head">
+          <p class="eyebrow">💳 Créditos</p>
+          <h3>Una venta a crédito necesita más contexto que una venta normal.</h3>
+          <p>Por eso el flujo pide datos del deudor, estructura de cuotas y valor total. El objetivo es que el crédito no quede como una venta ambigua, sino como un registro claro que luego permita consultar, cobrar y auditar.</p>
+        </div>
+
+        <div class="split">
+          <div class="panel">
+            <h4>Datos clave del deudor</h4>
+            <ul>
+              <li>Nombre completo</li>
+              <li>Tipo de documento</li>
+              <li>Número de documento</li>
+              <li>Teléfono</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h4>Datos clave del crédito</h4>
+            <ul>
+              <li>Total de cuotas</li>
+              <li>Valor total</li>
+              <li>Interés opcional</li>
+              <li>Valor por cuota</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="details-stack">
+          <details open>
+            <summary>Cómo entender el estado de un crédito</summary>
+            <div class="details-body">
+              <p>Un crédito útil no es solo “activo” o “pagado”. También debe permitirte ver cuántas cuotas van, cuántas faltan, cuál fue el último abono y cuándo ocurrió.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Cómo registrar un abono sin perder trazabilidad</summary>
+            <div class="details-body">
+              <p>Antes de abonar, consulta el crédito correcto. Después registra el pago sobre ese registro y verifica que el número de cuota y el histórico queden coherentes.</p>
+            </div>
+          </details>
+        </div>
+
+        <div class="callout callout--success">
+          <strong>✅ Práctica recomendada</strong>
+          Evita crear créditos con datos incompletos del deudor. Un crédito sin identificación clara complica cobro, seguimiento y búsqueda futura.
+        </div>
+      </section>
+
+      <section class="section" id="retomas-cambios" data-filter="operacion" data-keywords="retomas cambios recompra intercambio estado recibido stock">
+        <div class="section-head">
+          <p class="eyebrow">🔄 Retomas y cambios</p>
+          <h3>Estas operaciones afectan inventario y trazabilidad, así que deben hacerse con más intención.</h3>
+          <p>Retomas y cambios no son variaciones de una venta. Cada una tiene su propio contexto, su propio impacto en stock y su propia lectura futura.</p>
+        </div>
+
+        <div class="split">
+          <div class="panel">
+            <h4>Retoma</h4>
+            <p>Se usa cuando recibes valor por un producto y decides si luego se publica a stock o no. Lo importante es registrar cantidad, valor recibido, estado y cualquier nota útil.</p>
+          </div>
+          <div class="panel">
+            <h4>Cambio</h4>
+            <p>Se usa cuando sale un producto y entra otro, manteniendo trazabilidad sobre la persona involucrada, cantidades y productos afectados.</p>
+          </div>
+        </div>
+
+        <div class="details-stack">
+          <details>
+            <summary>Qué validar antes de publicar una retoma a stock</summary>
+            <div class="details-body">
+              <p>Verifica estado recibido, valor esperado, condición comercial del producto y si realmente debe volver a disponibilidad. No toda retoma debe publicarse de inmediato.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Qué validar antes de cerrar un cambio</summary>
+            <div class="details-body">
+              <p>Confirma el producto saliente, el entrante, las cantidades y la persona del cambio. Un cambio mal registrado puede desordenar inventario y auditoría al mismo tiempo.</p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="section" id="configuracion" data-filter="admin" data-keywords="configuracion lineas usuarios owners metodos colores negocio version">
+        <div class="section-head">
+          <p class="eyebrow">⚙️ Configuración</p>
+          <h3>Aquí defines el marco visible del negocio, no la operación diaria.</h3>
+          <p>Configurar bien evita fricción después. Líneas, métodos, usuarios asignables y ajustes visuales del negocio ayudan a que la app refleje mejor el trabajo real de cada equipo.</p>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <strong>Ordena el catálogo antes de crecer</strong>
+            <span>Define líneas y responsables antes de cargar productos masivamente.</span>
+          </li>
+          <li>
+            <strong>Revisa métodos de pago y movimientos activos</strong>
+            <span>Eso controla qué operaciones aparecen y cuáles no.</span>
+          </li>
+          <li>
+            <strong>Mantén consistencia visual y de negocio</strong>
+            <span>Nombre, color y otros datos visibles deben ayudar a identificar el negocio sin generar ruido.</span>
+          </li>
+        </ol>
+
+        <div class="callout callout--warn">
+          <strong>⚙️ Consejo administrativo</strong>
+          Si vas a usar automatizaciones o carga masiva, valida primero líneas y owners disponibles. Así reduces errores al crear productos.
+        </div>
+      </section>
+
+      <section class="section" id="auditoria" data-filter="admin" data-keywords="auditoria eventos historial cambios usuario trazabilidad">
+        <div class="section-head">
+          <p class="eyebrow">🔍 Auditoría</p>
+          <h3>La auditoría explica qué pasó. No es solo un historial para revisar tarde.</h3>
+          <p>Cuando una venta, crédito, retoma o ajuste necesita contexto, la auditoría te ayuda a reconstruir la secuencia: evento, usuario, fecha y payload operativo.</p>
+        </div>
+
+        <div class="details-stack">
+          <details open>
+            <summary>Cuándo entrar a auditoría</summary>
+            <div class="details-body">
+              <p>Cuando un número no cuadra, un stock cambió sin explicación aparente o necesitas confirmar qué usuario ejecutó una operación específica.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Cómo leerla sin perder tiempo</summary>
+            <div class="details-body">
+              <p>Empieza por fecha, tipo de evento y usuario. Después entra al detalle solo de los eventos que realmente explican el cambio que estás investigando.</p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="section" id="integraciones" data-filter="integracion" data-keywords="integraciones api n8n agentes token automatizacion">
+        <div class="section-head">
+          <p class="eyebrow">🔗 Integraciones</p>
+          <h3>StockiAPP puede conversar con automatizaciones sin exponer la base de datos.</h3>
+          <p>La recomendación general es usar la API interna para consultar inventario, ventas, créditos, retomas y configuraciones relevantes. Eso mantiene consistencia y evita atajos frágiles.</p>
+        </div>
+
+        <div class="split">
+          <div class="panel">
+            <h4>Qué suele consultar una integración</h4>
+            <ul>
+              <li>Inventario disponible</li>
+              <li>Ventas recientes o completas</li>
+              <li>Créditos y abonos</li>
+              <li>Líneas y owners para validar carga de productos</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h4>Qué conviene evitar</h4>
+            <ul>
+              <li>Depender de hojas paralelas como fuente principal.</li>
+              <li>Usar la base de datos directamente.</li>
+              <li>Automatizar sin validar catálogos o IDs previamente.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>🔗 Enfoque recomendado</strong>
+          Si una automatización va a crear o actualizar datos, primero valida el contexto operativo: producto correcto, línea correcta, owner correcto y operación habilitada.
+        </div>
+      </section>
+
+      <section class="section" id="buenas-practicas" data-filter="all" data-keywords="buenas practicas orden recomendaciones uso diario soporte">
+        <div class="section-head">
+          <p class="eyebrow">✅ Buenas prácticas</p>
+          <h3>Pequeños hábitos que evitan errores grandes.</h3>
+          <p>La herramienta ya cuida varias reglas, pero una operación limpia depende también de cómo se usa. Estas prácticas ayudan a mantener el sistema ordenado y confiable.</p>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <strong>Busca antes de crear</strong>
+            <span>Evita duplicados y registros paralelos del mismo producto o crédito.</span>
+          </li>
+          <li>
+            <strong>Deja notas cuando aporten contexto real</strong>
+            <span>No llenes campos por llenar. Usa observaciones que ayuden después.</span>
+          </li>
+          <li>
+            <strong>Haz cada operación en su módulo correcto</strong>
+            <span>No uses ventas para simular créditos, ni ajustes para esconder errores de cambio o retoma.</span>
+          </li>
+          <li>
+            <strong>Revisa la confirmación antes de salir</strong>
+            <span>Es el mejor momento para detectar errores pequeños antes de que se vuelvan históricos.</span>
+          </li>
+        </ol>
+
+        <div class="callout callout--close">
+          <strong>🏁 Cierre</strong>
+          Si el equipo entero trabaja con la misma lógica de uso, StockiAPP se vuelve más rápida, más confiable y mucho más fácil de auditar.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <button class="floating-top" id="back-to-top" type="button" aria-label="Volver arriba">↑</button>
+
+  <script>
+    const sections = Array.from(document.querySelectorAll(".section, .hero"));
+    const navLinks = Array.from(document.querySelectorAll(".nav-link"));
+    const chips = Array.from(document.querySelectorAll(".chip"));
+    const detailsNodes = Array.from(document.querySelectorAll("details"));
+    const searchInput = document.getElementById("manual-search");
+    const progressBar = document.getElementById("reading-progress");
+    const backToTop = document.getElementById("back-to-top");
+    const expandAllButton = document.getElementById("expand-all");
+    const collapseAllButton = document.getElementById("collapse-all");
+    const toggleReadingButton = document.getElementById("toggle-reading");
+
+    let activeFilter = "all";
+
+    function normalizeText(value) {
+      return value
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim();
+    }
+
+    function applyFilters() {
+      const query = normalizeText(searchInput.value);
+      sections.forEach((section) => {
+        const keywords = normalizeText(section.dataset.keywords || "");
+        const filter = section.dataset.filter || "all";
+        const text = normalizeText(section.textContent || "");
+        const matchesQuery = !query || keywords.includes(query) || text.includes(query);
+        const matchesFilter = activeFilter === "all" || filter === activeFilter;
+        section.classList.toggle("is-hidden", !(matchesQuery && matchesFilter));
+      });
+
+      navLinks.forEach((link) => {
+        const keywords = normalizeText(link.dataset.keywords || "");
+        const filter = link.dataset.filter || "all";
+        const text = normalizeText(link.textContent || "");
+        const matchesQuery = !query || keywords.includes(query) || text.includes(query);
+        const matchesFilter = activeFilter === "all" || filter === activeFilter;
+        link.classList.toggle("is-hidden", !(matchesQuery && matchesFilter));
+      });
+    }
+
+    chips.forEach((chip) => {
+      chip.addEventListener("click", () => {
+        activeFilter = chip.dataset.filter || "all";
+        chips.forEach((current) => current.classList.toggle("is-active", current === chip));
+        applyFilters();
+      });
+    });
+
+    searchInput.addEventListener("input", applyFilters);
+
+    expandAllButton.addEventListener("click", () => {
+      detailsNodes.forEach((node) => {
+        node.open = true;
+      });
+    });
+
+    collapseAllButton.addEventListener("click", () => {
+      detailsNodes.forEach((node) => {
+        node.open = false;
+      });
+    });
+
+    toggleReadingButton.addEventListener("click", () => {
+      document.body.classList.toggle("reading-mode");
+    });
+
+    backToTop.addEventListener("click", () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) {
+          return;
+        }
+        const id = entry.target.id;
+        navLinks.forEach((link) => {
+          link.classList.toggle("is-active", link.getAttribute("href") === "#" + id);
+        });
+      });
+    }, {
+      rootMargin: "-30% 0px -55% 0px",
+      threshold: 0.1
+    });
+
+    sections.forEach((section) => observer.observe(section));
+
+    function onScroll() {
+      const scrollTop = window.scrollY;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = maxScroll > 0 ? Math.min((scrollTop / maxScroll) * 100, 100) : 0;
+      progressBar.style.width = progress + "%";
+      backToTop.classList.toggle("is-visible", scrollTop > 420);
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    applyFilters();
+
+    // Sidebar drawer (mobile)
+    const sidebarToggle = document.getElementById("sidebar-toggle");
+    const sidebarOverlay = document.getElementById("sidebar-overlay");
+    const sidebar = document.querySelector(".sidebar");
+
+    function openSidebar() {
+      sidebar.classList.add("is-open");
+      sidebarOverlay.classList.add("is-visible");
+      sidebarToggle.setAttribute("aria-expanded", "true");
+      sidebarToggle.textContent = "✕";
+    }
+
+    function closeSidebar() {
+      sidebar.classList.remove("is-open");
+      sidebarOverlay.classList.remove("is-visible");
+      sidebarToggle.setAttribute("aria-expanded", "false");
+      sidebarToggle.textContent = "☰";
+    }
+
+    sidebarToggle.addEventListener("click", () => {
+      sidebar.classList.contains("is-open") ? closeSidebar() : openSidebar();
+    });
+
+    sidebarOverlay.addEventListener("click", closeSidebar);
+
+    navLinks.forEach((link) => {
+      link.addEventListener("click", () => {
+        if (window.innerWidth <= 820) closeSidebar();
+      });
+    });
+  </script>
+</body>
+</html>

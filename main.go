@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
@@ -25,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	pgxstdlib "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
 	"golang.org/x/crypto/bcrypt"
@@ -40,6 +42,7 @@ var appTimeLocation = func() *time.Location {
 
 func init() {
 	time.Local = appTimeLocation
+	sql.Register(postgresDriverName, postgresPlaceholderDriver{base: pgxstdlib.GetDefaultDriver()})
 }
 
 type inventoryPageData struct {
@@ -223,12 +226,43 @@ type AuditEvent struct {
 	CreatedAt   string
 }
 
-type APIKey struct {
+type Tenant struct {
 	ID        int
+	Slug      string
 	Name      string
 	Active    bool
 	CreatedAt string
 	UpdatedAt string
+}
+
+type APIKey struct {
+	ID        int
+	Name      string
+	TenantID  int
+	Active    bool
+	CreatedAt string
+	UpdatedAt string
+}
+
+const (
+	defaultTenantID   = 1
+	defaultTenantSlug = "default"
+	defaultTenantName = "Default tenant"
+)
+
+type dbEngine string
+
+const (
+	dbEngineSQLite   dbEngine = "sqlite"
+	dbEnginePostgres dbEngine = "postgres"
+
+	postgresDriverName = "stocki-postgres"
+)
+
+type databaseConfig struct {
+	Engine dbEngine
+	DSN    string
+	Label  string
 }
 
 var (
@@ -236,6 +270,7 @@ var (
 
 	businessSettingsMu sync.RWMutex
 	businessSettings   = defaultBusinessSettings()
+	activeDBEngine     = dbEngineSQLite
 )
 
 func defaultBusinessSettings() BusinessSettings {
@@ -253,18 +288,204 @@ type sqlExecer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
 
-func upsertProducto(exec sqlExecer, sku, nombre, linea, now string) error {
+type sqlQueryExecer interface {
+	sqlExecer
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+type postgresPlaceholderDriver struct {
+	base driver.Driver
+}
+
+type postgresPlaceholderConn struct {
+	driver.Conn
+}
+
+func (d postgresPlaceholderDriver) Open(name string) (driver.Conn, error) {
+	conn, err := d.base.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return postgresPlaceholderConn{Conn: conn}, nil
+}
+
+func (c postgresPlaceholderConn) Prepare(query string) (driver.Stmt, error) {
+	return c.Conn.Prepare(rebindPostgresPlaceholders(query))
+}
+
+func (c postgresPlaceholderConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	if preparer, ok := c.Conn.(driver.ConnPrepareContext); ok {
+		return preparer.PrepareContext(ctx, rebindPostgresPlaceholders(query))
+	}
+	return c.Conn.Prepare(rebindPostgresPlaceholders(query))
+}
+
+func (c postgresPlaceholderConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	if execer, ok := c.Conn.(driver.ExecerContext); ok {
+		return execer.ExecContext(ctx, rebindPostgresPlaceholders(query), args)
+	}
+	return nil, driver.ErrSkip
+}
+
+func (c postgresPlaceholderConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if queryer, ok := c.Conn.(driver.QueryerContext); ok {
+		return queryer.QueryContext(ctx, rebindPostgresPlaceholders(query), args)
+	}
+	return nil, driver.ErrSkip
+}
+
+func (c postgresPlaceholderConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	if beginner, ok := c.Conn.(driver.ConnBeginTx); ok {
+		return beginner.BeginTx(ctx, opts)
+	}
+	return nil, driver.ErrSkip
+}
+
+func (c postgresPlaceholderConn) Ping(ctx context.Context) error {
+	if pinger, ok := c.Conn.(driver.Pinger); ok {
+		return pinger.Ping(ctx)
+	}
+	return nil
+}
+
+func (c postgresPlaceholderConn) CheckNamedValue(value *driver.NamedValue) error {
+	if checker, ok := c.Conn.(driver.NamedValueChecker); ok {
+		return checker.CheckNamedValue(value)
+	}
+	return nil
+}
+
+func currentDBEngine() dbEngine {
+	return activeDBEngine
+}
+
+func isPostgresDB() bool {
+	return currentDBEngine() == dbEnginePostgres
+}
+
+func loadDatabaseConfig(defaultSQLitePath string) databaseConfig {
+	engineRaw := strings.TrimSpace(strings.ToLower(os.Getenv("DB_ENGINE")))
+	engine := dbEngineSQLite
+	if engineRaw == string(dbEnginePostgres) {
+		engine = dbEnginePostgres
+	}
+
+	if engine == dbEnginePostgres {
+		dsn := strings.TrimSpace(os.Getenv("DB_DSN"))
+		if dsn == "" {
+			dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+		}
+		if dsn == "" {
+			dsn = strings.TrimSpace(os.Getenv("DB_PATH"))
+		}
+		return databaseConfig{
+			Engine: engine,
+			DSN:    dsn,
+			Label:  "Postgres",
+		}
+	}
+
+	dsn := strings.TrimSpace(os.Getenv("DB_PATH"))
+	if dsn == "" {
+		dsn = defaultSQLitePath
+	}
+	return databaseConfig{
+		Engine: dbEngineSQLite,
+		DSN:    dsn,
+		Label:  "SQLite",
+	}
+}
+
+func rebindPostgresPlaceholders(query string) string {
+	if !strings.Contains(query, "?") {
+		return query
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(query) + 8)
+
+	inSingleQuote := false
+	inDoubleQuote := false
+	placeholderIndex := 1
+
+	for i := 0; i < len(query); i++ {
+		ch := query[i]
+		switch ch {
+		case '\'':
+			builder.WriteByte(ch)
+			if inDoubleQuote {
+				continue
+			}
+			if inSingleQuote && i+1 < len(query) && query[i+1] == '\'' {
+				builder.WriteByte(query[i+1])
+				i++
+				continue
+			}
+			inSingleQuote = !inSingleQuote
+		case '"':
+			builder.WriteByte(ch)
+			if inSingleQuote {
+				continue
+			}
+			inDoubleQuote = !inDoubleQuote
+		case '?':
+			if inSingleQuote || inDoubleQuote {
+				builder.WriteByte(ch)
+				continue
+			}
+			builder.WriteByte('$')
+			builder.WriteString(strconv.Itoa(placeholderIndex))
+			placeholderIndex++
+		default:
+			builder.WriteByte(ch)
+		}
+	}
+
+	return builder.String()
+}
+
+func normalizeSchemaSQLForEngine(schema string, engine dbEngine) string {
+	if engine != dbEnginePostgres {
+		return schema
+	}
+	normalized := strings.ReplaceAll(schema, "INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY")
+	normalized = strings.ReplaceAll(normalized, "DEFAULT CURRENT_TIMESTAMP", "DEFAULT (CURRENT_TIMESTAMP::text)")
+	normalized = strings.ReplaceAll(normalized, "DEFAULT (CURRENT_TIMESTAMP)", "DEFAULT (CURRENT_TIMESTAMP::text)")
+	return normalized
+}
+
+func insertAndReturnID(exec sqlQueryExecer, query string, args ...any) (int64, error) {
+	if isPostgresDB() {
+		var id int64
+		if err := exec.QueryRow(query+" RETURNING id", args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	result, err := exec.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func sqlDatePrefixExpr(column string) string {
+	return fmt.Sprintf("substr(%s, 1, 10)", column)
+}
+
+func upsertProducto(exec sqlExecer, tenantID int, sku, nombre, linea, now string) error {
 	// productos table is part of the existing DB schema and uses sku as the primary key.
 	// Other columns (prices, discount, notes) have defaults so manual creation can omit them.
 	_ = now // kept for backwards-compat in case we later add created_at.
 	_, err := exec.Exec(`
-		INSERT INTO productos (sku, id, linea, nombre, fecha_ingreso)
-		VALUES (?, ?, ?, ?, COALESCE((SELECT fecha_ingreso FROM productos WHERE sku = ?), CURRENT_TIMESTAMP))
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, fecha_ingreso)
+		VALUES (?, ?, ?, ?, ?, COALESCE((SELECT fecha_ingreso FROM productos WHERE sku = ? AND tenant_id = ?), CURRENT_TIMESTAMP))
 		ON CONFLICT(sku) DO UPDATE SET
+			tenant_id = excluded.tenant_id,
 			id = excluded.id,
 			linea = excluded.linea,
 			nombre = excluded.nombre
-	`, sku, sku, linea, nombre, sku)
+	`, sku, normalizeTenantID(tenantID), sku, linea, nombre, sku, normalizeTenantID(tenantID))
 	return err
 }
 
@@ -291,30 +512,33 @@ func isCreditProduct(product productOption) bool {
 func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 	// Backfill unknown products that already exist in inventory units.
 	if _, err := db.Exec(`
-		INSERT OR IGNORE INTO productos (sku, id, nombre, linea, fecha_ingreso)
-		SELECT DISTINCT producto_id, producto_id, producto_id, 'Sin línea', CURRENT_TIMESTAMP
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, fecha_ingreso)
+		SELECT DISTINCT producto_id, COALESCE(NULLIF(tenant_id, 0), ?), producto_id, producto_id, 'Sin línea', CURRENT_TIMESTAMP
 		FROM unidades
-	`); err != nil {
+		ON CONFLICT(sku) DO NOTHING
+	`, defaultTenantID); err != nil {
 		return err
 	}
 
 	for _, p := range defaults {
 		if _, err := db.Exec(`
-			INSERT OR IGNORE INTO productos (sku, id, nombre, linea, fecha_ingreso)
-			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-		`, p.ID, p.ID, p.Name, p.Line); err != nil {
+			INSERT INTO productos (sku, tenant_id, id, nombre, linea, fecha_ingreso)
+			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(sku) DO NOTHING
+		`, p.ID, defaultTenantID, p.ID, p.Name, p.Line); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func loadProductos(db *sql.DB) ([]productOption, error) {
+func loadProductosForTenant(db *sql.DB, tenantID int) ([]productOption, error) {
 	rows, err := db.Query(`
 		SELECT sku, nombre, linea, COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
 		FROM productos
+		WHERE tenant_id = ?
 		ORDER BY sku
-	`)
+	`, normalizeTenantID(tenantID))
 	if err != nil {
 		return nil, err
 	}
@@ -348,13 +572,25 @@ func loadProductos(db *sql.DB) ([]productOption, error) {
 	return products, nil
 }
 
-func loadAssignableUsers(db *sql.DB) ([]assignableUser, error) {
+func loadProductos(db *sql.DB) ([]productOption, error) {
+	return loadProductosForTenant(db, defaultTenantID)
+}
+
+func loadVisibleProductsForUser(db *sql.DB, user *User) ([]productOption, error) {
+	products, err := loadProductosForTenant(db, tenantIDFromUser(user))
+	if err != nil {
+		return nil, err
+	}
+	return filterProductsForUser(products, user), nil
+}
+
+func loadAssignableUsersForTenant(db *sql.DB, tenantID int) ([]assignableUser, error) {
 	rows, err := db.Query(`
 		SELECT id, username
 		FROM users
-		WHERE is_active = 1
+		WHERE is_active = 1 AND tenant_id = ?
 		ORDER BY LOWER(username), id
-	`)
+	`, normalizeTenantID(tenantID))
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +608,10 @@ func loadAssignableUsers(db *sql.DB) ([]assignableUser, error) {
 		return nil, err
 	}
 	return users, nil
+}
+
+func loadAssignableUsers(db *sql.DB) ([]assignableUser, error) {
+	return loadAssignableUsersForTenant(db, defaultTenantID)
 }
 
 func canAccessProduct(user *User, product productOption) bool {
@@ -405,9 +645,9 @@ func productAccessibleByID(db *sql.DB, user *User, productID string) (bool, erro
 	err := db.QueryRow(`
 		SELECT owner_user_id
 		FROM productos
-		WHERE sku = ? OR id = ?
+		WHERE tenant_id = ? AND (sku = ? OR id = ?)
 		LIMIT 1
-	`, productID, productID).Scan(&ownerUserID)
+	`, tenantIDFromUser(user), productID, productID).Scan(&ownerUserID)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -427,16 +667,17 @@ func productAccessibleByID(db *sql.DB, user *User, productID string) (bool, erro
 }
 
 func productVisibilityPredicate(alias string, user *User) (string, []any) {
-	if user != nil && user.Role == "admin" {
-		return "1=1", nil
-	}
 	if alias == "" {
 		alias = "p"
 	}
-	if user == nil {
-		return fmt.Sprintf("(%s.sku IS NULL OR %s.owner_user_id IS NULL)", alias, alias), nil
+	tenantID := tenantIDFromUser(user)
+	if user != nil && user.Role == "admin" {
+		return fmt.Sprintf("%s.tenant_id = ?", alias), []any{tenantID}
 	}
-	return fmt.Sprintf("(%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?)", alias, alias, alias), []any{user.ID}
+	if user == nil {
+		return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL))", alias, alias, alias), []any{tenantID}
+	}
+	return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?))", alias, alias, alias, alias), []any{tenantID, user.ID}
 }
 
 func generateNextProductSKU(db *sql.DB) (string, error) {
@@ -656,7 +897,7 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 		RangeEnd:   endStr,
 	}
 	visibilitySQL, visibilityArgs := productVisibilityPredicate("p", user)
-	salesDateExpr := "substr(v.fecha, 1, 10)"
+	salesDateExpr := sqlDatePrefixExpr("v.fecha")
 	userSeriesColors := []string{"#2c6bed", "#e85d3c", "#22a88b", "#7d4cf6", "#f5a524", "#0ea5c9"}
 	categoryColors := map[string]string{
 		"venta":   "#2c6bed",
@@ -810,14 +1051,14 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 	userTimelineArgs := append([]any{startStr, endStr}, visibilityArgs...)
 	userTimelineRows, err := db.Query(`
 		SELECT
-			substr(a.created_at, 1, 10) as fecha,
+			`+sqlDatePrefixExpr("a.created_at")+` as fecha,
 			COALESCE(NULLIF(TRIM(u.username), ''), 'Sin usuario') as user_label,
 			COALESCE(a.payload_json, '{}') as payload_json
 		FROM audit_events a
 		LEFT JOIN users u ON u.id = a.user_id
 		LEFT JOIN productos p ON p.sku = a.entity_id
 		WHERE a.event_type = 'sale_registered'
-			AND substr(a.created_at, 1, 10) BETWEEN ? AND ?
+			AND `+sqlDatePrefixExpr("a.created_at")+` BETWEEN ? AND ?
 			AND `+visibilitySQL+`
 		ORDER BY user_label ASC, fecha ASC
 	`, userTimelineArgs...)
@@ -930,7 +1171,7 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 			SELECT COALESCE(SUM(cs.total_value), 0), COALESCE(COUNT(*), 0)
 			FROM credit_sales cs
 			LEFT JOIN productos p ON p.sku = cs.product_id
-			WHERE substr(cs.created_at, 1, 10) BETWEEN ? AND ? AND `+visibilitySQL, creditArgs...).Scan(&creditTotal, &creditCount); err != nil {
+			WHERE `+sqlDatePrefixExpr("cs.created_at")+` BETWEEN ? AND ? AND `+visibilitySQL, creditArgs...).Scan(&creditTotal, &creditCount); err != nil {
 			return dashboardDataResponse{}, err
 		}
 		categoryTotals = append(categoryTotals, dashboardCategoryTotal{
@@ -950,7 +1191,7 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 			SELECT COALESCE(SUM(r.valor_recibido), 0), COALESCE(COUNT(*), 0)
 			FROM retomas r
 			LEFT JOIN productos p ON p.sku = r.producto_id
-			WHERE substr(r.fecha, 1, 10) BETWEEN ? AND ? AND `+visibilitySQL, retomaArgs...).Scan(&retomaTotal, &retomaCount); err != nil {
+			WHERE `+sqlDatePrefixExpr("r.fecha")+` BETWEEN ? AND ? AND `+visibilitySQL, retomaArgs...).Scan(&retomaTotal, &retomaCount); err != nil {
 			return dashboardDataResponse{}, err
 		}
 		categoryTotals = append(categoryTotals, dashboardCategoryTotal{
@@ -1022,6 +1263,7 @@ type User struct {
 	Username string
 	Role     string
 	IsActive bool
+	TenantID int
 }
 
 type contextKey string
@@ -1029,6 +1271,7 @@ type contextKey string
 const (
 	userContextKey               contextKey = "user"
 	apiIntegrationNameContextKey contextKey = "api_integration_name"
+	tenantContextKey             contextKey = "tenant"
 )
 
 func findProduct(products []productOption, id string) (productOption, bool) {
@@ -1074,9 +1317,10 @@ func estadoClass(estado string) string {
 }
 
 func ensureMovimientosTable(db *sql.DB) error {
-	_, err := db.Exec(`
+	_, err := db.Exec(normalizeSchemaSQLForEngine(`
 		CREATE TABLE IF NOT EXISTS movimientos (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL DEFAULT 1,
 			producto_id TEXT NOT NULL,
 			unidad_id TEXT NOT NULL,
 			tipo TEXT NOT NULL,
@@ -1084,25 +1328,27 @@ func ensureMovimientosTable(db *sql.DB) error {
 			usuario TEXT NOT NULL DEFAULT '',
 			fecha TEXT NOT NULL
 		);
-		CREATE INDEX IF NOT EXISTS idx_movimientos_producto_fecha ON movimientos (producto_id, fecha);
-		CREATE INDEX IF NOT EXISTS idx_movimientos_unidad_fecha ON movimientos (unidad_id, fecha);
-	`)
+		CREATE INDEX IF NOT EXISTS idx_movimientos_tenant_producto_fecha ON movimientos (tenant_id, producto_id, fecha);
+		CREATE INDEX IF NOT EXISTS idx_movimientos_tenant_unidad_fecha ON movimientos (tenant_id, unidad_id, fecha);
+	`, currentDBEngine()))
 	return err
 }
 
 func logMovimientos(tx *sql.Tx, productoID string, unidadIDs []string, tipo, nota string, user *User, now string) error {
 	username := ""
+	tenantID := defaultTenantID
 	if user != nil {
 		username = user.Username
+		tenantID = normalizeTenantID(user.TenantID)
 	}
-	stmt, err := tx.Prepare(`INSERT INTO movimientos (producto_id, unidad_id, tipo, nota, usuario, fecha) VALUES (?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO movimientos (tenant_id, producto_id, unidad_id, tipo, nota, usuario, fecha) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
 	for _, unidadID := range unidadIDs {
-		if _, err := stmt.Exec(productoID, unidadID, tipo, nota, username, now); err != nil {
+		if _, err := stmt.Exec(tenantID, productoID, unidadID, tipo, nota, username, now); err != nil {
 			return err
 		}
 	}
@@ -1132,6 +1378,13 @@ func boolToInt(v bool) int {
 	return 0
 }
 
+func tenantIDFromUser(user *User) int {
+	if user == nil {
+		return defaultTenantID
+	}
+	return normalizeTenantID(user.TenantID)
+}
+
 func logAuditEvent(exec sqlExecer, user *User, eventType, entityType, entityID, source string, payload map[string]any) error {
 	payloadJSON := "{}"
 	if len(payload) > 0 {
@@ -1146,9 +1399,9 @@ func logAuditEvent(exec sqlExecer, user *User, eventType, entityType, entityID, 
 		userID = user.ID
 	}
 	_, err := exec.Exec(`
-		INSERT INTO audit_events (event_type, entity_type, entity_id, user_id, source, payload_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, strings.TrimSpace(eventType), strings.TrimSpace(entityType), strings.TrimSpace(entityID), userID, normalizeAuditSource(source), payloadJSON, time.Now().Format(time.RFC3339))
+		INSERT INTO audit_events (tenant_id, event_type, entity_type, entity_id, user_id, source, payload_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, tenantIDFromUser(user), strings.TrimSpace(eventType), strings.TrimSpace(entityType), strings.TrimSpace(entityID), userID, normalizeAuditSource(source), payloadJSON, time.Now().Format(time.RFC3339))
 	return err
 }
 
@@ -1234,8 +1487,9 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	input.ProductID = strings.TrimSpace(input.ProductID)
 	input.ReceivedState = strings.TrimSpace(input.ReceivedState)
 	input.Notes = strings.TrimSpace(input.Notes)
+	tenantID := tenantIDFromUser(currentUser)
 
-	_, movementEnabledMap, err := loadMovementSettings(db)
+	_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantID)
 	if err != nil {
 		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar la configuración de movimientos."}
 	}
@@ -1286,8 +1540,8 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	if err := db.QueryRow(`
 		SELECT nombre, COALESCE(retoma_enabled, 0), retoma_price
 		FROM productos
-		WHERE sku = ?
-	`, input.ProductID).Scan(&productName, &retomaEnabled, &defaultRetomaRaw); err != nil {
+		WHERE tenant_id = ? AND sku = ?
+	`, tenantID, input.ProductID).Scan(&productName, &retomaEnabled, &defaultRetomaRaw); err != nil {
 		if err == sql.ErrNoRows {
 			return retomaOperationResult{}, requestError{Status: http.StatusNotFound, Message: "Producto no encontrado."}
 		}
@@ -1308,14 +1562,13 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	if input.PublishToStock && input.FinalSalePrice != nil {
 		precioPublicado = sql.NullFloat64{Float64: *input.FinalSalePrice, Valid: true}
 	}
-	result, err := tx.Exec(`
-		INSERT INTO retomas (producto_id, cantidad, valor_recibido, estado_recibido, publicado_stock, precio_publicado, notas, fecha)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, input.ProductID, input.Quantity, input.ValueReceived, input.ReceivedState, boolToInt(input.PublishToStock), precioPublicado, input.Notes, now)
+	retomaID, err := insertAndReturnID(tx, `
+		INSERT INTO retomas (tenant_id, producto_id, cantidad, valor_recibido, estado_recibido, publicado_stock, precio_publicado, notas, fecha)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, tenantID, input.ProductID, input.Quantity, input.ValueReceived, input.ReceivedState, boolToInt(input.PublishToStock), precioPublicado, input.Notes, now)
 	if err != nil {
 		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la retoma."}
 	}
-	retomaID, _ := result.LastInsertId()
 
 	unitIDs := make([]string, 0, input.Quantity)
 	baseID := time.Now().UnixNano()
@@ -1333,7 +1586,7 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	stockCreatedIDs := make([]string, 0, input.Quantity)
 	if input.PublishToStock {
 		if precioPublicado.Valid {
-			if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE sku = ?`, precioPublicado.Float64, input.ProductID); err != nil {
+			if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE tenant_id = ? AND sku = ?`, precioPublicado.Float64, tenantID, input.ProductID); err != nil {
 				return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el precio final del producto."}
 			}
 		}
@@ -1341,8 +1594,8 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 		for i := 0; i < input.Quantity; i++ {
 			unitID := fmt.Sprintf("U-%s-RET-%d-%d", input.ProductID, baseID, i+1)
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?)`,
-				unitID, input.ProductID, "Disponible", now, nil,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
+				unitID, tenantID, input.ProductID, "Disponible", now, nil,
 			); err != nil {
 				return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo publicar la retoma al stock."}
 			}
@@ -1414,6 +1667,7 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjustInput, source string, decoratePayload func(map[string]any) map[string]any) (inventoryAdjustResult, error) {
 	input.ProductID = strings.TrimSpace(input.ProductID)
 	input.Notes = strings.TrimSpace(input.Notes)
+	tenantID := tenantIDFromUser(currentUser)
 	if input.Name != nil {
 		trimmed := strings.TrimSpace(*input.Name)
 		input.Name = &trimmed
@@ -1457,7 +1711,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 	}
 
 	var currentSalePrice float64
-	if err := db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE sku = ?`, input.ProductID).Scan(&currentSalePrice); err != nil {
+	if err := db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND sku = ?`, tenantID, input.ProductID).Scan(&currentSalePrice); err != nil {
 		if err == sql.ErrNoRows {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusNotFound, Message: "Producto no encontrado."}
 		}
@@ -1481,9 +1735,9 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 	rows, err := tx.Query(`
 		SELECT id
 		FROM unidades
-		WHERE producto_id = ? AND estado IN ('Disponible', 'available')
+		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
 		ORDER BY creado_en DESC, id DESC
-	`, input.ProductID)
+	`, tenantID, input.ProductID)
 	if err != nil {
 		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo consultar el stock actual."}
 	}
@@ -1515,8 +1769,8 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		for i := 0; i < delta; i++ {
 			unitID := fmt.Sprintf("U-%s-AJ-%d-%d", input.ProductID, baseID, i)
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?)`,
-				unitID, input.ProductID, "Disponible", now, nil,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
+				unitID, tenantID, input.ProductID, "Disponible", now, nil,
 			); err != nil {
 				return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo incrementar el stock."}
 			}
@@ -1543,9 +1797,10 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		}
 		args = append(args, input.ProductID)
 		query := fmt.Sprintf(
-			"DELETE FROM unidades WHERE id IN (%s) AND producto_id = ? AND estado IN ('Disponible', 'available')",
+			"DELETE FROM unidades WHERE tenant_id = ? AND id IN (%s) AND producto_id = ? AND estado IN ('Disponible', 'available')",
 			strings.Join(placeholders, ","),
 		)
+		args = append([]any{tenantID}, args...)
 		res, err := tx.Exec(query, args...)
 		if err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo reducir el stock."}
@@ -1565,7 +1820,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 
 	updatedFields := map[string]any{}
 	if input.SalePrice != nil {
-		res, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE sku = ?`, *input.SalePrice, input.ProductID)
+		res, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE tenant_id = ? AND sku = ?`, *input.SalePrice, tenantID, input.ProductID)
 		if err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el precio de venta."}
 		}
@@ -1576,7 +1831,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		updatedFields["sale_price"] = *input.SalePrice
 	}
 	if input.Name != nil {
-		res, err := tx.Exec(`UPDATE productos SET nombre = ? WHERE sku = ?`, *input.Name, input.ProductID)
+		res, err := tx.Exec(`UPDATE productos SET nombre = ? WHERE tenant_id = ? AND sku = ?`, *input.Name, tenantID, input.ProductID)
 		if err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el nombre del producto."}
 		}
@@ -1591,7 +1846,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		if *input.RetomaEnabled && input.RetomaPrice != nil {
 			newRetomaPrice = sql.NullFloat64{Float64: *input.RetomaPrice, Valid: true}
 		}
-		res, err := tx.Exec(`UPDATE productos SET retoma_enabled = ?, retoma_price = ? WHERE sku = ?`, boolToInt(*input.RetomaEnabled), newRetomaPrice, input.ProductID)
+		res, err := tx.Exec(`UPDATE productos SET retoma_enabled = ?, retoma_price = ? WHERE tenant_id = ? AND sku = ?`, boolToInt(*input.RetomaEnabled), newRetomaPrice, tenantID, input.ProductID)
 		if err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar la configuración de retoma."}
 		}
@@ -1696,8 +1951,9 @@ type creditInstallmentResult struct {
 }
 
 func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64, currentUser *User, source string, decoratePayload func(map[string]any) map[string]any) (creditInstallmentResult, error) {
+	tenantID := tenantIDFromUser(currentUser)
 	var accessProductID string
-	if err := db.QueryRow(`SELECT product_id FROM credit_sales WHERE id = ?`, creditSaleID).Scan(&accessProductID); err != nil {
+	if err := db.QueryRow(`SELECT product_id FROM credit_sales WHERE tenant_id = ? AND id = ?`, tenantID, creditSaleID).Scan(&accessProductID); err != nil {
 		if err == sql.ErrNoRows {
 			return creditInstallmentResult{}, requestError{Status: http.StatusNotFound, Message: "Crédito no encontrado."}
 		}
@@ -1722,9 +1978,9 @@ func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64
 		SELECT cs.id, cs.product_id, COALESCE(cs.debtor_name, ''), COALESCE(cs.installments_total, 0), COALESCE(cs.installments_paid, 0), COALESCE(cs.total_value, 0), COALESCE(cs.interest_percent, 0), COALESCE(cs.installment_value, 0)
 		FROM credit_sales cs
 		JOIN productos p ON p.sku = cs.product_id
-		WHERE cs.id = ?
+		WHERE cs.tenant_id = ? AND cs.id = ? AND p.tenant_id = cs.tenant_id
 		LIMIT 1
-	`, creditSaleID).Scan(&result.CreditSaleID, &result.ProductID, &result.DebtorName, &result.InstallmentsTotal, &result.InstallmentsPaid, &result.TotalValue, &result.InterestPercent, &result.InstallmentValue); err != nil {
+	`, tenantID, creditSaleID).Scan(&result.CreditSaleID, &result.ProductID, &result.DebtorName, &result.InstallmentsTotal, &result.InstallmentsPaid, &result.TotalValue, &result.InterestPercent, &result.InstallmentValue); err != nil {
 		if err == sql.ErrNoRows {
 			return creditInstallmentResult{}, requestError{Status: http.StatusNotFound, Message: "Crédito no encontrado."}
 		}
@@ -1749,19 +2005,16 @@ func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64
 	result.AmountPaid = amountPaid
 	now := time.Now().Format(time.RFC3339)
 	if _, err := tx.Exec(`
-		INSERT INTO credit_installments (product_id, installment_number, amount_paid, created_at, created_by)
-		VALUES (?, ?, ?, ?, ?)
-	`, result.ProductID, result.InstallmentNumber, amountPaid, now, nullableUserID(currentUser)); err != nil {
+		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, created_at, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, tenantID, result.CreditSaleID, result.ProductID, result.InstallmentNumber, amountPaid, now, nullableUserID(currentUser)); err != nil {
 		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la cuota."}
-	}
-	if _, err := tx.Exec(`UPDATE credit_installments SET credit_sale_id = ? WHERE id = last_insert_rowid()`, result.CreditSaleID); err != nil {
-		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo vincular la cuota al crédito."}
 	}
 	if _, err := tx.Exec(`
 		UPDATE credit_sales
 		SET installments_paid = installments_paid + 1
-		WHERE id = ? AND installments_paid < installments_total
-	`, result.CreditSaleID); err != nil {
+		WHERE tenant_id = ? AND id = ? AND installments_paid < installments_total
+	`, tenantID, result.CreditSaleID); err != nil {
 		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el crédito."}
 	}
 
@@ -1791,7 +2044,7 @@ func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64
 	return result, nil
 }
 
-func loadInventoryCountsForProducts(db *sql.DB, productIDs []string) (map[string]productInventoryCounts, error) {
+func loadInventoryCountsForProducts(db *sql.DB, tenantID int, productIDs []string) (map[string]productInventoryCounts, error) {
 	counts := make(map[string]productInventoryCounts, len(productIDs))
 	if len(productIDs) == 0 {
 		return counts, nil
@@ -1807,9 +2060,9 @@ func loadInventoryCountsForProducts(db *sql.DB, productIDs []string) (map[string
 	rows, err := db.Query(`
 		SELECT producto_id, estado, COUNT(*)
 		FROM unidades
-		WHERE producto_id IN (`+strings.Join(placeholders, ",")+`)
+		WHERE tenant_id = ? AND producto_id IN (`+strings.Join(placeholders, ",")+`)
 		GROUP BY producto_id, estado
-	`, args...)
+	`, append([]any{normalizeTenantID(tenantID)}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -1881,11 +2134,11 @@ func findVisibleProduct(products []productOption, productID string) (productOpti
 	return productOption{}, false
 }
 
-func selectAndMarkUnitsSold(tx *sql.Tx, productID string, qty int) ([]string, error) {
-	return selectAndMarkUnitsByStatus(tx, productID, qty, "Vendida")
+func selectAndMarkUnitsSold(tx *sql.Tx, tenantID int, productID string, qty int) ([]string, error) {
+	return selectAndMarkUnitsByStatus(tx, tenantID, productID, qty, "Vendida")
 }
 
-func selectAndMarkUnitsByStatus(tx *sql.Tx, productID string, qty int, nextStatus string) ([]string, error) {
+func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty int, nextStatus string) ([]string, error) {
 	if qty <= 0 {
 		return nil, fmt.Errorf("cantidad inválida")
 	}
@@ -1893,9 +2146,9 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, productID string, qty int, nextStatu
 	rows, err := tx.Query(`
 		SELECT id
 		FROM unidades
-		WHERE producto_id = ? AND estado IN ('Disponible', 'available')
+		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
 		ORDER BY creado_en, id
-		LIMIT ?`, productID, qty)
+		LIMIT ?`, normalizeTenantID(tenantID), productID, qty)
 	if err != nil {
 		return nil, fmt.Errorf("query unidades: %w", err)
 	}
@@ -1924,9 +2177,10 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, productID string, qty int, nextStatu
 		args = append(args, id)
 	}
 
-	query := fmt.Sprintf("UPDATE unidades SET estado = ? WHERE id IN (%s) AND estado IN ('Disponible', 'available')", strings.Join(placeholders, ","))
+	query := fmt.Sprintf("UPDATE unidades SET estado = ? WHERE tenant_id = ? AND id IN (%s) AND estado IN ('Disponible', 'available')", strings.Join(placeholders, ","))
 	updateArgs := make([]interface{}, 0, len(args)+1)
 	updateArgs = append(updateArgs, nextStatus)
+	updateArgs = append(updateArgs, normalizeTenantID(tenantID))
 	updateArgs = append(updateArgs, args...)
 	result, err := tx.Exec(query, updateArgs...)
 	if err != nil {
@@ -1943,12 +2197,12 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, productID string, qty int, nextStatu
 	return ids, nil
 }
 
-func availableUnitsByProduct(db *sql.DB, productID string) ([]unitOption, error) {
+func availableUnitsByProduct(db *sql.DB, tenantID int, productID string) ([]unitOption, error) {
 	rows, err := db.Query(`
 		SELECT id
 		FROM unidades
-		WHERE producto_id = ? AND estado IN ('Disponible', 'available')
-		ORDER BY creado_en, id`, productID)
+		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
+		ORDER BY creado_en, id`, normalizeTenantID(tenantID), productID)
 	if err != nil {
 		return nil, err
 	}
@@ -1968,12 +2222,12 @@ func availableUnitsByProduct(db *sql.DB, productID string) ([]unitOption, error)
 	return units, nil
 }
 
-func availableCountsByProduct(db *sql.DB) (map[string]int, error) {
+func availableCountsByProduct(db *sql.DB, tenantID int) (map[string]int, error) {
 	rows, err := db.Query(`
 		SELECT producto_id, COUNT(*)
 		FROM unidades
-		WHERE estado IN ('Disponible', 'available')
-		GROUP BY producto_id`)
+		WHERE tenant_id = ? AND estado IN ('Disponible', 'available')
+		GROUP BY producto_id`, normalizeTenantID(tenantID))
 	if err != nil {
 		return nil, err
 	}
@@ -2121,13 +2375,18 @@ func formatDateWithSettings(raw string) string {
 }
 
 func loadBusinessSettings(db *sql.DB) (BusinessSettings, error) {
+	return loadBusinessSettingsForTenant(db, defaultTenantID)
+}
+
+func loadBusinessSettingsForTenant(db *sql.DB, tenantID int) (BusinessSettings, error) {
 	settings := defaultBusinessSettings()
 	row := db.QueryRow(`
 		SELECT id, business_name, logo_path, primary_color, currency, date_format, updated_at
 		FROM business_settings
+		WHERE tenant_id = ?
 		ORDER BY id ASC
 		LIMIT 1
-	`)
+	`, normalizeTenantID(tenantID))
 	var updatedAt sql.NullString
 	err := row.Scan(&settings.ID, &settings.BusinessName, &settings.LogoPath, &settings.PrimaryColor, &settings.Currency, &settings.DateFormat, &updatedAt)
 	if err == sql.ErrNoRows {
@@ -2141,34 +2400,44 @@ func loadBusinessSettings(db *sql.DB) (BusinessSettings, error) {
 }
 
 func saveBusinessSettings(db *sql.DB, settings BusinessSettings) (BusinessSettings, error) {
+	return saveBusinessSettingsForTenant(db, defaultTenantID, settings)
+}
+
+func saveBusinessSettingsForTenant(db *sql.DB, tenantID int, settings BusinessSettings) (BusinessSettings, error) {
 	settings = normalizeBusinessSettings(settings)
-	settings.ID = 1
 	settings.UpdatedAt = time.Now().Format(time.RFC3339)
 	if _, err := db.Exec(`
-		INSERT INTO business_settings (id, business_name, logo_path, primary_color, currency, date_format, updated_at)
+		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
+		ON CONFLICT(tenant_id) DO UPDATE SET
 			business_name = excluded.business_name,
 			logo_path = excluded.logo_path,
 			primary_color = excluded.primary_color,
 			currency = excluded.currency,
 			date_format = excluded.date_format,
 			updated_at = excluded.updated_at
-	`, settings.ID, settings.BusinessName, settings.LogoPath, settings.PrimaryColor, settings.Currency, settings.DateFormat, settings.UpdatedAt); err != nil {
+	`, normalizeTenantID(tenantID), settings.BusinessName, settings.LogoPath, settings.PrimaryColor, settings.Currency, settings.DateFormat, settings.UpdatedAt); err != nil {
 		return BusinessSettings{}, err
 	}
-	setCurrentBusinessSettings(settings)
+	if err := db.QueryRow(`SELECT id FROM business_settings WHERE tenant_id = ?`, normalizeTenantID(tenantID)).Scan(&settings.ID); err != nil {
+		return BusinessSettings{}, err
+	}
 	return settings, nil
 }
 
 func loadBusinessLines(db *sql.DB, activeOnly bool) ([]BusinessLine, error) {
+	return loadBusinessLinesForTenant(db, defaultTenantID, activeOnly)
+}
+
+func loadBusinessLinesForTenant(db *sql.DB, tenantID int, activeOnly bool) ([]BusinessLine, error) {
 	query := `
 		SELECT id, name, active, created_at, updated_at
 		FROM business_lines
 	`
-	args := []any{}
+	args := []any{normalizeTenantID(tenantID)}
+	query += ` WHERE tenant_id = ?`
 	if activeOnly {
-		query += ` WHERE active = 1`
+		query += ` AND active = 1`
 	}
 	query += ` ORDER BY LOWER(name), id`
 	rows, err := db.Query(query, args...)
@@ -2229,15 +2498,21 @@ func defaultMovementTypes() []string {
 }
 
 func loadPaymentMethods(db *sql.DB, activeOnly bool) ([]PaymentMethod, error) {
+	return loadPaymentMethodsForTenant(db, defaultTenantID, activeOnly)
+}
+
+func loadPaymentMethodsForTenant(db *sql.DB, tenantID int, activeOnly bool) ([]PaymentMethod, error) {
 	query := `
 		SELECT id, name, active, sort_order, created_at, updated_at
 		FROM payment_methods
 	`
+	args := []any{normalizeTenantID(tenantID)}
+	query += ` WHERE tenant_id = ?`
 	if activeOnly {
-		query += ` WHERE active = 1`
+		query += ` AND active = 1`
 	}
 	query += ` ORDER BY sort_order ASC, LOWER(name) ASC, id ASC`
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2262,11 +2537,16 @@ func loadPaymentMethods(db *sql.DB, activeOnly bool) ([]PaymentMethod, error) {
 }
 
 func loadAPIKeys(db *sql.DB) ([]APIKey, error) {
+	return loadAPIKeysForTenant(db, defaultTenantID)
+}
+
+func loadAPIKeysForTenant(db *sql.DB, tenantID int) ([]APIKey, error) {
 	rows, err := db.Query(`
-		SELECT id, name, active, created_at, updated_at
+		SELECT id, name, COALESCE(NULLIF(tenant_id, 0), ?), active, created_at, updated_at
 		FROM api_keys
+		WHERE COALESCE(NULLIF(tenant_id, 0), ?) = ?
 		ORDER BY active DESC, updated_at DESC, id DESC
-	`)
+	`, defaultTenantID, defaultTenantID, normalizeTenantID(tenantID))
 	if err != nil {
 		return nil, err
 	}
@@ -2276,10 +2556,11 @@ func loadAPIKeys(db *sql.DB) ([]APIKey, error) {
 	for rows.Next() {
 		var item APIKey
 		var active int
-		if err := rows.Scan(&item.ID, &item.Name, &active, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.TenantID, &active, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		item.Active = active == 1
+		item.TenantID = normalizeTenantID(item.TenantID)
 		item.CreatedAt = formatDateWithSettings(item.CreatedAt)
 		item.UpdatedAt = formatDateWithSettings(item.UpdatedAt)
 		items = append(items, item)
@@ -2304,7 +2585,7 @@ func paymentMethodNames(methods []PaymentMethod) []string {
 
 func seedPaymentMethodsIfMissing(db *sql.DB) error {
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM payment_methods`).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM payment_methods WHERE tenant_id = ?`, defaultTenantID).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -2313,9 +2594,9 @@ func seedPaymentMethodsIfMissing(db *sql.DB) error {
 	now := time.Now().Format(time.RFC3339)
 	for idx, name := range defaultPaymentMethodNames() {
 		if _, err := db.Exec(`
-			INSERT INTO payment_methods (name, active, sort_order, created_at, updated_at)
-			VALUES (?, 1, ?, ?, ?)
-		`, name, idx+1, now, now); err != nil {
+			INSERT INTO payment_methods (tenant_id, name, active, sort_order, created_at, updated_at)
+			VALUES (?, ?, 1, ?, ?, ?)
+		`, defaultTenantID, name, idx+1, now, now); err != nil {
 			return err
 		}
 	}
@@ -2326,9 +2607,10 @@ func seedMovementSettingsIfMissing(db *sql.DB) error {
 	now := time.Now().Format(time.RFC3339)
 	for _, movementType := range defaultMovementTypes() {
 		if _, err := db.Exec(`
-			INSERT OR IGNORE INTO movement_settings (movement_type, enabled, updated_at)
-			VALUES (?, 1, ?)
-		`, movementType, now); err != nil {
+			INSERT INTO movement_settings (tenant_id, movement_type, enabled, updated_at)
+			VALUES (?, ?, 1, ?)
+			ON CONFLICT(tenant_id, movement_type) DO NOTHING
+		`, defaultTenantID, movementType, now); err != nil {
 			return err
 		}
 	}
@@ -2336,16 +2618,21 @@ func seedMovementSettingsIfMissing(db *sql.DB) error {
 }
 
 func loadMovementSettings(db *sql.DB) ([]MovementSetting, map[string]bool, error) {
+	return loadMovementSettingsForTenant(db, defaultTenantID)
+}
+
+func loadMovementSettingsForTenant(db *sql.DB, tenantID int) ([]MovementSetting, map[string]bool, error) {
 	rows, err := db.Query(`
 		SELECT id, movement_type, enabled, updated_at
 		FROM movement_settings
+		WHERE tenant_id = ?
 		ORDER BY CASE movement_type
 			WHEN 'venta' THEN 1
 			WHEN 'cambio' THEN 2
 			WHEN 'retoma' THEN 3
 			ELSE 99
 		END, id
-	`)
+	`, normalizeTenantID(tenantID))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2441,6 +2728,7 @@ func saleReceiptNumber(saleID int, saleDate string) string {
 }
 
 func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceiptData, error) {
+	tenantID := tenantIDFromUser(currentUser)
 	var (
 		createdAtRaw  string
 		productID     string
@@ -2465,10 +2753,10 @@ func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceipt
 			COALESCE(v.sold_by, ''),
 			COALESCE(v.notas, '')
 		FROM ventas v
-		LEFT JOIN productos p ON p.sku = v.producto_id
-		WHERE v.id = ?
+		LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
+		WHERE v.tenant_id = ? AND v.id = ?
 		LIMIT 1
-	`, saleID).Scan(&createdAtRaw, &productID, &productName, &quantity, &unitPrice, &paymentMethod, &channel, &soldBy, &notes)
+	`, tenantID, saleID).Scan(&createdAtRaw, &productID, &productName, &quantity, &unitPrice, &paymentMethod, &channel, &soldBy, &notes)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return saleReceiptData{}, requestError{Status: http.StatusNotFound, Message: "Venta no encontrada."}
@@ -2693,9 +2981,39 @@ func hashAPIToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func normalizeTenantID(tenantID int) int {
+	if tenantID <= 0 {
+		return defaultTenantID
+	}
+	return tenantID
+}
+
+func defaultTenant() Tenant {
+	return Tenant{
+		ID:     defaultTenantID,
+		Slug:   defaultTenantSlug,
+		Name:   defaultTenantName,
+		Active: true,
+	}
+}
+
+func tenantIDFromRequest(r *http.Request) int {
+	if tenant := tenantFromContext(r); tenant != nil {
+		return normalizeTenantID(tenant.ID)
+	}
+	return tenantIDFromUser(userFromContext(r))
+}
+
 func userFromContext(r *http.Request) *User {
 	if user, ok := r.Context().Value(userContextKey).(*User); ok {
 		return user
+	}
+	return nil
+}
+
+func tenantFromContext(r *http.Request) *Tenant {
+	if tenant, ok := r.Context().Value(tenantContextKey).(*Tenant); ok {
+		return tenant
 	}
 	return nil
 }
@@ -2705,6 +3023,150 @@ func apiIntegrationNameFromContext(r *http.Request) string {
 		return strings.TrimSpace(name)
 	}
 	return ""
+}
+
+func resolveTenantByID(db *sql.DB, tenantID int) (*Tenant, error) {
+	tenantID = normalizeTenantID(tenantID)
+
+	var (
+		tenant Tenant
+		active int
+	)
+	err := db.QueryRow(`
+		SELECT id, slug, name, active, created_at, updated_at
+		FROM tenants
+		WHERE id = ?
+	`, tenantID).Scan(&tenant.ID, &tenant.Slug, &tenant.Name, &active, &tenant.CreatedAt, &tenant.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows && tenantID == defaultTenantID {
+			fallback := defaultTenant()
+			return &fallback, nil
+		}
+		return nil, err
+	}
+	tenant.Active = active == 1
+	return &tenant, nil
+}
+
+func tableSQL(db *sql.DB, table string) (string, error) {
+	if isPostgresDB() {
+		return "", sql.ErrNoRows
+	}
+	var sqlText sql.NullString
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&sqlText); err != nil {
+		return "", err
+	}
+	return sqlText.String, nil
+}
+
+func migrateBusinessSettingsForTenancy(db *sql.DB) error {
+	cols, err := tableColumns(db, "business_settings")
+	if err != nil {
+		return err
+	}
+	sqlText, err := tableSQL(db, "business_settings")
+	if err != nil {
+		return err
+	}
+	if cols["tenant_id"] && !strings.Contains(strings.ToLower(sqlText), "check (id = 1)") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS business_settings__tenant_new`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		CREATE TABLE business_settings__tenant_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL UNIQUE,
+			business_name TEXT NOT NULL,
+			logo_path TEXT NOT NULL DEFAULT '',
+			primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
+			currency TEXT NOT NULL DEFAULT 'COP',
+			date_format TEXT NOT NULL DEFAULT '2006-01-02',
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		return err
+	}
+
+	if cols["tenant_id"] {
+		if _, err := tx.Exec(`
+			INSERT OR REPLACE INTO business_settings__tenant_new
+				(tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
+			SELECT COALESCE(NULLIF(tenant_id, 0), ?), business_name, logo_path, primary_color, currency, date_format, updated_at
+			FROM business_settings
+			ORDER BY id ASC
+		`, defaultTenantID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.Exec(`
+			INSERT OR REPLACE INTO business_settings__tenant_new
+				(tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
+			SELECT ?, business_name, logo_path, primary_color, currency, date_format, updated_at
+			FROM business_settings
+			ORDER BY id ASC
+		`, defaultTenantID); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(`DROP TABLE business_settings`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE business_settings__tenant_new RENAME TO business_settings`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_settings_tenant_id ON business_settings(tenant_id)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func migrateTenantScopedLookupTable(db *sql.DB, table string, createSQL, copySQL string, indexes []string) error {
+	cols, err := tableColumns(db, table)
+	if err != nil {
+		return err
+	}
+	if cols["tenant_id"] {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	tempTable := table + "__tenant_new"
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS ` + tempTable); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(createSQL); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(copySQL, defaultTenantID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE ` + table); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE ` + tempTable + ` RENAME TO ` + table); err != nil {
+		return err
+	}
+	for _, stmt := range indexes {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
@@ -2719,11 +3181,13 @@ func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
 		expiresRaw string
 	)
 	query := `
-		SELECT u.id, u.username, u.role, u.is_active, s.expires_at
+		SELECT u.id, u.username, u.role, u.is_active,
+		       COALESCE(NULLIF(s.tenant_id, 0), NULLIF(u.tenant_id, 0), ?),
+		       s.expires_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token = ?`
-	if err := db.QueryRow(query, cookie.Value).Scan(&user.ID, &user.Username, &user.Role, &isActive, &expiresRaw); err != nil {
+	if err := db.QueryRow(query, defaultTenantID, cookie.Value).Scan(&user.ID, &user.Username, &user.Role, &isActive, &user.TenantID, &expiresRaw); err != nil {
 		return nil, err
 	}
 	expiresAt, err := time.Parse(time.RFC3339, expiresRaw)
@@ -2735,6 +3199,7 @@ func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
 		return nil, sql.ErrNoRows
 	}
 	user.IsActive = isActive == 1
+	user.TenantID = normalizeTenantID(user.TenantID)
 	if !user.IsActive {
 		_, _ = db.Exec("DELETE FROM sessions WHERE token = ?", cookie.Value)
 		return nil, sql.ErrNoRows
@@ -2754,20 +3219,21 @@ func bearerTokenFromRequest(r *http.Request) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func integrationUserFromDB(db *sql.DB) (*User, error) {
+func integrationUserFromDB(db *sql.DB, tenantID int) (*User, error) {
 	var user User
 	var isActive int
 	err := db.QueryRow(`
-		SELECT id, username, role, is_active
+		SELECT id, username, role, is_active, COALESCE(NULLIF(tenant_id, 0), ?)
 		FROM users
-		WHERE role = 'admin' AND is_active = 1
+		WHERE role = 'admin' AND is_active = 1 AND COALESCE(NULLIF(tenant_id, 0), ?) = ?
 		ORDER BY id
 		LIMIT 1
-	`).Scan(&user.ID, &user.Username, &user.Role, &isActive)
+	`, defaultTenantID, defaultTenantID, normalizeTenantID(tenantID)).Scan(&user.ID, &user.Username, &user.Role, &isActive, &user.TenantID)
 	if err != nil {
 		return nil, err
 	}
 	user.IsActive = isActive == 1
+	user.TenantID = normalizeTenantID(user.TenantID)
 	return &user, nil
 }
 
@@ -2783,11 +3249,12 @@ func apiAuthFromRequest(db *sql.DB, r *http.Request) (*User, string, error) {
 
 	var integrationName string
 	var active int
+	var tenantID int
 	err := db.QueryRow(`
-		SELECT name, active
+		SELECT name, active, COALESCE(NULLIF(tenant_id, 0), ?)
 		FROM api_keys
 		WHERE token_hash = ?
-	`, hashAPIToken(token)).Scan(&integrationName, &active)
+	`, defaultTenantID, hashAPIToken(token)).Scan(&integrationName, &active, &tenantID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -2795,7 +3262,7 @@ func apiAuthFromRequest(db *sql.DB, r *http.Request) (*User, string, error) {
 		return nil, "", sql.ErrNoRows
 	}
 
-	user, err := integrationUserFromDB(db)
+	user, err := integrationUserFromDB(db, tenantID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -2818,6 +3285,12 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 				return
 			}
 			ctx := context.WithValue(r.Context(), userContextKey, user)
+			tenant, err := resolveTenantByID(db, user.TenantID)
+			if err != nil || !tenant.Active {
+				writeAPIError(w, http.StatusUnauthorized, "Tenant inválido o inactivo.", nil)
+				return
+			}
+			ctx = context.WithValue(ctx, tenantContextKey, tenant)
 			if integrationName != "" {
 				ctx = context.WithValue(ctx, apiIntegrationNameContextKey, integrationName)
 			}
@@ -2831,6 +3304,13 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), userContextKey, user)
+		tenant, err := resolveTenantByID(db, user.TenantID)
+		if err != nil || !tenant.Active {
+			clearSessionCookie(w)
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		ctx = context.WithValue(ctx, tenantContextKey, tenant)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -2869,6 +3349,8 @@ func userCreateErrorText(err error) string {
 	switch {
 	case strings.Contains(msg, "UNIQUE constraint failed: users.username"):
 		return "El usuario ya existe."
+	case strings.Contains(msg, `duplicate key value violates unique constraint`) && strings.Contains(strings.ToLower(msg), "users_username"):
+		return "El usuario ya existe."
 	case strings.Contains(msg, "CHECK constraint failed"):
 		return "Datos inválidos (revisa el rol)."
 	case strings.Contains(msg, "database is locked"):
@@ -2879,15 +3361,28 @@ func userCreateErrorText(err error) string {
 }
 
 func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
-	// SQLite PRAGMA table_info does not reliably accept a bound parameter for table name,
-	// so we build the statement after validating the identifier.
 	for i, r := range table {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
 			continue
 		}
 		return nil, fmt.Errorf("invalid table name: %q", table)
 	}
-	rows, err := db.Query(fmt.Sprintf("SELECT name FROM pragma_table_info('%s')", table))
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if isPostgresDB() {
+		rows, err = db.Query(`
+			SELECT column_name
+			FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ?
+		`, table)
+	} else {
+		// SQLite PRAGMA table_info does not reliably accept a bound parameter for table name,
+		// so we build the statement after validating the identifier.
+		rows, err = db.Query(fmt.Sprintf("SELECT name FROM pragma_table_info('%s')", table))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -2907,7 +3402,47 @@ func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
 	return cols, nil
 }
 
+func tableExists(db *sql.DB, table string) (bool, error) {
+	var exists int
+	if isPostgresDB() {
+		if err := db.QueryRow(`
+			SELECT COUNT(*)
+			FROM information_schema.tables
+			WHERE table_schema = current_schema() AND table_name = ?
+		`, table).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists > 0, nil
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists > 0, nil
+}
+
 func initDB(path string, paymentMethods []string) (*sql.DB, error) {
+	return initDBWithConfig(databaseConfig{
+		Engine: dbEngineSQLite,
+		DSN:    path,
+		Label:  "SQLite",
+	}, paymentMethods)
+}
+
+func initDBWithConfig(cfg databaseConfig, paymentMethods []string) (*sql.DB, error) {
+	cfg.Engine = dbEngine(strings.TrimSpace(strings.ToLower(string(cfg.Engine))))
+	if cfg.Engine != dbEnginePostgres {
+		cfg.Engine = dbEngineSQLite
+	}
+	activeDBEngine = cfg.Engine
+	switch cfg.Engine {
+	case dbEnginePostgres:
+		return initPostgresDB(cfg.DSN, paymentMethods)
+	default:
+		return initSQLiteDB(cfg.DSN, paymentMethods)
+	}
+}
+
+func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -2923,8 +3458,19 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 	}
 
 	schema := `
+	CREATE TABLE IF NOT EXISTS tenants (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		slug TEXT NOT NULL UNIQUE,
+		name TEXT NOT NULL,
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants (slug);
+
 	CREATE TABLE IF NOT EXISTS productos (
 		sku TEXT PRIMARY KEY,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		id TEXT,
 		linea TEXT NOT NULL,
 		nombre TEXT NOT NULL,
@@ -2946,9 +3492,11 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		fecha_ingreso TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 	);
 	CREATE INDEX IF NOT EXISTS idx_productos_linea ON productos (linea);
+	CREATE INDEX IF NOT EXISTS idx_productos_tenant_id ON productos (tenant_id);
 
 	CREATE TABLE IF NOT EXISTS ventas (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		producto_id TEXT NOT NULL,
 		cantidad INTEGER NOT NULL,
 		precio_final REAL NOT NULL,
@@ -2958,11 +3506,12 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		notas TEXT NOT NULL DEFAULT '',
 		fecha TEXT NOT NULL
 	);
-	CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas (fecha);
-	CREATE INDEX IF NOT EXISTS idx_ventas_metodo ON ventas (metodo_pago);
+	CREATE INDEX IF NOT EXISTS idx_ventas_tenant_fecha ON ventas (tenant_id, fecha);
+	CREATE INDEX IF NOT EXISTS idx_ventas_tenant_metodo ON ventas (tenant_id, metodo_pago);
 
 	CREATE TABLE IF NOT EXISTS retomas (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		producto_id TEXT NOT NULL,
 		cantidad INTEGER NOT NULL,
 		valor_recibido REAL NOT NULL,
@@ -2972,48 +3521,56 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		notas TEXT NOT NULL DEFAULT '',
 		fecha TEXT NOT NULL
 	);
-	CREATE INDEX IF NOT EXISTS idx_retomas_fecha ON retomas (fecha);
-	CREATE INDEX IF NOT EXISTS idx_retomas_producto ON retomas (producto_id);
+	CREATE INDEX IF NOT EXISTS idx_retomas_tenant_fecha ON retomas (tenant_id, fecha);
+	CREATE INDEX IF NOT EXISTS idx_retomas_tenant_producto ON retomas (tenant_id, producto_id);
 
 	CREATE TABLE IF NOT EXISTS unidades (
 		id TEXT PRIMARY KEY,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		producto_id TEXT NOT NULL,
 		estado TEXT NOT NULL,
 		creado_en TEXT NOT NULL,
 		caducidad TEXT
 	);
-	CREATE INDEX IF NOT EXISTS idx_unidades_estado ON unidades (estado);
+	CREATE INDEX IF NOT EXISTS idx_unidades_tenant_estado ON unidades (tenant_id, estado);
 
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL CHECK (role IN ('admin', 'empleado')),
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL,
 		is_active INTEGER NOT NULL DEFAULT 1
 	);
 	CREATE INDEX IF NOT EXISTS idx_users_role ON users (role);
+	CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users (tenant_id);
 
 	CREATE TABLE IF NOT EXISTS sessions (
 		token TEXT PRIMARY KEY,
 		user_id INTEGER NOT NULL,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL,
 		expires_at TEXT NOT NULL,
 		FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 	);
+	CREATE INDEX IF NOT EXISTS idx_sessions_tenant_id ON sessions (tenant_id);
 
 	CREATE TABLE IF NOT EXISTS api_keys (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL UNIQUE,
 		token_hash TEXT NOT NULL UNIQUE,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		active INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys (active);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys (tenant_id);
 
 	CREATE TABLE IF NOT EXISTS business_settings (
-		id INTEGER PRIMARY KEY CHECK (id = 1),
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL UNIQUE,
 		business_name TEXT NOT NULL,
 		logo_path TEXT NOT NULL DEFAULT '',
 		primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
@@ -3021,33 +3578,44 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		date_format TEXT NOT NULL DEFAULT '2006-01-02',
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_business_settings_tenant_id ON business_settings (tenant_id);
 
 	CREATE TABLE IF NOT EXISTS business_lines (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		name TEXT NOT NULL,
 		active INTEGER NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_business_lines_tenant_name ON business_lines (tenant_id, name);
+	CREATE INDEX IF NOT EXISTS idx_business_lines_tenant_active_name ON business_lines (tenant_id, active, name);
 
 	CREATE TABLE IF NOT EXISTS payment_methods (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		name TEXT NOT NULL,
 		active INTEGER NOT NULL DEFAULT 1,
 		sort_order INTEGER NOT NULL DEFAULT 0,
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_tenant_name ON payment_methods (tenant_id, name);
+	CREATE INDEX IF NOT EXISTS idx_payment_methods_tenant_sort ON payment_methods (tenant_id, sort_order, id);
 
 	CREATE TABLE IF NOT EXISTS movement_settings (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		movement_type TEXT NOT NULL UNIQUE,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		movement_type TEXT NOT NULL,
 		enabled INTEGER NOT NULL DEFAULT 1,
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_movement_settings_tenant_type ON movement_settings (tenant_id, movement_type);
+	CREATE INDEX IF NOT EXISTS idx_movement_settings_tenant_enabled ON movement_settings (tenant_id, enabled);
 
 	CREATE TABLE IF NOT EXISTS audit_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		event_type TEXT NOT NULL,
 		entity_type TEXT NOT NULL,
 		entity_id TEXT NOT NULL DEFAULT '',
@@ -3056,12 +3624,13 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		payload_json TEXT NOT NULL DEFAULT '{}',
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events (created_at DESC);
-	CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events (event_type);
-	CREATE INDEX IF NOT EXISTS idx_audit_events_entity_type ON audit_events (entity_type);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_created_at ON audit_events (tenant_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_event_type ON audit_events (tenant_id, event_type);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_entity_type ON audit_events (tenant_id, entity_type);
 
 	CREATE TABLE IF NOT EXISTS credit_installments (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		credit_sale_id INTEGER,
 		product_id TEXT NOT NULL,
 		installment_number INTEGER NOT NULL,
@@ -3070,10 +3639,11 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		created_by INTEGER,
 		FOREIGN KEY (product_id) REFERENCES productos (sku)
 	);
-	CREATE INDEX IF NOT EXISTS idx_credit_installments_product_id ON credit_installments (product_id, installment_number);
+	CREATE INDEX IF NOT EXISTS idx_credit_installments_tenant_product_id ON credit_installments (tenant_id, product_id, installment_number);
 
 	CREATE TABLE IF NOT EXISTS credit_sales (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
 		product_id TEXT NOT NULL,
 		quantity INTEGER NOT NULL DEFAULT 1,
 		debtor_name TEXT NOT NULL,
@@ -3090,8 +3660,8 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		created_by INTEGER,
 		FOREIGN KEY (product_id) REFERENCES productos (sku)
 	);
-	CREATE INDEX IF NOT EXISTS idx_credit_sales_product_id ON credit_sales (product_id, created_at);
-	CREATE INDEX IF NOT EXISTS idx_credit_sales_debtor_name ON credit_sales (debtor_name);
+	CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_product_id ON credit_sales (tenant_id, product_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_debtor_name ON credit_sales (tenant_id, debtor_name);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -3099,6 +3669,85 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 	}
 
 	if err := ensureMovimientosTable(db); err != nil {
+		return nil, err
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO tenants (id, slug, name, active, created_at, updated_at)
+		VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(id) DO UPDATE SET
+			slug = excluded.slug,
+			name = excluded.name,
+			active = 1,
+			updated_at = CURRENT_TIMESTAMP
+	`, defaultTenantID, defaultTenantSlug, defaultTenantName); err != nil {
+		return nil, err
+	}
+
+	if err := migrateBusinessSettingsForTenancy(db); err != nil {
+		return nil, err
+	}
+	if err := migrateTenantScopedLookupTable(db,
+		"business_lines",
+		`CREATE TABLE business_lines__tenant_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL DEFAULT 1,
+			name TEXT NOT NULL,
+			active INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO business_lines__tenant_new (tenant_id, name, active, created_at, updated_at)
+		 SELECT ?, name, active, created_at, updated_at
+		 FROM business_lines
+		 ORDER BY id ASC`,
+		[]string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_lines_tenant_name ON business_lines(tenant_id, name)`,
+			`CREATE INDEX IF NOT EXISTS idx_business_lines_tenant_active_name ON business_lines(tenant_id, active, name)`,
+		},
+	); err != nil {
+		return nil, err
+	}
+	if err := migrateTenantScopedLookupTable(db,
+		"payment_methods",
+		`CREATE TABLE payment_methods__tenant_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL DEFAULT 1,
+			name TEXT NOT NULL,
+			active INTEGER NOT NULL DEFAULT 1,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO payment_methods__tenant_new (tenant_id, name, active, sort_order, created_at, updated_at)
+		 SELECT ?, name, active, sort_order, created_at, updated_at
+		 FROM payment_methods
+		 ORDER BY id ASC`,
+		[]string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_tenant_name ON payment_methods(tenant_id, name)`,
+			`CREATE INDEX IF NOT EXISTS idx_payment_methods_tenant_sort ON payment_methods(tenant_id, sort_order, id)`,
+		},
+	); err != nil {
+		return nil, err
+	}
+	if err := migrateTenantScopedLookupTable(db,
+		"movement_settings",
+		`CREATE TABLE movement_settings__tenant_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL DEFAULT 1,
+			movement_type TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO movement_settings__tenant_new (tenant_id, movement_type, enabled, updated_at)
+		 SELECT ?, movement_type, enabled, updated_at
+		 FROM movement_settings
+		 ORDER BY id ASC`,
+		[]string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_movement_settings_tenant_type ON movement_settings(tenant_id, movement_type)`,
+			`CREATE INDEX IF NOT EXISTS idx_movement_settings_tenant_enabled ON movement_settings(tenant_id, enabled)`,
+		},
+	); err != nil {
 		return nil, err
 	}
 
@@ -3260,6 +3909,135 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	tenantColumns := []struct {
+		table string
+		name  string
+		def   string
+	}{
+		{table: "productos", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "unidades", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "ventas", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "retomas", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "credit_sales", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "credit_installments", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "movimientos", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "audit_events", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "users", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "sessions", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "api_keys", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "business_settings", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "business_lines", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "payment_methods", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+		{table: "movement_settings", name: "tenant_id", def: "INTEGER NOT NULL DEFAULT 1"},
+	}
+	for _, column := range tenantColumns {
+		cols, err := tableColumns(db, column.table)
+		if err != nil {
+			return nil, err
+		}
+		if !cols[column.name] {
+			if _, err := db.Exec("ALTER TABLE " + column.table + " ADD COLUMN " + column.name + " " + column.def); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if _, err := db.Exec("UPDATE users SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE sessions SET tenant_id = COALESCE((SELECT COALESCE(NULLIF(users.tenant_id, 0), ?) FROM users WHERE users.id = sessions.user_id), ?) WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID, defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE api_keys SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE productos SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE unidades SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE ventas SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE retomas SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE credit_sales SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE credit_installments SET tenant_id = COALESCE((SELECT COALESCE(NULLIF(cs.tenant_id, 0), ?) FROM credit_sales cs WHERE cs.id = credit_installments.credit_sale_id), ?) WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID, defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE movimientos SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE audit_events SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE business_settings SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE business_lines SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE payment_methods SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE movement_settings SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_productos_tenant_id ON productos(tenant_id)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_unidades_tenant_estado ON unidades(tenant_id, estado)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_ventas_tenant_fecha ON ventas(tenant_id, fecha)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_ventas_tenant_metodo ON ventas(tenant_id, metodo_pago)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_retomas_tenant_fecha ON retomas(tenant_id, fecha)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_retomas_tenant_producto ON retomas(tenant_id, producto_id)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_product_id ON credit_sales(tenant_id, product_id, created_at)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_debtor_name ON credit_sales(tenant_id, debtor_name)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_credit_installments_tenant_credit_sale_id ON credit_installments(tenant_id, credit_sale_id, installment_number)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_movimientos_tenant_producto_fecha ON movimientos(tenant_id, producto_id, fecha)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_movimientos_tenant_unidad_fecha ON movimientos(tenant_id, unidad_id, fecha)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_created_at ON audit_events(tenant_id, created_at DESC)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_event_type ON audit_events(tenant_id, event_type)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_entity_type ON audit_events(tenant_id, entity_type)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_sessions_tenant_id ON sessions(tenant_id)"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id)"); err != nil {
+		return nil, err
+	}
+
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		return nil, err
 	}
@@ -3336,6 +4114,267 @@ func initDB(path string, paymentMethods []string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	return db, nil
+}
+
+func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
+	if strings.TrimSpace(dsn) == "" {
+		return nil, fmt.Errorf("DB_DSN o DATABASE_URL es obligatorio cuando DB_ENGINE=postgres")
+	}
+
+	db, err := sql.Open(postgresDriverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	schema := normalizeSchemaSQLForEngine(`
+	CREATE TABLE IF NOT EXISTS tenants (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		slug TEXT NOT NULL UNIQUE,
+		name TEXT NOT NULL,
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants (slug);
+
+	CREATE TABLE IF NOT EXISTS productos (
+		sku TEXT PRIMARY KEY,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		id TEXT,
+		linea TEXT NOT NULL,
+		nombre TEXT NOT NULL,
+		credit_enabled INTEGER NOT NULL DEFAULT 0,
+		debtor_name TEXT NOT NULL DEFAULT '',
+		installments_total INTEGER NOT NULL DEFAULT 0,
+		installments_paid INTEGER NOT NULL DEFAULT 0,
+		total_value REAL NOT NULL DEFAULT 0,
+		installment_value REAL NOT NULL DEFAULT 0,
+		owner_user_id INTEGER,
+		precio_base REAL NOT NULL DEFAULT 0,
+		precio_venta REAL NOT NULL DEFAULT 0,
+		retoma_enabled INTEGER NOT NULL DEFAULT 0,
+		retoma_price REAL,
+		precio_consultora REAL NOT NULL DEFAULT 0,
+		descuento REAL NOT NULL DEFAULT 0,
+		anotaciones TEXT NOT NULL DEFAULT '',
+		aplica_caducidad INTEGER NOT NULL DEFAULT 0,
+		fecha_ingreso TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+	);
+	CREATE INDEX IF NOT EXISTS idx_productos_linea ON productos (linea);
+	CREATE INDEX IF NOT EXISTS idx_productos_tenant_id ON productos (tenant_id);
+
+	CREATE TABLE IF NOT EXISTS ventas (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		producto_id TEXT NOT NULL,
+		cantidad INTEGER NOT NULL,
+		precio_final REAL NOT NULL,
+		metodo_pago TEXT NOT NULL,
+		channel TEXT NOT NULL DEFAULT '',
+		sold_by TEXT NOT NULL DEFAULT '',
+		notas TEXT NOT NULL DEFAULT '',
+		fecha TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_ventas_tenant_fecha ON ventas (tenant_id, fecha);
+	CREATE INDEX IF NOT EXISTS idx_ventas_tenant_metodo ON ventas (tenant_id, metodo_pago);
+
+	CREATE TABLE IF NOT EXISTS retomas (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		producto_id TEXT NOT NULL,
+		cantidad INTEGER NOT NULL,
+		valor_recibido REAL NOT NULL,
+		estado_recibido TEXT NOT NULL,
+		publicado_stock INTEGER NOT NULL DEFAULT 0,
+		precio_publicado REAL,
+		notas TEXT NOT NULL DEFAULT '',
+		fecha TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_retomas_tenant_fecha ON retomas (tenant_id, fecha);
+	CREATE INDEX IF NOT EXISTS idx_retomas_tenant_producto ON retomas (tenant_id, producto_id);
+
+	CREATE TABLE IF NOT EXISTS unidades (
+		id TEXT PRIMARY KEY,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		producto_id TEXT NOT NULL,
+		estado TEXT NOT NULL,
+		creado_en TEXT NOT NULL,
+		caducidad TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_unidades_tenant_estado ON unidades (tenant_id, estado);
+
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL CHECK (role IN ('admin', 'empleado')),
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL,
+		is_active INTEGER NOT NULL DEFAULT 1
+	);
+	CREATE INDEX IF NOT EXISTS idx_users_role ON users (role);
+	CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users (tenant_id);
+
+	CREATE TABLE IF NOT EXISTS sessions (
+		token TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL,
+		expires_at TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_sessions_tenant_id ON sessions (tenant_id);
+
+	CREATE TABLE IF NOT EXISTS api_keys (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		token_hash TEXT NOT NULL UNIQUE,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys (active);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys (tenant_id);
+
+	CREATE TABLE IF NOT EXISTS business_settings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL UNIQUE,
+		business_name TEXT NOT NULL,
+		logo_path TEXT NOT NULL DEFAULT '',
+		primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
+		currency TEXT NOT NULL DEFAULT 'COP',
+		date_format TEXT NOT NULL DEFAULT '2006-01-02',
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_business_settings_tenant_id ON business_settings (tenant_id);
+
+	CREATE TABLE IF NOT EXISTS business_lines (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		name TEXT NOT NULL,
+		active INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_business_lines_tenant_name ON business_lines (tenant_id, name);
+	CREATE INDEX IF NOT EXISTS idx_business_lines_tenant_active_name ON business_lines (tenant_id, active, name);
+
+	CREATE TABLE IF NOT EXISTS payment_methods (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		name TEXT NOT NULL,
+		active INTEGER NOT NULL DEFAULT 1,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_tenant_name ON payment_methods (tenant_id, name);
+	CREATE INDEX IF NOT EXISTS idx_payment_methods_tenant_sort ON payment_methods (tenant_id, sort_order, id);
+
+	CREATE TABLE IF NOT EXISTS movement_settings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		movement_type TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_movement_settings_tenant_type ON movement_settings (tenant_id, movement_type);
+	CREATE INDEX IF NOT EXISTS idx_movement_settings_tenant_enabled ON movement_settings (tenant_id, enabled);
+
+	CREATE TABLE IF NOT EXISTS audit_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		event_type TEXT NOT NULL,
+		entity_type TEXT NOT NULL,
+		entity_id TEXT NOT NULL DEFAULT '',
+		user_id INTEGER,
+		source TEXT NOT NULL DEFAULT 'manual',
+		payload_json TEXT NOT NULL DEFAULT '{}',
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_created_at ON audit_events (tenant_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_event_type ON audit_events (tenant_id, event_type);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_tenant_entity_type ON audit_events (tenant_id, entity_type);
+
+	CREATE TABLE IF NOT EXISTS credit_installments (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		credit_sale_id INTEGER,
+		product_id TEXT NOT NULL,
+		installment_number INTEGER NOT NULL,
+		amount_paid REAL NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by INTEGER
+	);
+	CREATE INDEX IF NOT EXISTS idx_credit_installments_tenant_product_id ON credit_installments (tenant_id, product_id, installment_number);
+
+	CREATE TABLE IF NOT EXISTS credit_sales (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		product_id TEXT NOT NULL,
+		quantity INTEGER NOT NULL DEFAULT 1,
+		debtor_name TEXT NOT NULL,
+		debtor_document_type TEXT NOT NULL DEFAULT '',
+		debtor_document_number TEXT NOT NULL DEFAULT '',
+		debtor_phone TEXT NOT NULL DEFAULT '',
+		installments_total INTEGER NOT NULL,
+		installments_paid INTEGER NOT NULL DEFAULT 0,
+		total_value REAL NOT NULL,
+		interest_percent REAL NOT NULL DEFAULT 0,
+		installment_value REAL NOT NULL,
+		notes TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by INTEGER
+	);
+	CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_product_id ON credit_sales (tenant_id, product_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_debtor_name ON credit_sales (tenant_id, debtor_name);
+	`, dbEnginePostgres)
+
+	if _, err := db.Exec(schema); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensureMovimientosTable(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`
+		INSERT INTO tenants (id, slug, name, active, created_at, updated_at)
+		VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(id) DO UPDATE SET
+			slug = excluded.slug,
+			name = excluded.name,
+			active = 1,
+			updated_at = CURRENT_TIMESTAMP
+	`, defaultTenantID, defaultTenantSlug, defaultTenantName); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`
+		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(tenant_id) DO NOTHING
+	`, defaultTenantID, defaultBusinessSettings().BusinessName, defaultBusinessSettings().LogoPath, defaultBusinessSettings().PrimaryColor, defaultBusinessSettings().Currency, defaultBusinessSettings().DateFormat, time.Now().Format(time.RFC3339)); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := seedAdminUser(db, dsn); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := seedPaymentMethodsIfMissing(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := seedMovementSettingsIfMissing(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return db, nil
 }
 
@@ -3448,9 +4487,9 @@ func seedAdminUser(db *sql.DB, dbPath string) error {
 		return err
 	}
 	_, err = db.Exec(`
-		INSERT INTO users (username, password_hash, role, created_at, is_active)
-		VALUES (?, ?, 'admin', ?, 1)
-	`, adminUser, string(hashed), time.Now().Format(time.RFC3339))
+		INSERT INTO users (username, password_hash, role, tenant_id, created_at, is_active)
+		VALUES (?, ?, 'admin', ?, ?, 1)
+	`, adminUser, string(hashed), defaultTenantID, time.Now().Format(time.RFC3339))
 	return err
 }
 
@@ -3459,10 +4498,7 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "data.db"
-	}
+	dbConfig := loadDatabaseConfig("data.db")
 
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
 		"businessName": func() string {
@@ -3501,9 +4537,9 @@ func main() {
 
 	paymentMethods := defaultPaymentMethodNames()
 
-	db, err := initDB(dbPath, paymentMethods)
+	db, err := initDBWithConfig(dbConfig, paymentMethods)
 	if err != nil {
-		log.Fatalf("Error al abrir SQLite: %v", err)
+		log.Fatalf("Error al abrir %s: %v", dbConfig.Label, err)
 	}
 	defer db.Close()
 	if err := ensureUploadDirs(); err != nil {
@@ -3522,10 +4558,14 @@ func main() {
 
 	// Diagnostics to confirm which DB is being used at runtime (helps debug login issues).
 	if wd, err := os.Getwd(); err == nil {
-		if abs, err := filepath.Abs(dbPath); err == nil {
-			log.Printf("DB_PATH=%s (abs=%s) cwd=%s", dbPath, abs, wd)
+		if dbConfig.Engine == dbEngineSQLite {
+			if abs, err := filepath.Abs(dbConfig.DSN); err == nil {
+				log.Printf("DB_ENGINE=%s DB_PATH=%s (abs=%s) cwd=%s", dbConfig.Engine, dbConfig.DSN, abs, wd)
+			} else {
+				log.Printf("DB_ENGINE=%s DB_PATH=%s cwd=%s", dbConfig.Engine, dbConfig.DSN, wd)
+			}
 		} else {
-			log.Printf("DB_PATH=%s cwd=%s", dbPath, wd)
+			log.Printf("DB_ENGINE=%s DB_DSN=%s cwd=%s", dbConfig.Engine, dbConfig.DSN, wd)
 		}
 	}
 	if err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(new(int)); err != nil {
@@ -3751,10 +4791,10 @@ func main() {
 			isActive int
 		)
 		err := db.QueryRow(`
-					SELECT id, username, password_hash, role, is_active
+					SELECT id, username, password_hash, role, is_active, COALESCE(NULLIF(tenant_id, 0), ?)
 					FROM users
 					WHERE username = ?
-				`, username).Scan(&user.ID, &user.Username, &hash, &user.Role, &isActive)
+				`, defaultTenantID, username).Scan(&user.ID, &user.Username, &hash, &user.Role, &isActive, &user.TenantID)
 		if err != nil || isActive != 1 {
 			if err != nil {
 				log.Printf("login: lookup failed username=%q err=%v", username, err)
@@ -3794,9 +4834,9 @@ func main() {
 		}
 		expiresAt := time.Now().Add(24 * time.Hour)
 		_, err = db.Exec(`
-			INSERT INTO sessions (token, user_id, created_at, expires_at)
-			VALUES (?, ?, ?, ?)
-		`, token, user.ID, time.Now().Format(time.RFC3339), expiresAt.Format(time.RFC3339))
+			INSERT INTO sessions (token, user_id, tenant_id, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, token, user.ID, normalizeTenantID(user.TenantID), time.Now().Format(time.RFC3339), expiresAt.Format(time.RFC3339))
 		if err != nil {
 			http.Error(w, "No se pudo guardar la sesión", http.StatusInternalServerError)
 			return
@@ -3848,7 +4888,7 @@ func main() {
 			selectCols = append(selectCols, "'' as created_at")
 		}
 
-		rows, err := db.Query(fmt.Sprintf("SELECT %s FROM users ORDER BY id", strings.Join(selectCols, ", ")))
+		rows, err := db.Query(fmt.Sprintf("SELECT %s FROM users WHERE tenant_id = ? ORDER BY id", strings.Join(selectCols, ", ")), tenantIDFromRequest(r))
 		if err != nil {
 			http.Error(w, "Error al consultar usuarios", http.StatusInternalServerError)
 			return
@@ -3909,19 +4949,20 @@ func main() {
 				a.created_at
 			FROM audit_events a
 			LEFT JOIN users u ON u.id = a.user_id
-			WHERE 1=1
+			WHERE a.tenant_id = ?
 		`
-		args := make([]any, 0, 3)
+		args := make([]any, 0, 4)
+		args = append(args, tenantIDFromRequest(r))
 		if eventType != "" {
 			query += ` AND a.event_type = ?`
 			args = append(args, eventType)
 		}
 		if dateFrom != "" {
-			query += ` AND date(a.created_at) >= ?`
+			query += ` AND ` + sqlDatePrefixExpr("a.created_at") + ` >= ?`
 			args = append(args, dateFrom)
 		}
 		if dateTo != "" {
-			query += ` AND date(a.created_at) <= ?`
+			query += ` AND ` + sqlDatePrefixExpr("a.created_at") + ` <= ?`
 			args = append(args, dateTo)
 		}
 		query += ` ORDER BY a.created_at DESC, a.id DESC LIMIT 200`
@@ -3979,22 +5020,23 @@ func main() {
 	}))
 
 	renderBusinessSettingsPage := func(w http.ResponseWriter, r *http.Request, flash, errText, createdToken, newAPIKeyName string) {
-		lines, err := loadBusinessLines(db, false)
+		tenantID := tenantIDFromRequest(r)
+		lines, err := loadBusinessLinesForTenant(db, tenantID, false)
 		if err != nil {
 			http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
 			return
 		}
-		paymentMethodsCfg, err := loadPaymentMethods(db, false)
+		paymentMethodsCfg, err := loadPaymentMethodsForTenant(db, tenantID, false)
 		if err != nil {
 			http.Error(w, "Error al cargar canales de pago", http.StatusInternalServerError)
 			return
 		}
-		apiKeys, err := loadAPIKeys(db)
+		apiKeys, err := loadAPIKeysForTenant(db, tenantID)
 		if err != nil {
 			http.Error(w, "Error al cargar API keys", http.StatusInternalServerError)
 			return
 		}
-		movementSettings, _, err := loadMovementSettings(db)
+		movementSettings, _, err := loadMovementSettingsForTenant(db, tenantID)
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
@@ -4079,7 +5121,7 @@ func main() {
 			redirectWithMessage(w, r, "/configuracion", "", "No se pudo guardar la configuración.")
 			return
 		}
-		if err := logAuditEvent(db, userFromContext(r), "business_settings_updated", "business_settings", "1", "manual", map[string]any{
+		if err := logAuditEvent(db, userFromContext(r), "business_settings_updated", "business_settings", strconv.Itoa(settings.ID), "manual", map[string]any{
 			"business_name": settings.BusinessName,
 			"logo_path":     settings.LogoPath,
 			"primary_color": settings.PrimaryColor,
@@ -4106,11 +5148,12 @@ func main() {
 			redirectWithMessage(w, r, "/configuracion", "", "El nombre de la línea es obligatorio.")
 			return
 		}
+		tenantID := tenantIDFromUser(userFromContext(r))
 		now := time.Now().Format(time.RFC3339)
 		if _, err := db.Exec(`
-			INSERT INTO business_lines (name, active, created_at, updated_at)
-			VALUES (?, 1, ?, ?)
-		`, name, now, now); err != nil {
+			INSERT INTO business_lines (tenant_id, name, active, created_at, updated_at)
+			VALUES (?, ?, 1, ?, ?)
+		`, tenantID, name, now, now); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") {
 				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una línea con ese nombre.")
 				return
@@ -4150,11 +5193,12 @@ func main() {
 		if r.FormValue("active") != "" {
 			active = 1
 		}
+		tenantID := tenantIDFromUser(userFromContext(r))
 		if _, err := db.Exec(`
 			UPDATE business_lines
 			SET name = ?, active = ?, updated_at = ?
-			WHERE id = ?
-		`, name, active, time.Now().Format(time.RFC3339), lineID); err != nil {
+			WHERE id = ? AND tenant_id = ?
+		`, name, active, time.Now().Format(time.RFC3339), lineID, tenantID); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") {
 				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una línea con ese nombre.")
 				return
@@ -4186,15 +5230,16 @@ func main() {
 			return
 		}
 		var nextOrder int
-		if err := db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM payment_methods`).Scan(&nextOrder); err != nil {
+		tenantID := tenantIDFromUser(userFromContext(r))
+		if err := db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM payment_methods WHERE tenant_id = ?`, tenantID).Scan(&nextOrder); err != nil {
 			redirectWithMessage(w, r, "/configuracion", "", "No se pudo calcular el orden del canal.")
 			return
 		}
 		now := time.Now().Format(time.RFC3339)
 		if _, err := db.Exec(`
-			INSERT INTO payment_methods (name, active, sort_order, created_at, updated_at)
-			VALUES (?, 1, ?, ?, ?)
-		`, name, nextOrder, now, now); err != nil {
+			INSERT INTO payment_methods (tenant_id, name, active, sort_order, created_at, updated_at)
+			VALUES (?, ?, 1, ?, ?, ?)
+		`, tenantID, name, nextOrder, now, now); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") {
 				redirectWithMessage(w, r, "/configuracion", "", "Ya existe un canal de pago con ese nombre.")
 				return
@@ -4240,11 +5285,12 @@ func main() {
 		if r.FormValue("active") != "" {
 			active = 1
 		}
+		tenantID := tenantIDFromUser(userFromContext(r))
 		if _, err := db.Exec(`
 			UPDATE payment_methods
 			SET name = ?, active = ?, sort_order = ?, updated_at = ?
-			WHERE id = ?
-		`, name, active, sortOrder, time.Now().Format(time.RFC3339), methodID); err != nil {
+			WHERE id = ? AND tenant_id = ?
+		`, name, active, sortOrder, time.Now().Format(time.RFC3339), methodID, tenantID); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") {
 				redirectWithMessage(w, r, "/configuracion", "", "Ya existe un canal de pago con ese nombre.")
 				return
@@ -4282,10 +5328,14 @@ func main() {
 			return
 		}
 		now := time.Now().Format(time.RFC3339)
+		tenantID := defaultTenantID
+		if user := userFromContext(r); user != nil {
+			tenantID = normalizeTenantID(user.TenantID)
+		}
 		if _, err := db.Exec(`
-			INSERT INTO api_keys (name, token_hash, active, created_at, updated_at)
-			VALUES (?, ?, 1, ?, ?)
-		`, name, hashAPIToken(token), now, now); err != nil {
+			INSERT INTO api_keys (name, token_hash, tenant_id, active, created_at, updated_at)
+			VALUES (?, ?, ?, 1, ?, ?)
+		`, name, hashAPIToken(token), tenantID, now, now); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") {
 				redirectWithMessage(w, r, "/configuracion", "", "Ya existe una API key con ese nombre.")
 				return
@@ -4370,11 +5420,12 @@ func main() {
 		if r.FormValue("enabled") != "" {
 			enabled = 1
 		}
+		tenantID := tenantIDFromUser(userFromContext(r))
 		if _, err := db.Exec(`
 			UPDATE movement_settings
 			SET enabled = ?, updated_at = ?
-			WHERE movement_type = ?
-		`, enabled, time.Now().Format(time.RFC3339), movementType); err != nil {
+			WHERE movement_type = ? AND tenant_id = ?
+		`, enabled, time.Now().Format(time.RFC3339), movementType, tenantID); err != nil {
 			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar el tipo de movimiento.")
 			return
 		}
@@ -4464,6 +5515,14 @@ func main() {
 		if usersCols["created_at"] {
 			cols = append(cols, "created_at")
 			args = append(args, time.Now().Format(time.RFC3339))
+		}
+		if usersCols["tenant_id"] {
+			tenantID := defaultTenantID
+			if currentUser := userFromContext(r); currentUser != nil {
+				tenantID = normalizeTenantID(currentUser.TenantID)
+			}
+			cols = append(cols, "tenant_id")
+			args = append(args, tenantID)
 		}
 		if usersCols["is_active"] {
 			cols = append(cols, "is_active")
@@ -4682,7 +5741,7 @@ func main() {
 	}))
 
 	mux.HandleFunc("/productos/new", adminOnly(func(w http.ResponseWriter, r *http.Request) {
-		activeLines, err := loadBusinessLines(db, true)
+		activeLines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), true)
 		if err != nil {
 			http.Error(w, "No se pudieron cargar las líneas de negocio", http.StatusInternalServerError)
 			return
@@ -4718,7 +5777,7 @@ func main() {
 			return
 		}
 
-		activeLines, err := loadBusinessLines(db, true)
+		activeLines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), true)
 		if err != nil {
 			http.Error(w, "No se pudieron cargar las líneas de negocio", http.StatusInternalServerError)
 			return
@@ -4921,7 +5980,7 @@ func main() {
 			}
 		}
 		now := time.Now().Format(time.RFC3339)
-		if err := upsertProducto(tx, sku, nombre, linea, now); err != nil {
+		if err := upsertProducto(tx, tenantIDFromRequest(r), sku, nombre, linea, now); err != nil {
 			http.Error(w, "No se pudo guardar el producto", http.StatusInternalServerError)
 			return
 		}
@@ -5057,7 +6116,7 @@ func main() {
 
 	mux.HandleFunc("/api/products", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			productsSnapshot, err := loadProductos(db)
+			productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
 				return
@@ -5120,7 +6179,7 @@ func main() {
 		payload.Name = strings.TrimSpace(payload.Name)
 		payload.Line = strings.TrimSpace(payload.Line)
 		payload.FechaCaducidad = strings.TrimSpace(payload.FechaCaducidad)
-		activeLines, err := loadBusinessLines(db, true)
+		activeLines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), true)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las líneas de negocio.", nil)
 			return
@@ -5199,7 +6258,7 @@ func main() {
 			return
 		}
 		now := time.Now().Format(time.RFC3339)
-		if err := upsertProducto(tx, sku, payload.Name, payload.Line, now); err != nil {
+		if err := upsertProducto(tx, tenantIDFromUser(currentUser), sku, payload.Name, payload.Line, now); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo guardar el producto.", nil)
 			return
 		}
@@ -5410,7 +6469,7 @@ func main() {
 
 		visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
 		queryArgs := append([]any{startStr, endStr}, visibilityArgs...)
-		salesDateExpr := "substr(v.fecha, 1, 10)"
+		salesDateExpr := sqlDatePrefixExpr("v.fecha")
 		rows, err := db.Query(`
 			SELECT
 				v.id,
@@ -5482,12 +6541,12 @@ func main() {
 		currentUser := userFromContext(r)
 		flash := r.URL.Query().Get("mensaje")
 		receiptSaleID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("receipt_sale_id")))
-		activePaymentMethods, err := loadPaymentMethods(db, true)
+		activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
 		if err != nil {
 			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
 			return
 		}
-		productsSnapshot, err := loadProductos(db)
+		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
 			productsMu.RLock()
 			productsSnapshot = make([]productOption, len(products))
@@ -5503,7 +6562,7 @@ func main() {
 		editableLines := []string{}
 		assignableUsers := []assignableUser{}
 		if currentUser != nil && currentUser.Role == "admin" {
-			lines, err := loadBusinessLines(db, false)
+			lines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), false)
 			if err != nil {
 				http.Error(w, "Error al cargar líneas de negocio", http.StatusInternalServerError)
 				return
@@ -5725,7 +6784,7 @@ func main() {
 			http.Error(w, "Error al procesar créditos", http.StatusInternalServerError)
 			return
 		}
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
@@ -5888,7 +6947,7 @@ func main() {
 				writeJSONError(http.StatusBadRequest, "La línea es obligatoria.")
 				return
 			}
-			lines, err := loadBusinessLines(db, false)
+			lines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), false)
 			if err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudieron cargar las líneas.")
 				return
@@ -6165,7 +7224,7 @@ func main() {
 			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.")
 			return
 		}
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromRequest(r))
 		if err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo cargar la configuración de movimientos.")
 			return
@@ -6261,7 +7320,7 @@ func main() {
 		}
 		defer tx.Rollback()
 
-		unitIDs, err := selectAndMarkUnitsByStatus(tx, productID, qty, "Reservada")
+		unitIDs, err := selectAndMarkUnitsByStatus(tx, tenantIDFromRequest(r), productID, qty, "Reservada")
 		if err != nil {
 			if err == errInsufficientStock {
 				writeJSONError(http.StatusBadRequest, "No hay stock disponible suficiente para reservar.")
@@ -6325,7 +7384,7 @@ func main() {
 		}
 		defer tx.Rollback()
 
-		unitIDs, err := selectAndMarkUnitsByStatus(tx, productID, qty, "Danada")
+		unitIDs, err := selectAndMarkUnitsByStatus(tx, tenantIDFromRequest(r), productID, qty, "Danada")
 		if err != nil {
 			if err == errInsufficientStock {
 				writeJSONError(http.StatusBadRequest, "No hay stock disponible suficiente.")
@@ -6365,7 +7424,7 @@ func main() {
 			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.")
 			return
 		}
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo cargar la configuración de movimientos.")
 			return
@@ -6606,44 +7665,46 @@ func main() {
 			return
 		}
 
-		// Legacy compatibility: if the table exists, clear price history rows before deleting the product.
-		var hasPriceHistoryTable int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'precio_venta_historial'`).Scan(&hasPriceHistoryTable); err == nil && hasPriceHistoryTable > 0 {
-			histCols := map[string]bool{}
-			colRows, err := tx.Query(`PRAGMA table_info('precio_venta_historial')`)
-			if err == nil {
-				for colRows.Next() {
-					var cid int
-					var name, colType string
-					var notNull, pk int
-					var dflt sql.NullString
-					if scanErr := colRows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); scanErr == nil {
-						histCols[strings.ToLower(strings.TrimSpace(name))] = true
+		// Legacy compatibility: SQLite installs may still have historical price tables with variant column names.
+		if !isPostgresDB() {
+			var hasPriceHistoryTable int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'precio_venta_historial'`).Scan(&hasPriceHistoryTable); err == nil && hasPriceHistoryTable > 0 {
+				histCols := map[string]bool{}
+				colRows, err := tx.Query(`PRAGMA table_info('precio_venta_historial')`)
+				if err == nil {
+					for colRows.Next() {
+						var cid int
+						var name, colType string
+						var notNull, pk int
+						var dflt sql.NullString
+						if scanErr := colRows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); scanErr == nil {
+							histCols[strings.ToLower(strings.TrimSpace(name))] = true
+						}
 					}
+					colRows.Close()
 				}
-				colRows.Close()
-			}
 
-			switch {
-			case histCols["producto_id"]:
-				if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_id = ?`, productID); err != nil {
-					writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
-					return
-				}
-			case histCols["product_id"]:
-				if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE product_id = ?`, productID); err != nil {
-					writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
-					return
-				}
-			case histCols["producto_sku"]:
-				if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_sku = ?`, productID); err != nil {
-					writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
-					return
-				}
-			case histCols["sku"]:
-				if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE sku = ?`, productID); err != nil {
-					writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
-					return
+				switch {
+				case histCols["producto_id"]:
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_id = ?`, productID); err != nil {
+						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
+						return
+					}
+				case histCols["product_id"]:
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE product_id = ?`, productID); err != nil {
+						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
+						return
+					}
+				case histCols["producto_sku"]:
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_sku = ?`, productID); err != nil {
+						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
+						return
+					}
+				case histCols["sku"]:
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE sku = ?`, productID); err != nil {
+						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
+						return
+					}
 				}
 			}
 		}
@@ -6813,7 +7874,7 @@ func main() {
 				activeOnly = false
 			}
 		}
-		lines, err := loadBusinessLines(db, activeOnly)
+		lines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), activeOnly)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar las líneas.", nil)
 			return
@@ -6879,7 +7940,7 @@ func main() {
 		}
 		q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
 		currentUser := userFromContext(r)
-		productsSnapshot, err := loadProductos(db)
+		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
 			return
@@ -6897,7 +7958,7 @@ func main() {
 			filtered = append(filtered, product)
 			productIDs = append(productIDs, product.ID)
 		}
-		countsByProduct, err := loadInventoryCountsForProducts(db, productIDs)
+		countsByProduct, err := loadInventoryCountsForProducts(db, tenantIDFromRequest(r), productIDs)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
 			return
@@ -6920,7 +7981,7 @@ func main() {
 			writeAPIError(w, http.StatusBadRequest, "Falta id.", nil)
 			return
 		}
-		productsSnapshot, err := loadProductos(db)
+		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
 			return
@@ -6954,7 +8015,7 @@ func main() {
 		}
 		q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
 		currentUser := userFromContext(r)
-		productsSnapshot, err := loadProductos(db)
+		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el inventario.", nil)
 			return
@@ -6972,7 +8033,7 @@ func main() {
 			filtered = append(filtered, product)
 			productIDs = append(productIDs, product.ID)
 		}
-		countsByProduct, err := loadInventoryCountsForProducts(db, productIDs)
+		countsByProduct, err := loadInventoryCountsForProducts(db, tenantIDFromRequest(r), productIDs)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
 			return
@@ -6991,7 +8052,7 @@ func main() {
 			return
 		}
 		q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
-		productsSnapshot, err := loadProductos(db)
+		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
 			return
@@ -7032,7 +8093,7 @@ func main() {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 			return
 		}
-		productsSnapshot, err := loadProductos(db)
+		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el inventario.", nil)
 			return
@@ -7041,7 +8102,7 @@ func main() {
 		items := make([]map[string]any, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
 			var available, reserved, swapped, damaged int
-			rows, err := db.Query(`SELECT estado, COUNT(*) FROM unidades WHERE producto_id = ? GROUP BY estado`, product.ID)
+			rows, err := db.Query(`SELECT estado, COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ? GROUP BY estado`, tenantIDFromRequest(r), product.ID)
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
 				return
@@ -7471,7 +8532,7 @@ func main() {
 			}
 			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
 		case http.MethodPost:
-			_, movementEnabledMap, err := loadMovementSettings(db)
+			_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
 				return
@@ -7510,7 +8571,7 @@ func main() {
 			productsMu.RUnlock()
 			productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
 
-			stockByProd, err := availableCountsByProduct(db)
+			stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
 				return
@@ -7588,7 +8649,7 @@ func main() {
 			}
 			defer tx.Rollback()
 
-			soldUnitIDs, err := selectAndMarkUnitsSold(tx, payload.ProductID, payload.Quantity)
+			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity)
 			if err != nil {
 				if err == errInsufficientStock {
 					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
@@ -7608,16 +8669,15 @@ func main() {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
 				return
 			}
-			result, err := tx.Exec(
-				`INSERT INTO credit_sales (product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
-				VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-				payload.ProductID, payload.Quantity, payload.DebtorName, payload.DebtorDocumentType, payload.DebtorDocumentNumber, payload.DebtorPhone, payload.InstallmentsTotal, payload.TotalValue, payload.InterestPercent, installmentValue, movementNote, now, nullableUserID(currentUser),
+			creditSaleID, err := insertAndReturnID(tx,
+				`INSERT INTO credit_sales (tenant_id, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+				tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, payload.DebtorName, payload.DebtorDocumentType, payload.DebtorDocumentNumber, payload.DebtorPhone, payload.InstallmentsTotal, payload.TotalValue, payload.InterestPercent, installmentValue, movementNote, now, nullableUserID(currentUser),
 			)
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta a crédito.", nil)
 				return
 			}
-			creditSaleID, _ := result.LastInsertId()
 			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "api", withAPIAuditMetadata(r, map[string]any{
 				"credit_sale_id":         creditSaleID,
 				"product_id":             payload.ProductID,
@@ -7660,7 +8720,7 @@ func main() {
 			return
 		}
 		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
 			return
@@ -7705,7 +8765,7 @@ func main() {
 
 	mux.HandleFunc("/venta/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
@@ -7714,18 +8774,18 @@ func main() {
 			redirectWithMessage(w, r, "/inventario", "", "La venta está deshabilitada en Configuración.")
 			return
 		}
-		activePaymentMethods, err := loadPaymentMethods(db, true)
+		activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
 		if err != nil {
 			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
 			return
 		}
 		paymentMethodNamesActive := paymentMethodNames(activePaymentMethods)
 
-		productsMu.RLock()
-		productsSnapshot := make([]productOption, len(products))
-		copy(productsSnapshot, products)
-		productsMu.RUnlock()
-		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+		productsSnapshot, err := loadVisibleProductsForUser(db, currentUser)
+		if err != nil {
+			http.Error(w, "Error al cargar productos", http.StatusInternalServerError)
+			return
+		}
 
 		productID := r.URL.Query().Get("producto_id")
 		if productID == "" && len(productsSnapshot) > 0 {
@@ -7748,7 +8808,7 @@ func main() {
 			return
 		}
 
-		stockByProd, err := availableCountsByProduct(db)
+		stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			http.Error(w, "Error al consultar stock", http.StatusInternalServerError)
 			return
@@ -7825,7 +8885,7 @@ func main() {
 
 	mux.HandleFunc("/cambio/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
@@ -7834,11 +8894,11 @@ func main() {
 			redirectWithMessage(w, r, "/inventario", "", "El cambio está deshabilitado en Configuración.")
 			return
 		}
-		productsMu.RLock()
-		productsSnapshot := make([]productOption, len(products))
-		copy(productsSnapshot, products)
-		productsMu.RUnlock()
-		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+		productsSnapshot, err := loadVisibleProductsForUser(db, currentUser)
+		if err != nil {
+			http.Error(w, "Error al cargar productos", http.StatusInternalServerError)
+			return
+		}
 		if len(productsSnapshot) == 0 {
 			redirectWithMessage(w, r, "/inventario", "", "No tienes productos disponibles para cambio.")
 			return
@@ -7861,7 +8921,7 @@ func main() {
 			productID = selectedProduct.ID
 		}
 
-		availableUnits, err := availableUnitsByProduct(db, productID)
+		availableUnits, err := availableUnitsByProduct(db, tenantIDFromUser(currentUser), productID)
 		if err != nil {
 			http.Error(w, "Error al consultar unidades disponibles", http.StatusInternalServerError)
 			return
@@ -7891,7 +8951,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/retoma/new", func(w http.ResponseWriter, r *http.Request) {
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromRequest(r))
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
@@ -7961,11 +9021,11 @@ func main() {
 				args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
 			}
 			if fromStr != "" {
-				query += ` AND substr(v.fecha, 1, 10) >= ?`
+				query += ` AND ` + sqlDatePrefixExpr("v.fecha") + ` >= ?`
 				args = append(args, fromStr)
 			}
 			if toStr != "" {
-				query += ` AND substr(v.fecha, 1, 10) <= ?`
+				query += ` AND ` + sqlDatePrefixExpr("v.fecha") + ` <= ?`
 				args = append(args, toStr)
 			}
 			query += ` ORDER BY v.fecha DESC, v.id DESC LIMIT 100`
@@ -8015,7 +9075,7 @@ func main() {
 			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
 
 		case http.MethodPost:
-			_, movementEnabledMap, err := loadMovementSettings(db)
+			_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
 				return
@@ -8050,7 +9110,7 @@ func main() {
 				quantity = *payload.Quantity
 			}
 
-			activePaymentMethods, err := loadPaymentMethods(db, true)
+			activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los métodos de pago.", nil)
 				return
@@ -8070,7 +9130,7 @@ func main() {
 				productSalePrice float64
 			)
 			if payload.ProductID != "" {
-				if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0) FROM productos WHERE sku = ? OR id = ? LIMIT 1`, payload.ProductID, payload.ProductID).Scan(&productName, &productSalePrice); err != nil {
+				if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND (sku = ? OR id = ?) LIMIT 1`, tenantIDFromUser(currentUser), payload.ProductID, payload.ProductID).Scan(&productName, &productSalePrice); err != nil {
 					if err == sql.ErrNoRows {
 						fields["product_id"] = "Selecciona un producto válido."
 					} else {
@@ -8087,7 +9147,7 @@ func main() {
 				fields["product_id"] = "No tienes acceso a este producto."
 			}
 
-			stockByProd, err := availableCountsByProduct(db)
+			stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
 				return
@@ -8138,7 +9198,7 @@ func main() {
 			}
 			defer tx.Rollback()
 
-			soldUnitIDs, err := selectAndMarkUnitsSold(tx, payload.ProductID, quantity)
+			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, quantity)
 			if err != nil {
 				if err == errInsufficientStock {
 					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
@@ -8153,12 +9213,11 @@ func main() {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
 				return
 			}
-			result, err := tx.Exec(`INSERT INTO ventas (producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, payload.ProductID, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
+			saleID, err := insertAndReturnID(tx, `INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, tenantIDFromUser(currentUser), payload.ProductID, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
 				return
 			}
-			saleID, _ := result.LastInsertId()
 			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
 				"sale_id":     saleID,
 				"producto_id": payload.ProductID,
@@ -8199,7 +9258,7 @@ func main() {
 			return
 		}
 		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
 			return
@@ -8294,7 +9353,7 @@ func main() {
 			return
 		}
 		defer tx.Rollback()
-		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, payload.ProductID, payload.Quantity, "Cambio")
+		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, "Cambio")
 		if err != nil {
 			if err == errInsufficientStock {
 				writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar el cambio.", map[string]string{"quantity": "No hay stock disponible suficiente para completar el cambio."})
@@ -8343,7 +9402,7 @@ func main() {
 	mux.HandleFunc("/venta", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
 		wantsJSON := strings.Contains(r.Header.Get("Accept"), "application/json") || r.Header.Get("X-Requested-With") == "XMLHttpRequest"
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
@@ -8358,7 +9417,7 @@ func main() {
 			redirectWithMessage(w, r, "/inventario", "", "La venta está deshabilitada en Configuración.")
 			return
 		}
-		activePaymentMethods, err := loadPaymentMethods(db, true)
+		activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
 		if err != nil {
 			if wantsJSON {
 				w.Header().Set("Content-Type", "application/json")
@@ -8386,13 +9445,17 @@ func main() {
 			return
 		}
 
-		productsMu.RLock()
-		productsSnapshot := make([]productOption, len(products))
-		copy(productsSnapshot, products)
-		productsMu.RUnlock()
-		productsSnapshot = filterProductsForUser(productsSnapshot, currentUser)
+		productsSnapshot, err := loadVisibleProductsForUser(db, currentUser)
+		if err != nil {
+			if wantsJSON {
+				writeJSONError(http.StatusInternalServerError, "No se pudieron cargar los productos.", nil)
+				return
+			}
+			http.Error(w, "No se pudieron cargar los productos", http.StatusInternalServerError)
+			return
+		}
 
-		stockByProd, err := availableCountsByProduct(db)
+		stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			if wantsJSON {
 				writeJSONError(http.StatusInternalServerError, "Error al consultar stock.", nil)
@@ -8606,7 +9669,7 @@ func main() {
 			return
 		}
 
-		soldUnitIDs, err := selectAndMarkUnitsSold(tx, productID, cantidad)
+		soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), productID, cantidad)
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback venta: %v", rollbackErr)
@@ -8671,10 +9734,10 @@ func main() {
 
 		saleID := 0
 		if saleMode == "credit" {
-			result, err := tx.Exec(
-				`INSERT INTO credit_sales (product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
-				VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-				productID, cantidad, debtorName, debtorDocumentType, debtorDocumentNumber, debtorPhone, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, now, nullableUserID(currentUser),
+			creditSaleID, err := insertAndReturnID(tx,
+				`INSERT INTO credit_sales (tenant_id, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+				tenantIDFromUser(currentUser), productID, cantidad, debtorName, debtorDocumentType, debtorDocumentNumber, debtorPhone, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, now, nullableUserID(currentUser),
 			)
 			if err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
@@ -8687,7 +9750,6 @@ func main() {
 				http.Error(w, "Error al registrar la venta a crédito", http.StatusInternalServerError)
 				return
 			}
-			creditSaleID, _ := result.LastInsertId()
 			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "manual", map[string]any{
 				"credit_sale_id":         creditSaleID,
 				"product_id":             productID,
@@ -8712,10 +9774,10 @@ func main() {
 				http.Error(w, "Error al registrar la auditoría del crédito", http.StatusInternalServerError)
 				return
 			}
-		} else if result, err := tx.Exec(
-			`INSERT INTO ventas (producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
-			VALUES (?, ?, ?, ?, ?, ?)`,
-			productID, cantidad, func() float64 {
+		} else if insertedSaleID, err := insertAndReturnID(tx,
+			`INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			tenantIDFromUser(currentUser), productID, cantidad, func() float64 {
 				precioFinal := precioParsed
 				if valorFinalOk && cantidad > 0 {
 					precioFinal = valorFinalParsed / float64(cantidad)
@@ -8733,9 +9795,7 @@ func main() {
 			http.Error(w, "Error al registrar la venta", http.StatusInternalServerError)
 			return
 		} else {
-			if insertedID, idErr := result.LastInsertId(); idErr == nil {
-				saleID = int(insertedID)
-			}
+			saleID = int(insertedSaleID)
 		}
 		if saleMode != "credit" {
 			precioFinal := precioParsed
@@ -8828,7 +9888,7 @@ func main() {
 
 	mux.HandleFunc("/cambio", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettings(db)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return
@@ -8888,7 +9948,7 @@ func main() {
 			errors["persona_del_cambio"] = "Ingresa la persona responsable del cambio."
 		}
 
-		availableUnits, err := availableUnitsByProduct(db, productID)
+		availableUnits, err := availableUnitsByProduct(db, tenantIDFromUser(currentUser), productID)
 		if err != nil {
 			http.Error(w, "Error al consultar unidades disponibles", http.StatusInternalServerError)
 			return
@@ -8983,7 +10043,7 @@ func main() {
 		}
 
 		outgoingQty := len(salientes)
-		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, productID, outgoingQty, "Cambio")
+		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), productID, outgoingQty, "Cambio")
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback cambio: %v", rollbackErr)
@@ -9293,7 +10353,7 @@ func main() {
 			}
 
 			// Persist catalog.
-			if err := upsertProducto(tx, sku, nombre, linea, now); err != nil {
+			if err := upsertProducto(tx, tenantIDFromRequest(r), sku, nombre, linea, now); err != nil {
 				_, _ = tx.Exec("ROLLBACK TO csv_row")
 				_, _ = tx.Exec("RELEASE csv_row")
 				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: sku, Error: "Error al guardar producto."})
