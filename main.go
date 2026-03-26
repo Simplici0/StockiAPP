@@ -608,6 +608,46 @@ type productLoanReportItem struct {
 	UnitIDsText          string
 }
 
+type cashLoanReportItem struct {
+	CreditSaleID         int
+	CreatedAt            string
+	CustomerID           int
+	CustomerName         string
+	CustomerDocumentType string
+	CustomerDocument     string
+	CustomerPhone        string
+	CustomerCity         string
+	ManagedByName        string
+	InstallmentsTotal    int
+	InstallmentsPaid     int
+	InstallmentsPending  int
+	TotalValue           float64
+	DebtTotal            float64
+	TotalPaid            float64
+	CurrentDebt          float64
+	InterestPercent      float64
+	InstallmentValue     float64
+	Status               string
+	StatusLabel          string
+	KindLabel            string
+	Notes                string
+	LastPaymentAt        string
+	LastPaymentAmount    float64
+	LastPaymentType      string
+	DetailURL            string
+}
+
+type cashLoanReportSummary struct {
+	Count          int
+	ActiveCount    int
+	CompletedCount int
+	SuspendedCount int
+	CancelledCount int
+	TotalValue     float64
+	TotalPaid      float64
+	CurrentDebt    float64
+}
+
 type productLoanTimelineItem struct {
 	CreatedAt string
 	EventType string
@@ -1812,6 +1852,16 @@ type productLoanReportFilters struct {
 	Limit         int
 }
 
+type cashLoanReportFilters struct {
+	DateFrom     string
+	DateTo       string
+	Username     string
+	Status       string
+	Customer     string
+	CreditSaleID int
+	Limit        int
+}
+
 func parseProductLoanReportFilters(r *http.Request, defaultLimit int) (productLoanReportFilters, string) {
 	productLoanIDRaw := strings.TrimSpace(r.URL.Query().Get("product_loan_id"))
 	productLoanID := 0
@@ -2033,6 +2083,198 @@ func listProductLoansReport(db *sql.DB, currentUser *User, tenantID int, filters
 		filtered = append(filtered, item)
 	}
 	return filtered, nil
+}
+
+func parseCashLoanReportFilters(r *http.Request, defaultLimit int) (cashLoanReportFilters, string) {
+	creditSaleIDRaw := strings.TrimSpace(r.URL.Query().Get("credit_sale_id"))
+	creditSaleID := 0
+	if creditSaleIDRaw != "" {
+		if parsed, err := strconv.Atoi(creditSaleIDRaw); err == nil && parsed > 0 {
+			creditSaleID = parsed
+		}
+	}
+	return cashLoanReportFilters{
+		DateFrom:     strings.TrimSpace(r.URL.Query().Get("date_from")),
+		DateTo:       strings.TrimSpace(r.URL.Query().Get("date_to")),
+		Username:     strings.TrimSpace(r.URL.Query().Get("username")),
+		Status:       strings.TrimSpace(r.URL.Query().Get("status")),
+		Customer:     strings.TrimSpace(r.URL.Query().Get("customer")),
+		CreditSaleID: creditSaleID,
+		Limit:        defaultLimit,
+	}, creditSaleIDRaw
+}
+
+func cashLoanStatusLabel(status creditStatus) string {
+	label := creditStatusLabel(status)
+	label = strings.Replace(label, "Crédito", "Préstamo", 1)
+	return label
+}
+
+func listCashLoansReport(db *sql.DB, currentUser *User, tenantID int, filters cashLoanReportFilters) ([]cashLoanReportItem, error) {
+	if currentUser == nil || !isAdminRole(currentUser.Role) {
+		return nil, requestError{Status: http.StatusForbidden, Message: "Solo administrador puede consultar préstamos de dinero."}
+	}
+	tenantID = normalizeTenantID(tenantID)
+	if filters.Limit <= 0 {
+		filters.Limit = 150
+	}
+	if filters.Limit > 500 {
+		filters.Limit = 500
+	}
+	filters.DateFrom = strings.TrimSpace(filters.DateFrom)
+	filters.DateTo = strings.TrimSpace(filters.DateTo)
+	filters.Username = strings.TrimSpace(filters.Username)
+	filters.Status = normalizeCreditStatusFilter(filters.Status)
+	filters.Customer = strings.TrimSpace(filters.Customer)
+
+	query := `
+		SELECT
+			cs.id,
+			cs.created_at,
+			COALESCE(cs.customer_id, 0),
+			COALESCE(c.name, cs.debtor_name, ''),
+			COALESCE(c.document_type, cs.debtor_document_type, ''),
+			COALESCE(c.document_number, cs.debtor_document_number, ''),
+			COALESCE(c.phone, cs.debtor_phone, ''),
+			COALESCE(c.city, ''),
+			COALESCE(u.username, ''),
+			COALESCE(cs.installments_total, 0),
+			COALESCE(cs.installments_paid, 0),
+			COALESCE(cs.total_value, 0),
+			COALESCE(cs.interest_percent, 0),
+			COALESCE(cs.installment_value, 0),
+			COALESCE((
+				SELECT SUM(ci.amount_paid)
+				FROM credit_installments ci
+				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+			), 0),
+			COALESCE((
+				SELECT COUNT(*)
+				FROM credit_installments ci
+				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id AND COALESCE(ci.payment_type, 'cuota') = 'cuota'
+			), COALESCE(cs.installments_paid, 0)),
+			COALESCE(cs.notes, ''),
+			COALESCE((
+				SELECT ci.amount_paid
+				FROM credit_installments ci
+				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+				ORDER BY ci.created_at DESC, ci.id DESC
+				LIMIT 1
+			), 0),
+			COALESCE((
+				SELECT ci.created_at
+				FROM credit_installments ci
+				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+				ORDER BY ci.created_at DESC, ci.id DESC
+				LIMIT 1
+			), ''),
+			COALESCE((
+				SELECT COALESCE(ci.payment_type, 'cuota')
+				FROM credit_installments ci
+				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+				ORDER BY ci.created_at DESC, ci.id DESC
+				LIMIT 1
+			), ''),
+			COALESCE(cs.status, '')
+		FROM credit_sales cs
+		LEFT JOIN customers c ON c.id = cs.customer_id AND c.tenant_id = cs.tenant_id
+		LEFT JOIN users u ON u.id = cs.created_by AND u.tenant_id = cs.tenant_id
+		WHERE cs.tenant_id = ? AND COALESCE(cs.kind, ?) = ?
+	`
+	args := []any{tenantID, string(creditSaleKindCash), string(creditSaleKindCash)}
+	if filters.DateFrom != "" {
+		query += ` AND ` + sqlDatePrefixExpr("cs.created_at") + ` >= ?`
+		args = append(args, filters.DateFrom)
+	}
+	if filters.DateTo != "" {
+		query += ` AND ` + sqlDatePrefixExpr("cs.created_at") + ` <= ?`
+		args = append(args, filters.DateTo)
+	}
+	if filters.Username != "" {
+		query += ` AND LOWER(COALESCE(u.username, '')) LIKE ?`
+		args = append(args, "%"+strings.ToLower(filters.Username)+"%")
+	}
+	if filters.Customer != "" {
+		query += ` AND (
+			LOWER(COALESCE(c.name, cs.debtor_name, '')) LIKE ?
+			OR LOWER(COALESCE(c.document_number, cs.debtor_document_number, '')) LIKE ?
+			OR LOWER(COALESCE(c.phone, cs.debtor_phone, '')) LIKE ?
+			OR LOWER(COALESCE(c.city, '')) LIKE ?
+		)`
+		search := "%" + strings.ToLower(filters.Customer) + "%"
+		args = append(args, search, search, search, search)
+	}
+	if filters.CreditSaleID > 0 {
+		query += ` AND cs.id = ?`
+		args = append(args, filters.CreditSaleID)
+	}
+	query += ` ORDER BY cs.created_at DESC, cs.id DESC LIMIT ?`
+	args = append(args, filters.Limit)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]cashLoanReportItem, 0, filters.Limit)
+	for rows.Next() {
+		var (
+			item                cashLoanReportItem
+			statusRaw           string
+			paidInstallmentsCnt int
+		)
+		if err := rows.Scan(
+			&item.CreditSaleID,
+			&item.CreatedAt,
+			&item.CustomerID,
+			&item.CustomerName,
+			&item.CustomerDocumentType,
+			&item.CustomerDocument,
+			&item.CustomerPhone,
+			&item.CustomerCity,
+			&item.ManagedByName,
+			&item.InstallmentsTotal,
+			&item.InstallmentsPaid,
+			&item.TotalValue,
+			&item.InterestPercent,
+			&item.InstallmentValue,
+			&item.TotalPaid,
+			&paidInstallmentsCnt,
+			&item.Notes,
+			&item.LastPaymentAmount,
+			&item.LastPaymentAt,
+			&item.LastPaymentType,
+			&statusRaw,
+		); err != nil {
+			return nil, err
+		}
+		legacyTotalPaid := math.Round((float64(item.InstallmentsPaid)*item.InstallmentValue)*100) / 100
+		if item.TotalPaid < legacyTotalPaid {
+			item.TotalPaid = legacyTotalPaid
+		}
+		item.InstallmentsPending = max(item.InstallmentsTotal-paidInstallmentsCnt, 0)
+		item.DebtTotal = creditDebtTotal(item.InstallmentsTotal, item.InstallmentValue)
+		item.CurrentDebt = creditCurrentDebt(item.DebtTotal, item.TotalPaid)
+		status := effectiveCreditStatus(statusRaw, item.CurrentDebt, item.DebtTotal)
+		if filters.Status != "" && string(status) != filters.Status {
+			continue
+		}
+		item.Status = string(status)
+		item.StatusLabel = cashLoanStatusLabel(status)
+		item.KindLabel = creditKindLabel(creditSaleKindCash)
+		item.CreatedAt = formatDateWithSettings(item.CreatedAt)
+		item.LastPaymentAt = formatDateWithSettings(item.LastPaymentAt)
+		item.DetailURL = ""
+		if item.CustomerID > 0 {
+			item.DetailURL = fmt.Sprintf("/clientes/%d", item.CustomerID)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func loadProductLoanUnitIDs(db *sql.DB, tenantID int, loanIDs []int) (map[int][]string, error) {
@@ -4575,6 +4817,20 @@ func customerDetailViewForTenant(db *sql.DB, currentUser *User, customerID int) 
 
 func migrateCreditTablesForCashLoans(db *sql.DB) error {
 	if isPostgresDB() {
+		for _, stmt := range []string{
+			`ALTER TABLE credit_sales ALTER COLUMN product_id DROP NOT NULL`,
+			`ALTER TABLE credit_installments ALTER COLUMN product_id DROP NOT NULL`,
+		} {
+			if _, err := db.Exec(stmt); err != nil {
+				return err
+			}
+		}
+		if _, err := db.Exec(`UPDATE credit_sales SET product_id = NULL WHERE TRIM(COALESCE(product_id, '')) = ''`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`UPDATE credit_installments SET product_id = NULL WHERE TRIM(COALESCE(product_id, '')) = ''`); err != nil {
+			return err
+		}
 		return nil
 	}
 	creditSalesSQL, err := tableSQL(db, "credit_sales")
@@ -12736,6 +12992,7 @@ func main() {
 		"templates/customers.html",
 		"templates/customer_detail.html",
 		"templates/credit_edits_report.html",
+		"templates/cash_loans_report.html",
 		"templates/product_loans_report.html",
 		"templates/product_loan_detail.html",
 		"templates/business_settings.html",
@@ -12995,6 +13252,22 @@ func main() {
 		ProductLoanID string
 		Items         []productLoanReportItem
 		CurrentUser   *User
+	}
+
+	type cashLoanReportPageData struct {
+		Title        string
+		Subtitle     string
+		Flash        string
+		Error        string
+		DateFrom     string
+		DateTo       string
+		Username     string
+		Status       string
+		Customer     string
+		CreditSaleID string
+		Items        []cashLoanReportItem
+		Summary      cashLoanReportSummary
+		CurrentUser  *User
 	}
 
 	type productLoanDetailPageData struct {
@@ -13417,6 +13690,49 @@ func main() {
 			CurrentUser:  currentUser,
 		}
 		renderTemplate(w, "credit_edits_report.html", data, "Error al renderizar reporte de creditos editados")
+	}))
+
+	mux.HandleFunc("/prestamos/dinero", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		cashLoanFilters, creditSaleIDRaw := parseCashLoanReportFilters(r, 150)
+		items, err := listCashLoansReport(db, currentUser, tenantIDFromRequest(r), cashLoanFilters)
+		if err != nil {
+			http.Error(w, "Error al cargar préstamos de dinero", http.StatusInternalServerError)
+			return
+		}
+		summary := cashLoanReportSummary{}
+		for _, item := range items {
+			summary.Count++
+			summary.TotalValue += item.TotalValue
+			summary.TotalPaid += item.TotalPaid
+			summary.CurrentDebt += item.CurrentDebt
+			switch item.Status {
+			case string(creditStatusCompleted):
+				summary.CompletedCount++
+			case string(creditStatusSuspended):
+				summary.SuspendedCount++
+			case string(creditStatusCancelled):
+				summary.CancelledCount++
+			default:
+				summary.ActiveCount++
+			}
+		}
+		data := cashLoanReportPageData{
+			Title:        "Préstamos de dinero",
+			Subtitle:     "Reporte operativo de préstamos cash_loan del tenant activo.",
+			Flash:        r.URL.Query().Get("mensaje"),
+			Error:        r.URL.Query().Get("error"),
+			DateFrom:     strings.TrimSpace(r.URL.Query().Get("date_from")),
+			DateTo:       strings.TrimSpace(r.URL.Query().Get("date_to")),
+			Username:     strings.TrimSpace(r.URL.Query().Get("username")),
+			Status:       normalizeCreditStatusFilter(strings.TrimSpace(r.URL.Query().Get("status"))),
+			Customer:     strings.TrimSpace(r.URL.Query().Get("customer")),
+			CreditSaleID: creditSaleIDRaw,
+			Items:        items,
+			Summary:      summary,
+			CurrentUser:  currentUser,
+		}
+		renderTemplate(w, "cash_loans_report.html", data, "Error al renderizar reporte de préstamos de dinero")
 	}))
 
 	mux.HandleFunc("/prestamos/producto", adminOnly(func(w http.ResponseWriter, r *http.Request) {

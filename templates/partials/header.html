@@ -478,7 +478,12 @@
                     </a>
                     {{end}}
                     {{if pageCanCredit .}}
-                    {{if not (pageCanLoan .)}}<div class="menu-sep"></div>{{end}}
+                    <div class="menu-sep"></div>
+                    <a href="/prestamos/dinero">
+                        <span>Préstamos de dinero</span>
+                        <small>Reporte de créditos cash_loan</small>
+                    </a>
+                    <div class="menu-sep"></div>
                     <button id="credit-manage-open" class="menu-item" type="button">
                         <span>Editar créditos</span>
                         <small>Gestión de créditos activos</small>

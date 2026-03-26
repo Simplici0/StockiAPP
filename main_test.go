@@ -1993,6 +1993,69 @@ func TestAPICreditsEndpointSupportsCashLoanWithoutInventory(t *testing.T) {
 	}
 }
 
+func TestListCashLoansReportFiltersCashLoansOnly(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "T2-PROD-001", "Producto Reporte", 18000, 1)
+
+	cashResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/credits", token, map[string]any{
+		"kind":                     "cash_loan",
+		"customer_name":            "Camila Zuluaga",
+		"customer_phone":           "3197654321",
+		"customer_document_type":   "CC",
+		"customer_document_number": "102054321",
+		"customer_city":            "Bogotá",
+		"installments_total":       2,
+		"total_value":              200000,
+		"interest_percent":         0.5,
+		"notes":                    "prestamos amigos",
+	})
+	if cashResp.Code != http.StatusCreated {
+		t.Fatalf("expected cash loan 201, got %d body=%s", cashResp.Code, cashResp.Body.String())
+	}
+
+	productResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/credits", token, map[string]any{
+		"kind":                     "product_credit",
+		"product_id":               "T2-PROD-001",
+		"quantity":                 1,
+		"customer_name":            "Camila Zuluaga",
+		"customer_phone":           "3197654321",
+		"customer_document_type":   "CC",
+		"customer_document_number": "102054321",
+		"customer_city":            "Bogotá",
+		"installments_total":       4,
+		"total_value":              18000,
+		"interest_percent":         0,
+		"notes":                    "credito de producto",
+	})
+	if productResp.Code != http.StatusCreated {
+		t.Fatalf("expected product credit 201, got %d body=%s", productResp.Code, productResp.Body.String())
+	}
+
+	adminUser := mustLoadTestUser(t, db, "tenant2.admin")
+	items, err := listCashLoansReport(db, adminUser, tenant.ID, cashLoanReportFilters{
+		Customer: "Camila",
+		Status:   "active",
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("listCashLoansReport: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 cash loan in report, got %d", len(items))
+	}
+	if items[0].Status != string(creditStatusActive) {
+		t.Fatalf("unexpected cash loan status: %+v", items[0])
+	}
+	if items[0].CustomerName != "Camila Zuluaga" {
+		t.Fatalf("unexpected customer in report: %+v", items[0])
+	}
+	if items[0].KindLabel != "Préstamo" {
+		t.Fatalf("unexpected kind label: %+v", items[0])
+	}
+}
+
 func TestAPIAgentCreditsEndpointDefaultsToCashLoanWithoutInventory(t *testing.T) {
 	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()

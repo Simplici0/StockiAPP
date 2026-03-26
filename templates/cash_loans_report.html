@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.Title}}</title>
+  <style>
+    .report-layout {
+      display: grid;
+      gap: 20px;
+    }
+
+    .report-filters-card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(15, 40, 80, 0.08);
+      background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(246,249,252,0.92) 100%);
+      box-shadow: 0 16px 28px rgba(12, 28, 52, 0.06);
+    }
+
+    .report-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(15, 40, 80, 0.07);
+    }
+
+    .report-actions button,
+    .report-actions a.button {
+      min-height: 34px;
+      padding: 0 14px;
+      font-size: 12.5px;
+      font-weight: 700;
+      border-radius: 8px;
+    }
+
+    .report-actions a.button {
+      background: #ffffff;
+      border: 1px solid rgba(13, 43, 85, 0.16);
+      color: #4a6080;
+    }
+
+    .report-actions a.button:hover {
+      background: var(--secondary-soft);
+      border-color: rgba(13, 43, 85, 0.22);
+      color: var(--secondary);
+    }
+
+    .filter-row {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      align-items: end;
+    }
+
+    .filter-row .span-2 {
+      grid-column: span 2;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .report-note {
+      margin: 4px 0 0;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .summary-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .summary-tile {
+      display: grid;
+      gap: 4px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(15, 40, 80, 0.08);
+      background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(245,248,252,0.94) 100%);
+      box-shadow: 0 14px 24px rgba(12, 28, 52, 0.04);
+    }
+
+    .summary-tile strong {
+      font-size: 24px;
+      line-height: 1;
+      color: var(--secondary);
+      letter-spacing: -0.04em;
+    }
+
+    .summary-tile span {
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .report-table-wrap {
+      overflow-x: auto;
+    }
+
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .report-table th,
+    .report-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13.5px;
+    }
+
+    .report-table th {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .report-loan {
+      display: grid;
+      gap: 4px;
+    }
+
+    .report-loan strong {
+      color: var(--secondary);
+    }
+
+    .report-meta {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .report-note-link {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-top: 4px;
+      color: var(--secondary);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-card-muted);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-chip.active {
+      color: #1d4ed8;
+      border-color: rgba(59, 130, 246, 0.22);
+      background: rgba(239, 246, 255, 0.96);
+    }
+
+    .status-chip.completed {
+      color: #166534;
+      border-color: rgba(34, 197, 94, 0.2);
+      background: rgba(240, 253, 244, 0.96);
+    }
+
+    .status-chip.suspended {
+      color: #9a3412;
+      border-color: rgba(249, 115, 22, 0.2);
+      background: rgba(255, 247, 237, 0.96);
+    }
+
+    .status-chip.cancelled {
+      color: #475569;
+      border-color: rgba(148, 163, 184, 0.24);
+      background: rgba(248, 250, 252, 0.96);
+    }
+
+    .empty-state {
+      padding: 24px;
+      border: 1px dashed var(--border-strong);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, var(--bg-card-muted) 100%);
+    }
+
+    @media (max-width: 720px) {
+      .filter-row {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .filter-row .span-2 {
+        grid-column: span 2;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .filter-row,
+      .filter-row .span-2 {
+        grid-template-columns: 1fr;
+        grid-column: span 1;
+      }
+
+      .report-actions button,
+      .report-actions a.button {
+        flex: 1 1 auto;
+        justify-content: center;
+      }
+    }
+  </style>
+  {{template "app_styles" .}}
+</head>
+<body>
+  {{template "header" .}}
+
+  <main class="page-content report-layout">
+    {{if .Flash}}
+      <div class="flash">{{.Flash}}</div>
+    {{end}}
+    {{if .Error}}
+      <div class="flash error">{{.Error}}</div>
+    {{end}}
+
+    <section class="card">
+      <form class="report-filters-card" method="GET" action="/prestamos/dinero">
+        <div class="report-actions">
+          <button class="primary" type="submit">Filtrar</button>
+          <a class="button" href="/prestamos/dinero">Limpiar</a>
+        </div>
+
+        <div class="filter-row">
+          <div class="filter-group">
+            <label for="date_from">Desde</label>
+            <input id="date_from" name="date_from" type="date" value="{{.DateFrom}}" />
+          </div>
+          <div class="filter-group">
+            <label for="date_to">Hasta</label>
+            <input id="date_to" name="date_to" type="date" value="{{.DateTo}}" />
+          </div>
+          <div class="filter-group">
+            <label for="status">Estado</label>
+            <select id="status" name="status">
+              <option value="">Todos</option>
+              <option value="active" {{if eq .Status "active"}}selected{{end}}>Activo</option>
+              <option value="completed" {{if eq .Status "completed"}}selected{{end}}>Completado</option>
+              <option value="suspended" {{if eq .Status "suspended"}}selected{{end}}>Suspendido</option>
+              <option value="cancelled" {{if eq .Status "cancelled"}}selected{{end}}>Cancelado</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="username">Gestionado por</label>
+            <input id="username" name="username" type="text" value="{{.Username}}" placeholder="admin, soporte..." />
+          </div>
+        </div>
+
+        <div class="filter-row">
+          <div class="filter-group span-2">
+            <label for="customer">Cliente</label>
+            <input id="customer" name="customer" type="text" value="{{.Customer}}" placeholder="Nombre, documento, teléfono o ciudad" />
+          </div>
+          <div class="filter-group">
+            <label for="credit_sale_id">Préstamo ID</label>
+            <input id="credit_sale_id" name="credit_sale_id" type="number" min="1" step="1" value="{{.CreditSaleID}}" />
+          </div>
+        </div>
+        <p class="report-note">Reporte tenant-scoped de creditos `cash_loan` del tenant activo.</p>
+      </form>
+    </section>
+
+    <section class="summary-grid" aria-label="Resumen de prestamos de dinero">
+      <div class="summary-tile">
+        <strong>{{.Summary.Count}}</strong>
+        <span>Préstamos visibles</span>
+      </div>
+      <div class="summary-tile">
+        <strong>{{money .Summary.CurrentDebt}}</strong>
+        <span>Deuda actual</span>
+      </div>
+      <div class="summary-tile">
+        <strong>{{money .Summary.TotalPaid}}</strong>
+        <span>Total pagado</span>
+      </div>
+      <div class="summary-tile">
+        <strong>{{.Summary.ActiveCount}}</strong>
+        <span>Activos</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="report-table-wrap">
+        {{if .Items}}
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Préstamo</th>
+                <th>Cliente</th>
+                <th>Estado</th>
+                <th>Cuotas</th>
+                <th>Monto</th>
+                <th>Deuda actual</th>
+                <th>Último pago</th>
+                <th>Usuario</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Items}}
+                <tr>
+                  <td>{{.CreatedAt}}</td>
+                  <td>
+                    <div class="report-loan">
+                      <strong>ID {{.CreditSaleID}}</strong>
+                      <span>{{if .KindLabel}}{{.KindLabel}}{{else}}Préstamo de dinero{{end}}</span>
+                      <span class="report-meta">Interés {{printf "%.2f" .InterestPercent}}% · Cuota {{money .InstallmentValue}}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="report-loan">
+                      <strong>{{.CustomerName}}</strong>
+                      <span class="report-meta">{{if .CustomerDocumentType}}{{.CustomerDocumentType}} · {{end}}{{if .CustomerDocument}}{{.CustomerDocument}}{{else}}Sin documento{{end}}</span>
+                      <span class="report-meta">{{if .CustomerCity}}{{.CustomerCity}}{{else}}Sin ciudad{{end}}</span>
+                      {{if .DetailURL}}
+                        <a class="report-note-link" href="{{.DetailURL}}">Ver cliente</a>
+                      {{end}}
+                    </div>
+                  </td>
+                  <td><span class="status-chip {{.Status}}">{{.StatusLabel}}</span></td>
+                  <td>
+                    <div class="report-loan">
+                      <strong>{{.InstallmentsPaid}} / {{.InstallmentsTotal}}</strong>
+                      <span class="report-meta">{{.InstallmentsPending}} pendientes</span>
+                    </div>
+                  </td>
+                  <td>{{money .TotalValue}}</td>
+                  <td>{{money .CurrentDebt}}</td>
+                  <td>
+                    <div class="report-loan">
+                      <strong>{{if .LastPaymentAt}}{{money .LastPaymentAmount}}{{else}}Sin pagos{{end}}</strong>
+                      <span class="report-meta">{{if .LastPaymentAt}}{{.LastPaymentAt}}{{else}}Aún no registra abonos{{end}}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="report-loan">
+                      <strong>{{if .ManagedByName}}{{.ManagedByName}}{{else}}Sistema{{end}}</strong>
+                      <span class="report-meta">{{if .LastPaymentType}}{{.LastPaymentType}}{{else}}Creación{{end}}</span>
+                    </div>
+                  </td>
+                </tr>
+              {{end}}
+            </tbody>
+          </table>
+        {{else}}
+          <div class="empty-state">
+            <h2>Sin préstamos de dinero</h2>
+            <p>No hay créditos cash_loan para los filtros seleccionados.</p>
+          </div>
+        {{end}}
+      </div>
+    </section>
+  </main>
+</body>
+</html>
