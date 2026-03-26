@@ -289,6 +289,12 @@ func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tableColumns users: %v", err)
 	}
+	if !usersCols["name"] {
+		t.Fatalf("expected name column in users schema")
+	}
+	if !usersCols["email"] {
+		t.Fatalf("expected email column in users schema")
+	}
 	if !usersCols["telegram_id"] {
 		t.Fatalf("expected telegram_id column in users schema")
 	}
@@ -302,6 +308,8 @@ func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 
 	created, err := createManagedUser(db, tenantAdmin, tenantAdmin.TenantID, usersCols, managedUserInput{
 		Username:   "tenant3.ops",
+		Name:       "Operador Tres",
+		Email:      "tenant3.ops@example.com",
 		Password:   "OpsSegura123!",
 		Role:       roleEmployee,
 		IsActive:   true,
@@ -313,14 +321,26 @@ func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 	if created.TenantID != provisioned.Tenant.ID {
 		t.Fatalf("expected tenant_id=%d, got %+v", provisioned.Tenant.ID, created)
 	}
+	if created.Name != "Operador Tres" {
+		t.Fatalf("expected name persisted, got %+v", created)
+	}
+	if created.Email != "tenant3.ops@example.com" {
+		t.Fatalf("expected email persisted, got %+v", created)
+	}
 	if created.TelegramID != "99887766" {
 		t.Fatalf("expected telegram_id persisted, got %+v", created)
 	}
 
-	var persistedTelegram string
+	var persistedName, persistedEmail, persistedTelegram string
 	var persistedTenantID int
-	if err := db.QueryRow(`SELECT telegram_id, tenant_id FROM users WHERE username = ?`, "tenant3.ops").Scan(&persistedTelegram, &persistedTenantID); err != nil {
+	if err := db.QueryRow(`SELECT name, email, telegram_id, tenant_id FROM users WHERE username = ?`, "tenant3.ops").Scan(&persistedName, &persistedEmail, &persistedTelegram, &persistedTenantID); err != nil {
 		t.Fatalf("query created user: %v", err)
+	}
+	if persistedName != "Operador Tres" {
+		t.Fatalf("unexpected persisted name: %q", persistedName)
+	}
+	if persistedEmail != "tenant3.ops@example.com" {
+		t.Fatalf("unexpected persisted email: %q", persistedEmail)
 	}
 	if persistedTelegram != "99887766" {
 		t.Fatalf("unexpected persisted telegram_id: %q", persistedTelegram)
@@ -494,6 +514,79 @@ func TestVisibleProductsAndAgentItemsIncludeLocation(t *testing.T) {
 	item := agentProductItem(productsSnapshot[0], countsByProduct["LOC-001"], true)
 	if item["location"] != "Estante B-04" {
 		t.Fatalf("expected location in agent product item, got %+v", item)
+	}
+}
+
+func TestEnsureLegacyOperationalColumnsMigratesUsersTable(t *testing.T) {
+	t.Setenv("DB_ENGINE", "")
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy-users.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL CHECK (role IN ('admin', 'empleado')),
+			created_at TEXT NOT NULL,
+			is_active INTEGER NOT NULL DEFAULT 1
+		)
+	`); err != nil {
+		t.Fatalf("create legacy users table: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE productos (sku TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL DEFAULT 1, nombre TEXT NOT NULL, linea TEXT NOT NULL, precio_base REAL NOT NULL DEFAULT 0, precio_venta REAL NOT NULL DEFAULT 0, precio_consultora REAL NOT NULL DEFAULT 0, descuento REAL NOT NULL DEFAULT 0, anotaciones TEXT NOT NULL DEFAULT '', aplica_caducidad INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE credit_sales (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL DEFAULT 1, product_id TEXT, installments_total INTEGER NOT NULL DEFAULT 0, installments_paid INTEGER NOT NULL DEFAULT 0, total_value REAL NOT NULL DEFAULT 0, installment_value REAL NOT NULL DEFAULT 0, debtor_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE credit_installments (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL DEFAULT 1, product_id TEXT, installment_number INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE retomas (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL DEFAULT 1, producto_id TEXT NOT NULL, cantidad INTEGER NOT NULL DEFAULT 0, valor_recibido REAL NOT NULL DEFAULT 0, estado_recibido TEXT NOT NULL DEFAULT '', fecha TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE ventas (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL DEFAULT 1, producto_id TEXT NOT NULL, cantidad INTEGER NOT NULL DEFAULT 0, precio_final REAL NOT NULL DEFAULT 0, metodo_pago TEXT NOT NULL DEFAULT '', fecha TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE unidades (id TEXT PRIMARY KEY, tenant_id INTEGER NOT NULL DEFAULT 1, producto_id TEXT NOT NULL, estado TEXT NOT NULL DEFAULT '', creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("create supporting legacy table: %v", err)
+		}
+	}
+	if _, err := db.Exec(`
+		INSERT INTO users (username, password_hash, role, created_at, is_active)
+		VALUES ('legacy.user', 'hash', 'empleado', ?, 1)
+	`, time.Now().Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert legacy user: %v", err)
+	}
+
+	if err := ensureLegacyOperationalColumns(db); err != nil {
+		t.Fatalf("ensureLegacyOperationalColumns: %v", err)
+	}
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	for _, col := range []string{"name", "email", "tenant_id", "telegram_id"} {
+		if !usersCols[col] {
+			t.Fatalf("expected migrated column %q in users table", col)
+		}
+	}
+
+	var name, email, telegramID string
+	var tenantID int
+	if err := db.QueryRow(`SELECT name, email, telegram_id, tenant_id FROM users WHERE username = 'legacy.user'`).Scan(&name, &email, &telegramID, &tenantID); err != nil {
+		t.Fatalf("query migrated legacy user: %v", err)
+	}
+	if name != "legacy.user" {
+		t.Fatalf("unexpected migrated name: %q", name)
+	}
+	if email != "legacy.user@local" {
+		t.Fatalf("unexpected migrated email: %q", email)
+	}
+	if telegramID != "" {
+		t.Fatalf("unexpected migrated telegram_id: %q", telegramID)
+	}
+	if tenantID != defaultTenantID {
+		t.Fatalf("unexpected migrated tenant_id: %d", tenantID)
 	}
 }
 
@@ -3051,8 +3144,8 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 	createBody := decodeAPIResponse(t, createResp)
 	user := createBody["user"].(map[string]any)
 	userID := int(user["id"].(float64))
-	if user["telegram_id"] != "44556677" {
-		t.Fatalf("unexpected telegram_id in create response: %+v", user)
+	if user["name"] != "Operador Dos" || user["email"] != "tenant2.ops@example.com" || user["telegram_id"] != "44556677" {
+		t.Fatalf("unexpected user in create response: %+v", user)
 	}
 	if user["role"] != "empleado" {
 		t.Fatalf("unexpected role in create response: %+v", user)
@@ -3073,7 +3166,7 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 	}
 	detailBody := decodeAPIResponse(t, detailResp)
 	detailUser := detailBody["user"].(map[string]any)
-	if detailUser["username"] != "tenant2.ops" {
+	if detailUser["name"] != "Operador Dos" || detailUser["email"] != "tenant2.ops@example.com" || detailUser["username"] != "tenant2.ops" {
 		t.Fatalf("unexpected detail payload: %+v", detailUser)
 	}
 
@@ -3099,8 +3192,33 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 	}
 	updateBody := decodeAPIResponse(t, updateResp)
 	updatedUser := updateBody["user"].(map[string]any)
-	if updatedUser["telegram_id"] != "88990011" || updatedUser["is_active"] != true {
+	if updatedUser["name"] != "Operador Dos Actualizado" || updatedUser["telegram_id"] != "88990011" || updatedUser["is_active"] != true {
 		t.Fatalf("unexpected updated payload: %+v", updatedUser)
+	}
+
+	legacyCreatedAt := time.Now().Format(time.RFC3339)
+	legacyUserID, err := insertAndReturnID(db, `
+		INSERT INTO users (username, name, email, password_hash, role, tenant_id, telegram_id, created_at, is_active)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, "legacy.staff", "", "", "hash", "empleado", 2, "11223344", legacyCreatedAt, 1)
+	if err != nil {
+		t.Fatalf("insert legacy user: %v", err)
+	}
+
+	legacyDetailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users/"+strconv.Itoa(int(legacyUserID)), token, nil)
+	if legacyDetailResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting legacy user detail, got %d body=%s", legacyDetailResp.Code, legacyDetailResp.Body.String())
+	}
+	legacyDetailBody := decodeAPIResponse(t, legacyDetailResp)
+	legacyUser := legacyDetailBody["user"].(map[string]any)
+	if legacyUser["name"] != "legacy.staff" {
+		t.Fatalf("expected legacy fallback name, got %+v", legacyUser)
+	}
+	if legacyUser["email"] != "legacy.staff@local" {
+		t.Fatalf("expected legacy fallback email, got %+v", legacyUser)
+	}
+	if legacyUser["telegram_id"] != "11223344" {
+		t.Fatalf("expected legacy telegram_id preserved, got %+v", legacyUser)
 	}
 
 	now := time.Now().Add(24 * time.Hour).Format(time.RFC3339)

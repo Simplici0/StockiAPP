@@ -883,6 +883,9 @@
                     <a class="nav-item" href="#inventario"
                         ><span class="nav-icon">📦</span> Inventario</a
                     >
+                    <a class="nav-item" href="#clientes"
+                        ><span class="nav-icon">👤</span> Clientes</a
+                    >
                     <a class="nav-item" href="#ventas"
                         ><span class="nav-icon">🏷️</span> Ventas</a
                     >
@@ -941,8 +944,11 @@
                     </p>
                     <div class="chips">
                         <span class="chip">Inventario</span
+                        ><span class="chip">Clientes</span
                         ><span class="chip">Ventas</span
                         ><span class="chip">Créditos</span>
+                        <span class="chip">Etiquetas</span
+                        ><span class="chip">Facturas operativas</span>
                         <span class="chip">Retomas y cambios</span
                         ><span class="chip">Bot Telegram 24/7</span
                         ><span class="chip">Reportes automáticos</span>
@@ -962,18 +968,20 @@
                         </div>
                     </div>
                     <p>
-                        StockiAPP está pensada para operar inventario, ventas,
-                        créditos, retomas, cambios y trazabilidad desde una
-                        misma interfaz. No son dos herramientas separadas: son
-                        dos canales de acceso al mismo sistema.
+                        StockiAPP está pensada para operar inventario,
+                        clientes, ventas, créditos, retomas, cambios y
+                        trazabilidad desde una misma interfaz. También
+                        concentra documentos operativos y puntos de impresión
+                        en el mismo sistema.
                     </p>
                     <div class="card">
                         <div class="card-title">🖥️ Plataforma web</div>
                         <p>
                             Acceso desde navegador, optimizada para tablet y
-                            escritorio. Concentra la visión completa: dashboard,
-                            catálogo, historial, configuración y auditoría.
-                            Ideal para gestión y supervisión.
+                            escritorio. Concentra la visión completa:
+                            dashboard, inventario, clientes, ventas, créditos,
+                            facturas operativas, etiquetas, configuración e
+                            impresión. Ideal para gestión y supervisión.
                         </p>
                     </div>
                     <div class="card">
@@ -982,8 +990,9 @@
                             Funciona directamente desde Telegram. Puedes
                             escribirle o enviarle mensajes de voz — siempre
                             responde por texto. Registra ventas, retomas,
-                            cambios y créditos, y entrega reportes en tiempo
-                            real vía API sobre la misma base de datos.
+                            cambios y créditos, consulta clientes, y entrega
+                            reportes en tiempo real vía API sobre la misma base
+                            de datos.
                         </p>
                     </div>
                     <div class="tip">
@@ -1029,16 +1038,23 @@
                             <div class="mod-icon">📦</div>
                             <div class="mod-name">Inventario</div>
                             <div class="mod-desc">
-                                Consulta, filtros, acciones y gestión del
-                                catálogo.
+                                Consulta, filtros, acciones rápidas y
+                                etiquetas.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-icon">👤</div>
+                            <div class="mod-name">Clientes</div>
+                            <div class="mod-desc">
+                                Ficha, historial y reutilización del mismo
+                                cliente.
                             </div>
                         </div>
                         <div class="mod-card">
                             <div class="mod-icon">🏷️</div>
                             <div class="mod-name">Ventas</div>
                             <div class="mod-desc">
-                                Registro rápido, confirmación y comprobante
-                                opcional.
+                                Registro rápido, comprobante y ticket térmico.
                             </div>
                         </div>
                         <div class="mod-card">
@@ -1081,7 +1097,7 @@
                             <ul class="role-list">
                                 <li>
                                     <span class="ck">✓</span> Consultar
-                                    inventario y precios
+                                    inventario, precios y clientes
                                 </li>
                                 <li>
                                     <span class="ck">✓</span> Registrar ventas
@@ -1116,6 +1132,10 @@
                                 <li>
                                     <span class="ck">✓</span> Ver historial y
                                     métricas
+                                </li>
+                                <li>
+                                    <span class="ck">✓</span> Ver ficha
+                                    completa de clientes
                                 </li>
                                 <li>
                                     <span class="ck">✓</span> Agregar productos
@@ -1199,7 +1219,8 @@
                                         >Ve directo al módulo que
                                         necesitas</strong
                                     ><span
-                                        >Inventario, Ventas, Créditos — entra
+                                        >Inventario, Clientes, Ventas,
+                                        Créditos y Facturas operativas — entra
                                         directo a la tarea del momento.</span
                                     >
                                 </div>
@@ -1353,15 +1374,23 @@
                         <p>
                             El patrón se repite siempre: buscar → filtrar →
                             abrir acción → confirmar. La vista está optimizada
-                            para operar sin perder contexto.
+                            para operar sin perder contexto ni duplicar
+                            clientes.
                         </p>
                         <h3>Qué puedes hacer</h3>
                         <ul class="chk">
                             <li>
                                 Buscar por producto, filtrar por línea o estado
                             </li>
-                            <li>Abrir acciones rápidas desde cada fila</li>
-                            <li>Revisar créditos activos de un producto</li>
+                            <li>
+                                Reutilizar el mismo cliente cuando la operación
+                                ya existe
+                            </li>
+                            <li>
+                                Abrir acciones rápidas desde cada fila:
+                                imprimir etiqueta, prestar producto, editar
+                                crédito o abrir comprobante
+                            </li>
                             <li>
                                 Iniciar venta, cambio, retoma o ajuste de stock
                             </li>
@@ -1440,6 +1469,61 @@
                     </div>
                 </section>
 
+                <!-- ═══ CLIENTES ═══ -->
+                <section class="section" id="clientes">
+                    <div class="section-hd">
+                        <div class="section-ico">👤</div>
+                        <div>
+                            <div class="section-title">Clientes</div>
+                            <div class="section-sub">
+                                Ficha, historial y reutilización del mismo
+                                cliente
+                            </div>
+                        </div>
+                    </div>
+                    <p>
+                        La vista de clientes está pensada para consulta rápida
+                        y reutilización. Un solo registro concentra el flujo de
+                        cada persona: qué compró, qué debe y qué quedó
+                        trazado.
+                    </p>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Listado</div>
+                            <div class="mod-desc">
+                                Busca por nombre, documento, teléfono o ciudad.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Detalle</div>
+                            <div class="mod-desc">
+                                Ve timeline, compras, créditos, préstamos y
+                                facturas asociadas.
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Qué resuelve</h3>
+                    <ul class="chk">
+                        <li>
+                            Reutilizar un cliente existente desde ventas,
+                            préstamos, créditos y facturas
+                        </li>
+                        <li>
+                            Evitar duplicados y mantener el historial unido a
+                            la misma ficha
+                        </li>
+                        <li>
+                            Dar contexto operativo antes de abrir una nueva
+                            operación
+                        </li>
+                    </ul>
+                    <div class="note">
+                        <span class="ci">👤</span> La misma búsqueda alimenta
+                        la web y la API. Si el cliente ya existe, se reutiliza
+                        el mismo <strong>customer_id</strong>.
+                    </div>
+                </section>
+
                 <!-- ═══ VENTAS ═══ -->
                 <section class="section" id="ventas">
                     <div class="section-hd">
@@ -1498,22 +1582,22 @@
                             <div class="step">
                                 <div class="step-n">3</div>
                                 <div class="step-body">
-                                    <strong>Confirma y revisa el cierre</strong
-                                    ><span
-                                        >Después del registro exitoso el popup
-                                        puede mostrar la opción de comprobante
-                                        si aplica.</span
+                                    <strong>Revisa e imprime</strong><span
+                                        >Después del registro, el mismo popup
+                                        deja el comprobante listo y solo necesitas
+                                        pulsar Imprimir para sacar el ticket
+                                        térmico.</span
                                     >
                                 </div>
                             </div>
                         </div>
-                        <h3>Comprobante de venta</h3>
+                        <h3>Comprobante y ticket térmico</h3>
                         <p>
-                            El comprobante es opcional y aplica solo a ventas
-                            normales. Sirve para comunicar y descargar un
-                            respaldo simple — no reemplaza procesos fiscales
-                            formales. Si no lo necesitas en el momento, la venta
-                            igual queda registrada.
+                            El comprobante se genera dentro del mismo flujo. La
+                            factura operativa existe como respaldo secundario,
+                            pero no aparece como primera acción. El cierre real
+                            de la venta queda pensado para imprimir en formato
+                            térmico sin salir de la pantalla.
                         </p>
                         <div class="tip">
                             <span class="ci">📝</span> Usa las notas cuando
@@ -1634,35 +1718,36 @@
                     </div>
                     <div class="iface-panel active" id="creditos-web">
                         <p>
-                            Una venta a crédito necesita más contexto que una
-                            venta normal. El objetivo es que el crédito quede
-                            como un registro claro que permita consultar, cobrar
-                            y auditar.
+                            Antes de abrir un crédito, busca y reutiliza al
+                            cliente existente. Así el historial de deuda,
+                            pagos, facturas y préstamos queda unido a una sola
+                            ficha.
                         </p>
                         <div class="grid2">
                             <div class="mod-card">
-                                <div class="mod-name">Datos del deudor</div>
+                                <div class="mod-name">Cliente</div>
                                 <ul class="chk" style="margin-top: 10px">
-                                    <li>Nombre completo</li>
-                                    <li>Tipo de documento</li>
-                                    <li>Número de documento</li>
+                                    <li>Nombre o documento</li>
                                     <li>Teléfono</li>
+                                    <li>Ciudad si aplica</li>
+                                    <li>Se reutiliza el mismo customer_id</li>
                                 </ul>
                             </div>
                             <div class="mod-card">
-                                <div class="mod-name">Datos del crédito</div>
+                                <div class="mod-name">Tipos de crédito</div>
                                 <ul class="chk" style="margin-top: 10px">
-                                    <li>Total de cuotas</li>
-                                    <li>Valor total</li>
-                                    <li>Interés % (puede ser 0)</li>
-                                    <li>Valor por cuota (calculado)</li>
+                                    <li><strong>product_credit</strong>: venta a crédito con producto y stock</li>
+                                    <li><strong>cash_loan</strong>: préstamo de dinero sin afectar inventario</li>
+                                    <li>Cuotas, valor, notas y estado quedan editables</li>
+                                    <li>El historial de pagos y cambios se conserva</li>
                                 </ul>
                             </div>
                         </div>
                         <h3>Cómo entender el estado de un crédito</h3>
                         <p>
                             Un crédito útil muestra: cuántas cuotas van, cuántas
-                            faltan, cuál fue el último abono y cuándo ocurrió.
+                            faltan, cuál fue el último abono, cuándo ocurrió y si
+                            hubo cambios recientes en cuotas, valor o estado.
                         </p>
                         <h3>Registrar un abono</h3>
                         <p>
@@ -2043,8 +2128,25 @@
                     <p>
                         Aquí defines el marco visible del negocio, no la
                         operación diaria. Configurar bien evita fricción
-                        después.
+                        después y deja listos los formatos térmicos del
+                        negocio.
                     </p>
+                    <h3>Impresión</h3>
+                    <p>
+                        Define una sola vez el ancho térmico por defecto de
+                        etiquetas, facturas operativas y ticket térmico. Así
+                        cada documento sale con el formato correcto sin
+                        repetir el ajuste en pantalla.
+                    </p>
+                    <ul class="chk">
+                        <li>Etiquetas: 80 mm, 58 mm o 57 mm</li>
+                        <li>
+                            Facturas operativas: ancho térmico configurado por
+                            negocio
+                        </li>
+                        <li>Ticket térmico: usa el mismo preset del tenant</li>
+                    </ul>
+                    <h3>Operación general</h3>
                     <ul class="chk">
                         <li>
                             Define líneas y responsables antes de cargar
@@ -2065,9 +2167,9 @@
                     </ul>
                     <div class="note">
                         <span class="ci">⚙️</span> Si vas a usar
-                        automatizaciones o carga masiva, valida primero líneas y
-                        owners disponibles. Así reduces errores al crear
-                        productos.
+                        automatizaciones o carga masiva, valida primero líneas,
+                        owners y parámetros de impresión. Así reduces errores al
+                        crear productos.
                     </div>
                 </section>
 

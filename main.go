@@ -10578,14 +10578,14 @@ type managedUserScanner interface {
 func managedUserSelectColumns(usersCols map[string]bool) []string {
 	cols := []string{"id", "username"}
 	if usersCols["name"] {
-		cols = append(cols, "COALESCE(name, '') AS name")
+		cols = append(cols, "COALESCE(NULLIF(name, ''), username) AS name")
 	} else {
-		cols = append(cols, "'' AS name")
+		cols = append(cols, "username AS name")
 	}
 	if usersCols["email"] {
-		cols = append(cols, "COALESCE(email, '') AS email")
+		cols = append(cols, "COALESCE(NULLIF(email, ''), CASE WHEN username LIKE '%@%' THEN username ELSE username || '@local' END) AS email")
 	} else {
-		cols = append(cols, "'' AS email")
+		cols = append(cols, "CASE WHEN username LIKE '%@%' THEN username ELSE username || '@local' END AS email")
 	}
 	if usersCols["telegram_id"] {
 		cols = append(cols, "COALESCE(telegram_id, '') AS telegram_id")
@@ -10628,6 +10628,16 @@ func scanManagedUserRecord(scanner managedUserScanner) (managedUserRecord, error
 	}
 	record.IsActive = isActive == 1
 	record.TenantID = normalizeTenantID(record.TenantID)
+	if strings.TrimSpace(record.Name) == "" {
+		record.Name = record.Username
+	}
+	if strings.TrimSpace(record.Email) == "" {
+		if strings.Contains(record.Username, "@") {
+			record.Email = record.Username
+		} else if record.Username != "" {
+			record.Email = record.Username + "@local"
+		}
+	}
 	record.CreatedAt = formatDateWithSettings(record.CreatedAt)
 	return record, nil
 }
@@ -10998,6 +11008,42 @@ func tableExists(db *sql.DB, table string) (bool, error) {
 }
 
 func ensureLegacyOperationalColumns(db *sql.DB) error {
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		return err
+	}
+	userColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "name", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "email", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "tenant_id", definition: "INTEGER NOT NULL DEFAULT 1"},
+		{name: "telegram_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range userColumns {
+		if !usersCols[column.name] {
+			if _, err := db.Exec("ALTER TABLE users ADD COLUMN " + column.name + " " + column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := db.Exec("UPDATE users SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID); err != nil {
+		return err
+	}
+	if _, err := db.Exec("UPDATE users SET name = COALESCE(NULLIF(name, ''), username) WHERE name IS NULL OR TRIM(name) = ''"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("UPDATE users SET email = COALESCE(NULLIF(email, ''), CASE WHEN username LIKE '%@%' THEN username ELSE username || '@local' END) WHERE email IS NULL OR TRIM(email) = ''"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("UPDATE users SET telegram_id = COALESCE(telegram_id, '') WHERE telegram_id IS NULL"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id)"); err != nil {
+		return err
+	}
+
 	productosCols, err := tableColumns(db, "productos")
 	if err != nil {
 		return err
@@ -11440,6 +11486,8 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
+		name TEXT NOT NULL DEFAULT '',
+		email TEXT NOT NULL DEFAULT '',
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL CHECK (role IN ('platform_admin', 'admin', 'empleado')),
 		tenant_id INTEGER NOT NULL DEFAULT 1,
@@ -11880,10 +11928,29 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
+	if !usersCols["name"] {
+		if _, err := db.Exec("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
+	}
+	if !usersCols["email"] {
+		if _, err := db.Exec("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''"); err != nil {
+			return nil, err
+		}
+	}
 	if !usersCols["telegram_id"] {
 		if _, err := db.Exec("ALTER TABLE users ADD COLUMN telegram_id TEXT NOT NULL DEFAULT ''"); err != nil {
 			return nil, err
 		}
+	}
+	if _, err := db.Exec("UPDATE users SET name = COALESCE(NULLIF(name, ''), username) WHERE name IS NULL OR TRIM(name) = ''"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE users SET email = COALESCE(NULLIF(email, ''), CASE WHEN username LIKE '%@%' THEN username ELSE username || '@local' END) WHERE email IS NULL OR TRIM(email) = ''"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("UPDATE users SET telegram_id = COALESCE(telegram_id, '') WHERE telegram_id IS NULL"); err != nil {
+		return nil, err
 	}
 	if _, err := db.Exec("UPDATE sessions SET tenant_id = COALESCE((SELECT COALESCE(NULLIF(users.tenant_id, 0), ?) FROM users WHERE users.id = sessions.user_id), ?) WHERE tenant_id IS NULL OR tenant_id <= 0", defaultTenantID, defaultTenantID); err != nil {
 		return nil, err
@@ -12165,6 +12232,8 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
+		name TEXT NOT NULL DEFAULT '',
+		email TEXT NOT NULL DEFAULT '',
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL CHECK (role IN ('platform_admin', 'admin', 'empleado')),
 		tenant_id INTEGER NOT NULL DEFAULT 1,
@@ -12479,6 +12548,8 @@ func ensureUsersRoleSupport(db *sql.DB) error {
 		CREATE TABLE users__role_new (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			username TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL DEFAULT '',
 			password_hash TEXT NOT NULL,
 			role TEXT NOT NULL CHECK (role IN ('platform_admin', 'admin', 'empleado')),
 			tenant_id INTEGER NOT NULL DEFAULT 1,
@@ -12490,8 +12561,8 @@ func ensureUsersRoleSupport(db *sql.DB) error {
 		return err
 	}
 	if _, err := tx.Exec(`
-		INSERT INTO users__role_new (id, username, password_hash, role, tenant_id, telegram_id, created_at, is_active)
-		SELECT id, username, password_hash, role, COALESCE(NULLIF(tenant_id, 0), ?), COALESCE(telegram_id, ''), created_at, is_active
+		INSERT INTO users__role_new (id, username, name, email, password_hash, role, tenant_id, telegram_id, created_at, is_active)
+		SELECT id, username, COALESCE(NULLIF(name, ''), username), COALESCE(NULLIF(email, ''), CASE WHEN username LIKE '%@%' THEN username ELSE username || '@local' END), password_hash, role, COALESCE(NULLIF(tenant_id, 0), ?), COALESCE(telegram_id, ''), created_at, is_active
 		FROM users
 	`, defaultTenantID); err != nil {
 		return err
@@ -12586,10 +12657,14 @@ func seedAdminUser(db *sql.DB, dbPath string) error {
 	if err != nil {
 		return err
 	}
+	adminEmail := adminUser
+	if !strings.Contains(adminEmail, "@") {
+		adminEmail = adminUser + "@local"
+	}
 	_, err = db.Exec(`
-		INSERT INTO users (username, password_hash, role, tenant_id, created_at, is_active)
-		VALUES (?, ?, ?, ?, ?, 1)
-	`, adminUser, string(hashed), rolePlatformAdmin, defaultTenantID, time.Now().Format(time.RFC3339))
+		INSERT INTO users (username, name, email, password_hash, role, tenant_id, telegram_id, created_at, is_active)
+		VALUES (?, ?, ?, ?, ?, ?, '', ?, 1)
+	`, adminUser, adminUser, adminEmail, string(hashed), rolePlatformAdmin, defaultTenantID, time.Now().Format(time.RFC3339))
 	return err
 }
 
