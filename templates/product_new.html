@@ -223,6 +223,14 @@
 
   <main class="page-content">
     <div class="card">
+      {{if .Flash}}
+      <div class="flash">{{.Flash}}</div>
+      {{end}}
+      {{if .LabelPrintURL}}
+      <div class="actions" style="margin-bottom: 18px;">
+        <a class="button secondary" href="{{.LabelPrintURL}}" target="_blank" rel="noreferrer">Imprimir etiqueta 60 x 40 mm</a>
+      </div>
+      {{end}}
       <form method="POST" action="/productos">
         <div class="row">
           <div>
@@ -253,6 +261,10 @@
           <div class="note">No hay líneas activas. Crea la primera desde <a href="/configuracion">Configuración</a>.</div>
         {{end}}
         {{with .Errors}}{{with index . "linea"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+
+        <label for="location">Locación (opcional)</label>
+        <input id="location" name="location" type="text" placeholder="Ej: Estante A-03" value="{{.Location}}" />
+        <div class="note">Dato operativo para ubicar el producto en inventario. No se imprime en la etiqueta.</div>
 
         <label for="owner_user_id">Usuario asignado (opcional)</label>
         <select id="owner_user_id" name="owner_user_id">

@@ -407,8 +407,8 @@
                     <p>
                         Regla de importación: por cada fila se crea o encuentra
                         el producto por <strong>ID</strong>, se actualizan sus
-                        datos vigentes y se crean
-                        <strong>N unidades DISPONIBLE</strong> según
+                        datos vigentes, incluida la <strong>locación</strong>, y
+                        se crean <strong>N unidades DISPONIBLE</strong> según
                         <strong>cantidad</strong>.
                     </p>
 
@@ -453,6 +453,7 @@
                                         <th>ID</th>
                                         <th>Línea</th>
                                         <th>Nombre</th>
+                                        <th>Locación</th>
                                         <th>Cantidad</th>
                                         <th>Precio venta</th>
                                         <th>Usuario asignado</th>
@@ -561,6 +562,7 @@
                         "id",
                         "linea",
                         "nombre",
+                        "location",
                         "cantidad",
                         "precio_venta",
                         "owner_user_id",
@@ -580,6 +582,7 @@
                             "ID-001",
                             "Nutrición",
                             "Proteína Balance 500g",
+                            "Estante A-03",
                             "5",
                             "135000",
                             "1",
@@ -598,6 +601,7 @@
                             "ID-002",
                             "Dermocosmética",
                             "Crema Regeneradora",
+                            "Mostrador B-01",
                             "12",
                             "99000",
                             "",
@@ -670,6 +674,7 @@
                     const id = get("id") || get("sku");
                     const linea = get("linea");
                     const nombre = get("nombre");
+                    const location = get("location") || get("ubicacion");
                     const cantidadRaw = get("cantidad");
                     const cantidad = cantidadRaw === "-" ? "0" : cantidadRaw;
                     const precioVenta = get("precio_venta");
@@ -806,6 +811,7 @@
                         sku: id,
                         linea,
                         nombre,
+                        location,
                         cantidad,
                         precioVenta,
                         ownerUserID,
@@ -827,7 +833,7 @@
                 if (previewRows.length === 0) {
                     uploadPreviewBody.innerHTML = `
           <tr>
-            <td colspan="13" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
+            <td colspan="14" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
           </tr>
         `;
                     return;
@@ -842,6 +848,7 @@
           <td>${row.sku || "-"}</td>
           <td>${row.linea || "-"}</td>
           <td>${row.nombre || "-"}</td>
+          <td>${row.location || "-"}</td>
           <td>${row.cantidad === "" ? "-" : row.cantidad}</td>
           <td>${row.precioVenta || "-"}</td>
           <td>${row.ownerUserID || "-"}</td>
@@ -901,6 +908,7 @@
             let currentFile = null;
             let validatedRows = [];
             let validationErrorsList = [];
+            let latestLabelPrintURL = "";
 
             const handleCSV = (file) => {
                 if (!file) return;
@@ -916,7 +924,7 @@
                     if (rows.length === 0) {
                         uploadPreviewBody.innerHTML = `
             <tr>
-              <td colspan="13" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
+            <td colspan="14" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
             </tr>
           `;
                         validatedRows = [];
@@ -958,7 +966,7 @@
         `;
                     uploadPreviewBody.innerHTML = `
           <tr>
-            <td colspan="13" style="text-align: center; color: var(--muted);">Sin archivo validado.</td>
+            <td colspan="14" style="text-align: center; color: var(--muted);">Sin archivo validado.</td>
           </tr>
         `;
                     if (validationPill)
@@ -987,6 +995,7 @@
                     uploadResult.textContent =
                         "Procesando archivo, espera unos segundos...";
                     inventoryLink.style.display = "none";
+                    latestLabelPrintURL = "";
 
                     const formData = new FormData();
                     formData.append("file", currentFile);
@@ -1019,6 +1028,15 @@
             Unidades creadas: ${result.created_units || 0} ·
             Errores: ${errorCount}
           `;
+                        latestLabelPrintURL = String(
+                            result.label_print_url || "",
+                        ).trim();
+                        if (latestLabelPrintURL) {
+                            uploadResult.insertAdjacentHTML(
+                                "beforeend",
+                                `<div style="margin-top: 12px;"><a class="button secondary" href="${latestLabelPrintURL}" target="_blank" rel="noreferrer">Imprimir etiquetas</a></div>`,
+                            );
+                        }
 
                         if (errorCount > 0) {
                             const errorItems = result.failed_rows

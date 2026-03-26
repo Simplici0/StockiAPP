@@ -462,6 +462,10 @@
             <input id="new-email" name="email" type="email" placeholder="correo@dominio.com" autocomplete="email" />
           </div>
           <div>
+            <label for="new-telegram-id">Telegram ID</label>
+            <input id="new-telegram-id" name="telegram_id" type="text" inputmode="numeric" placeholder="123456789" />
+          </div>
+          <div>
             <label for="new-password">Contraseña</label>
             <input id="new-password" name="password" type="password" placeholder="contraseña" autocomplete="new-password" required />
           </div>
@@ -509,7 +513,7 @@
             <div class="user-ident">
               <strong>{{.Username}}</strong>
               <p class="user-meta">
-                {{if .Name}}{{.Name}}{{else}}Usuario operativo{{end}}{{if .Email}} · {{.Email}}{{end}}
+                {{if .Name}}{{.Name}}{{else}}Usuario operativo{{end}}{{if .Email}} · {{.Email}}{{end}}{{if .TelegramID}} · Telegram {{.TelegramID}}{{end}}
               </p>
             </div>
           </td>
@@ -553,6 +557,10 @@
                     <div>
                       <label>Email</label>
                       <input name="email" type="email" value="{{.Email}}" />
+                    </div>
+                    <div>
+                      <label>Telegram ID</label>
+                      <input name="telegram_id" type="text" inputmode="numeric" value="{{.TelegramID}}" />
                     </div>
                     <div>
                       <label>Rol</label>

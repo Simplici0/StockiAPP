@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}} - Ticket termico</title>
+        <style>
+            .thermal-shell {
+                width: min(100%, 420px);
+                margin: 0 auto;
+                display: grid;
+                gap: 16px;
+            }
+
+            .thermal-actions {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            .thermal-ticket {
+                width: 80mm;
+                max-width: 100%;
+                margin: 0 auto;
+                padding: 12px 10px 16px;
+                border: 1px solid rgba(15, 23, 42, 0.12);
+                border-radius: 14px;
+                background: #ffffff;
+                color: #111827;
+                font-family: "SFMono-Regular", "Consolas", "Liberation Mono",
+                    "Menlo", monospace;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+
+            .thermal-center {
+                text-align: center;
+            }
+
+            .thermal-logo {
+                max-width: 120px;
+                max-height: 54px;
+                object-fit: contain;
+                display: block;
+                margin: 0 auto 8px;
+                filter: grayscale(1) contrast(1.1);
+            }
+
+            .thermal-business {
+                display: grid;
+                gap: 4px;
+                margin-bottom: 10px;
+            }
+
+            .thermal-business h1 {
+                margin: 0;
+                font-size: 14px;
+                line-height: 1.25;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+            }
+
+            .thermal-kicker,
+            .thermal-footnote {
+                color: #4b5563;
+                font-size: 11px;
+            }
+
+            .thermal-separator {
+                margin: 10px 0;
+                border-top: 1px dashed #111827;
+                height: 0;
+            }
+
+            .thermal-meta,
+            .thermal-lines,
+            .thermal-summary,
+            .thermal-customer {
+                display: grid;
+                gap: 6px;
+            }
+
+            .thermal-row {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .thermal-row strong {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+            }
+
+            .thermal-row span {
+                text-align: right;
+            }
+
+            .thermal-product {
+                display: grid;
+                gap: 3px;
+            }
+
+            .thermal-product strong {
+                font-size: 12px;
+            }
+
+            .thermal-total {
+                padding-top: 4px;
+                border-top: 1px dashed #111827;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            .thermal-note {
+                white-space: pre-wrap;
+                word-break: break-word;
+                color: #374151;
+            }
+
+            .thermal-form {
+                display: grid;
+                gap: 16px;
+                padding: 20px;
+                border: 1px solid rgba(15, 23, 42, 0.12);
+                border-radius: 14px;
+                background: rgba(255, 255, 255, 0.98);
+            }
+
+            .thermal-form-grid {
+                display: grid;
+                gap: 14px;
+            }
+
+            @page {
+                size: 80mm auto;
+                margin: 4mm;
+            }
+
+            @media print {
+                .topbar,
+                .page-header,
+                .thermal-actions {
+                    display: none !important;
+                }
+
+                body,
+                html {
+                    background: #ffffff !important;
+                }
+
+                .page-content {
+                    width: 100%;
+                    padding: 0;
+                }
+
+                .thermal-shell {
+                    width: 80mm;
+                    margin: 0;
+                }
+
+                .thermal-ticket {
+                    width: 100%;
+                    border: 0;
+                    border-radius: 0;
+                    box-shadow: none;
+                    padding: 0;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="thermal-shell">
+                {{if .NeedsBuyerData}}
+                <section class="thermal-form">
+                    <div>
+                        <h2>Datos del cliente para el ticket</h2>
+                        <p class="thermal-footnote">
+                            Completa nombre y documento para generar la version
+                            termica del ticket.
+                        </p>
+                    </div>
+                    <form method="GET" action="/venta/ticket">
+                        <input type="hidden" name="sale_id" value="{{.SaleID}}" />
+                        <div class="thermal-form-grid">
+                            <div>
+                                <label for="buyer_name">Nombre del cliente</label>
+                                <input
+                                    id="buyer_name"
+                                    name="buyer_name"
+                                    type="text"
+                                    value="{{.BuyerName}}"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label for="buyer_document">Documento</label>
+                                <input
+                                    id="buyer_document"
+                                    name="buyer_document"
+                                    type="text"
+                                    value="{{.BuyerDocument}}"
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div class="thermal-actions">
+                            <button class="button primary" type="submit">
+                                Ver ticket térmico
+                            </button>
+                            <a class="button secondary" href="/venta/comprobante?sale_id={{.SaleID}}">
+                                Ver comprobante
+                            </a>
+                            <a class="button secondary" href="/inventario">
+                                Volver al inventario
+                            </a>
+                        </div>
+                    </form>
+                </section>
+                {{else}}
+                <div class="thermal-actions">
+                    <a class="button secondary" href="/venta/comprobante?sale_id={{.SaleID}}&buyer_name={{.BuyerName}}&buyer_document={{.BuyerDocument}}" target="_blank" rel="noreferrer">
+                        Ver comprobante
+                    </a>
+                    <button class="primary" type="button" onclick="window.print()">
+                        Imprimir ticket
+                    </button>
+                    <a class="button secondary" href="/inventario">Volver al inventario</a>
+                </div>
+
+                <article class="thermal-ticket">
+                    <header class="thermal-center thermal-business">
+                        {{if businessLogoPath .}}
+                        <img class="thermal-logo" src="{{businessLogoPath .}}" alt="{{businessName .}}" />
+                        {{end}}
+                        <h1>{{businessName .}}</h1>
+                        <div class="thermal-kicker">Ticket de operacion</div>
+                    </header>
+
+                    <div class="thermal-separator"></div>
+
+                    <section class="thermal-meta">
+                        <div class="thermal-row">
+                            <strong>Ticket</strong>
+                            <span>{{.ReceiptNumber}}</span>
+                        </div>
+                        <div class="thermal-row">
+                            <strong>Operacion</strong>
+                            <span>{{.OperationType}}</span>
+                        </div>
+                        <div class="thermal-row">
+                            <strong>Fecha</strong>
+                            <span>{{.SaleDate}}</span>
+                        </div>
+                        {{if .SaleTime}}
+                        <div class="thermal-row">
+                            <strong>Hora</strong>
+                            <span>{{.SaleTime}}</span>
+                        </div>
+                        {{end}}
+                        <div class="thermal-row">
+                            <strong>Venta</strong>
+                            <span>#{{.SaleID}}</span>
+                        </div>
+                    </section>
+
+                    <div class="thermal-separator"></div>
+
+                    <section class="thermal-customer">
+                        <div class="thermal-row">
+                            <strong>Cliente</strong>
+                            <span>{{.BuyerName}}</span>
+                        </div>
+                        <div class="thermal-row">
+                            <strong>Documento</strong>
+                            <span>{{.BuyerDocument}}</span>
+                        </div>
+                    </section>
+
+                    <div class="thermal-separator"></div>
+
+                    <section class="thermal-lines">
+                        <div class="thermal-product">
+                            <strong>{{if .ProductoNom}}{{.ProductoNom}}{{else}}{{.ProductoID}}{{end}}</strong>
+                            <span>ID {{.ProductoID}}</span>
+                        </div>
+                        <div class="thermal-row">
+                            <strong>Cantidad</strong>
+                            <span>{{.Cantidad}}</span>
+                        </div>
+                        <div class="thermal-row">
+                            <strong>Unitario</strong>
+                            <span>{{.PrecioUnitario}}</span>
+                        </div>
+                        <div class="thermal-row thermal-total">
+                            <strong>Total</strong>
+                            <span>{{.Total}}</span>
+                        </div>
+                    </section>
+
+                    <div class="thermal-separator"></div>
+
+                    <section class="thermal-summary">
+                        <div class="thermal-row">
+                            <strong>Pago</strong>
+                            <span>{{if .MetodoPago}}{{.MetodoPago}}{{else}}Sin metodo{{end}}</span>
+                        </div>
+                        {{if .SoldBy}}
+                        <div class="thermal-row">
+                            <strong>Usuario</strong>
+                            <span>{{.SoldBy}}</span>
+                        </div>
+                        {{end}}
+                        {{if .Channel}}
+                        <div class="thermal-row">
+                            <strong>Canal</strong>
+                            <span>{{.Channel}}</span>
+                        </div>
+                        {{end}}
+                    </section>
+
+                    {{if .Notas}}
+                    <div class="thermal-separator"></div>
+                    <section class="thermal-summary">
+                        <div class="thermal-row">
+                            <strong>Notas</strong>
+                        </div>
+                        <div class="thermal-note">{{.Notas}}</div>
+                    </section>
+                    {{end}}
+
+                    <div class="thermal-separator"></div>
+
+                    <footer class="thermal-center">
+                        <div class="thermal-footnote">
+                            Soporte operativo · {{.SaleDateTime}}
+                        </div>
+                        <div class="thermal-footnote">
+                            Gracias por tu compra
+                        </div>
+                    </footer>
+                </article>
+                {{end}}
+            </div>
+        </main>
+    </body>
+</html>

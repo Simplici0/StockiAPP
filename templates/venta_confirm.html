@@ -127,7 +127,15 @@
                 </div>
 
                 <div class="confirm-actions">
-                    {{if .ReceiptDownloadURL}}
+                    {{if .ReceiptDownloadURL}} {{if .InvoiceCreateURL}}
+                    <a
+                        class="button secondary"
+                        href="{{.InvoiceCreateURL}}"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Generar factura</a
+                    >
+                    {{end}}
                     <a
                         class="button secondary"
                         href="{{.ReceiptViewURL}}"
@@ -138,7 +146,15 @@
                     <a class="button primary" href="{{.ReceiptDownloadURL}}"
                         >Descargar comprobante</a
                     >
-                    {{end}}
+                    {{if .ThermalTicketURL}}
+                    <a
+                        class="button secondary"
+                        href="{{.ThermalTicketURL}}"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Ticket térmico</a
+                    >
+                    {{end}} {{end}}
                     <a
                         class="button primary"
                         href="/inventario?mensaje=Venta%20registrada%20correctamente"

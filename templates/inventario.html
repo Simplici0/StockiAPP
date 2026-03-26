@@ -8,9 +8,9 @@
             /* ── Inventario: estilos locales complementarios ── */
 
             .filters {
-                display: grid;
-                gap: var(--space-3);
-                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
                 margin: 0 0 var(--section-gap);
                 padding: 16px;
                 border-radius: 18px;
@@ -23,24 +23,70 @@
                 box-shadow: 0 16px 28px rgba(12, 28, 52, 0.06);
             }
 
+            .filters-actions {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                align-items: center;
+                padding-bottom: 12px;
+                border-bottom: 1px solid rgba(15, 40, 80, 0.07);
+            }
+
+            .filters-actions:empty {
+                display: none;
+            }
+
+            /* Todos los botones de acción: tamaño discreto, tablet-first */
+            .filters-actions button,
+            .filters-actions a.button {
+                min-height: 34px;
+                padding: 0 14px;
+                font-size: 12.5px;
+                font-weight: 700;
+                border-radius: 8px;
+                letter-spacing: 0.01em;
+            }
+
+            /* Nuevo crédito: filled suave, acción principal */
+            .filters-actions button.secondary {
+                background: var(--secondary-soft);
+                border-color: rgba(13, 43, 85, 0.14);
+                color: var(--secondary);
+            }
+            .filters-actions button.secondary:hover {
+                background: rgba(13, 43, 85, 0.1);
+            }
+
+            /* Editar créditos / Ver préstamos: outline visible, no transparente */
+            .filters-actions button.ghost,
+            .filters-actions a.button.ghost {
+                background: #ffffff;
+                border: 1px solid rgba(13, 43, 85, 0.16);
+                color: #4a6080;
+            }
+            .filters-actions button.ghost:hover,
+            .filters-actions a.button.ghost:hover {
+                background: var(--secondary-soft);
+                border-color: rgba(13, 43, 85, 0.22);
+                color: var(--secondary);
+            }
+
+            .filters-row {
+                display: flex;
+                gap: var(--space-3);
+                flex-wrap: wrap;
+                align-items: flex-end;
+            }
+
             .filter-group {
                 display: flex;
                 flex-direction: column;
                 gap: 6px;
+                flex: 1 1 150px;
             }
 
-            .toggle {
-                gap: 8px;
-                font-size: 13.5px;
-                min-height: 42px;
-            }
-
-            .toggle input[type="checkbox"] {
-                border-radius: 6px;
-            }
-
-            .toggle span {
-                line-height: 1.25;
+            .filter-group.search-group {
+                flex: 2 1 220px;
             }
 
             .actions {
@@ -77,12 +123,9 @@
                 border-color: rgba(15, 40, 80, 0.18);
             }
 
-            /* KPI summary strip */
+            /* KPI summary strip — oculto en esta versión */
             .summary {
-                display: grid;
-                gap: var(--space-3);
-                grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-                margin: 0 0 var(--section-gap);
+                display: none;
             }
 
             .summary-card {
@@ -242,6 +285,24 @@
                 background: #eff6ff;
                 border-color: rgba(59, 130, 246, 0.22);
                 color: #1d4ed8;
+            }
+
+            .status.credit_completed {
+                background: #ecfdf5;
+                border-color: rgba(16, 185, 129, 0.22);
+                color: #047857;
+            }
+
+            .status.credit_suspended {
+                background: #fff7ed;
+                border-color: rgba(234, 88, 12, 0.18);
+                color: #c2410c;
+            }
+
+            .status.credit_cancelled {
+                background: #fef2f2;
+                border-color: rgba(220, 38, 38, 0.18);
+                color: #b91c1c;
             }
 
             .value-cell {
@@ -495,9 +556,9 @@
             }
 
             .modal-body {
-                padding: 18px 20px 20px;
+                padding: 16px 20px 20px;
                 display: grid;
-                gap: 14px;
+                gap: 12px;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
             }
@@ -592,12 +653,12 @@
 
             .modal-grid {
                 display: grid;
-                gap: 14px;
+                gap: 12px;
             }
 
             .sale-view {
                 display: grid;
-                gap: 14px;
+                gap: 12px;
             }
 
             .sale-view[hidden] {
@@ -697,14 +758,244 @@
                 cursor: pointer;
             }
 
+            .credit-launch {
+                justify-content: center;
+            }
+
+            .credit-kind-switch {
+                display: grid;
+                gap: 10px;
+            }
+
+            .credit-kind-track {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+                padding: 6px;
+                border-radius: 16px;
+                background: rgba(234, 240, 249, 0.86);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+            }
+
+            .credit-kind-option {
+                min-height: 54px;
+                padding: 12px 14px;
+                border-radius: 12px;
+                border: 1px solid transparent;
+                background: transparent;
+                color: #526a88;
+                display: grid;
+                gap: 2px;
+                justify-items: start;
+                align-content: center;
+                text-align: left;
+                transition:
+                    background 0.16s ease,
+                    border-color 0.16s ease,
+                    color 0.16s ease,
+                    box-shadow 0.16s ease;
+            }
+
+            .credit-kind-option strong {
+                font-size: 13px;
+                font-weight: 800;
+                letter-spacing: -0.01em;
+            }
+
+            .credit-kind-option span {
+                font-size: 11.5px;
+                line-height: 1.35;
+            }
+
+            .credit-kind-option.active {
+                background: #ffffff;
+                border-color: rgba(14, 165, 201, 0.2);
+                color: #0d2b55;
+                box-shadow: 0 10px 18px rgba(12, 28, 52, 0.08);
+            }
+
+            .credit-context {
+                display: grid;
+                gap: 5px;
+                padding: 14px 16px;
+                border-radius: 16px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: linear-gradient(
+                    180deg,
+                    rgba(248, 250, 252, 0.94) 0%,
+                    rgba(255, 255, 255, 0.96) 100%
+                );
+            }
+
+            .credit-context strong {
+                font-size: 12px;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.09em;
+                color: #4a6080;
+            }
+
+            .credit-context p {
+                margin: 0;
+                font-size: 12.5px;
+                color: #6b7f99;
+                line-height: 1.5;
+            }
+
+            .credit-manager-list {
+                display: grid;
+                gap: 10px;
+            }
+
+            .credit-manager-card {
+                display: grid;
+                gap: 8px;
+                padding: 14px;
+                border-radius: 18px;
+                border: 1px solid rgba(148, 163, 184, 0.2);
+                background: rgba(255, 255, 255, 0.92);
+            }
+
+            .credit-manager-head {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 12px;
+            }
+
+            .credit-manager-head strong {
+                display: block;
+                color: #0f172a;
+                font-size: 14px;
+            }
+
+            .credit-manager-head span {
+                display: block;
+                margin-top: 4px;
+                color: #64748b;
+                font-size: 12px;
+            }
+
+            .credit-manager-meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .credit-manager-meta span {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 5px 9px;
+                border-radius: 999px;
+                background: #f8fafc;
+                border: 1px solid rgba(148, 163, 184, 0.18);
+                color: #334155;
+                font-size: 12px;
+            }
+
+            .credit-edit-summary {
+                display: grid;
+                gap: 8px;
+                padding: 12px 14px;
+                border-radius: 16px;
+                background: #f8fafc;
+                border: 1px solid rgba(148, 163, 184, 0.16);
+            }
+
+            .credit-edit-summary strong {
+                color: #0f172a;
+                font-size: 14px;
+            }
+
+            .credit-edit-summary p {
+                margin: 0;
+                color: #475569;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+
+            .credit-edit-history {
+                display: grid;
+                gap: 10px;
+            }
+
+            .credit-edit-history-head {
+                display: grid;
+                gap: 3px;
+            }
+
+            .credit-edit-history-head strong {
+                color: #0f172a;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .credit-edit-history-head span {
+                color: #64748b;
+                font-size: 12px;
+            }
+
+            .credit-edit-history-list {
+                display: grid;
+                gap: 10px;
+            }
+
+            .credit-edit-history-item {
+                display: grid;
+                gap: 8px;
+                padding: 12px 14px;
+                border-radius: 14px;
+                border: 1px solid rgba(148, 163, 184, 0.18);
+                background: rgba(255, 255, 255, 0.92);
+            }
+
+            .credit-edit-history-meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                color: #64748b;
+                font-size: 11.5px;
+            }
+
+            .credit-edit-history-meta strong {
+                color: #0f172a;
+                font-size: 12px;
+            }
+
+            .credit-edit-history-changes {
+                display: grid;
+                gap: 6px;
+            }
+
+            .credit-edit-history-changes span {
+                color: #334155;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+
+            .credit-edit-history-impact {
+                color: #64748b;
+                font-size: 11.5px;
+                line-height: 1.45;
+            }
+
+            .credit-product-stock {
+                font-size: 12px;
+                color: #4a6080;
+                font-weight: 700;
+            }
+
             .modal-row {
                 display: grid;
-                gap: 14px;
-                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 12px;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
                 align-items: end;
             }
 
-            @media (max-width: 900px) {
+            @media (max-width: 580px) {
                 .modal-row {
                     grid-template-columns: 1fr;
                 }
@@ -737,6 +1028,25 @@
                 .filters {
                     padding: 14px;
                 }
+
+                .filters-actions {
+                    gap: 6px;
+                }
+
+                .filters-actions .button,
+                .filters-actions button {
+                    flex: 1 1 auto;
+                    justify-content: center;
+                }
+
+                .filters-row {
+                    flex-direction: column;
+                }
+
+                .filter-group,
+                .filter-group.search-group {
+                    flex: 1 1 100%;
+                }
             }
         </style>
         {{template "app_styles" .}}
@@ -750,39 +1060,60 @@
             </div>
             {{end}}
             <section class="filters">
-                <div class="filter-group">
-                    <label for="statusFilter">Estado</label>
-                    <select id="statusFilter">
-                        <option value="all">Todos</option>
-                        <option value="available" selected>Disponible</option>
-                        <option value="credit_active">Crédito activo</option>
-                        <option value="reserved">Reservado</option>
-                        <option value="sold">Vendido</option>
-                        <option value="swapped">Cambio</option>
-                        <option value="damaged">Dañado</option>
-                    </select>
+                <div class="filters-actions">
+                    {{if .CanCredit}}
+                    <button
+                        id="loan-open"
+                        type="button"
+                        class="secondary credit-launch"
+                    >
+                        Nuevo crédito
+                    </button>
+                    {{end}}
                 </div>
-                <div class="filter-group">
-                    <label for="lineFilter">Línea</label>
-                    <select id="lineFilter">
-                        <option value="all">Todas</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label for="searchFilter">Búsqueda</label>
-                    <input
-                        id="searchFilter"
-                        type="search"
-                        placeholder="Nombre, ID, línea, deudor o documento"
-                    />
-                </div>
-                <div class="filter-group">
-                    <label>Caducidad</label>
-                    <div class="toggle">
-                        <input id="expiryToggle" type="checkbox" />
-                        <span>Próximos 45 días</span>
+                <div class="filters-row">
+                    <div class="filter-group">
+                        <label for="statusFilter">Estado</label>
+                        <select id="statusFilter">
+                            <option value="all">Todos</option>
+                            <option value="available" selected>
+                                Disponible
+                            </option>
+                            <option value="loaned">Prestado</option>
+                            <option value="credit_active">
+                                Crédito activo
+                            </option>
+                            <option value="credit_completed">
+                                Crédito completado
+                            </option>
+                            <option value="credit_suspended">
+                                Crédito suspendido
+                            </option>
+                            <option value="credit_cancelled">
+                                Crédito cancelado
+                            </option>
+                            <option value="reserved">Reservado</option>
+                            <option value="sold">Vendido</option>
+                            <option value="swapped">Cambio</option>
+                            <option value="damaged">Dañado</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="lineFilter">Línea</label>
+                        <select id="lineFilter">
+                            <option value="all">Todas</option>
+                        </select>
+                    </div>
+                    <div class="filter-group search-group">
+                        <label for="searchFilter">Búsqueda</label>
+                        <input
+                            id="searchFilter"
+                            type="search"
+                            placeholder="Nombre, ID, línea, deudor o documento"
+                        />
                     </div>
                 </div>
+                <input id="expiryToggle" type="checkbox" hidden />
             </section>
 
             <section id="summary" class="summary" aria-live="polite"></section>
@@ -1125,15 +1456,43 @@
                                     class="modal-grid"
                                     hidden
                                 >
+                                    <div
+                                        class="customer-lookup"
+                                        data-customer-lookup
+                                    >
+                                        <input
+                                            id="sale-customer-id"
+                                            name="customer_id"
+                                            type="hidden"
+                                            data-customer-id
+                                        />
+                                        <div class="customer-lookup-search">
+                                            <label for="sale-customer-search"
+                                                >Buscar cliente existente</label
+                                            >
+                                            <input
+                                                id="sale-customer-search"
+                                                type="search"
+                                                placeholder="Nombre, documento o teléfono"
+                                                autocomplete="off"
+                                                data-customer-search
+                                            />
+                                            <div
+                                                class="customer-lookup-helper"
+                                                data-customer-status
+                                            ></div>
+                                        </div>
+                                    </div>
                                     <div>
                                         <label for="sale-debtor-name"
-                                            >Nombre del deudor</label
+                                            >Nombre del cliente</label
                                         >
                                         <input
                                             id="sale-debtor-name"
                                             name="debtor_name"
                                             type="text"
-                                            placeholder="Nombre del deudor"
+                                            placeholder="Nombre del cliente"
+                                            data-customer-name
                                         />
                                     </div>
                                     <div class="modal-row">
@@ -1145,6 +1504,7 @@
                                             <select
                                                 id="sale-debtor-document-type"
                                                 name="debtor_document_type"
+                                                data-customer-document-type
                                             >
                                                 <option value="">
                                                     Selecciona
@@ -1169,6 +1529,7 @@
                                                 type="text"
                                                 inputmode="numeric"
                                                 placeholder="Ej. 1234567890"
+                                                data-customer-document-number
                                             />
                                         </div>
                                     </div>
@@ -1182,7 +1543,34 @@
                                             type="text"
                                             inputmode="tel"
                                             placeholder="Ej. 3001234567"
+                                            data-customer-phone
                                         />
+                                    </div>
+                                    <div class="modal-row">
+                                        <div>
+                                            <label for="sale-customer-city"
+                                                >Ciudad</label
+                                            >
+                                            <input
+                                                id="sale-customer-city"
+                                                name="customer_city"
+                                                type="text"
+                                                placeholder="Ciudad del cliente"
+                                                data-customer-city
+                                            />
+                                        </div>
+                                        <div>
+                                            <label for="sale-customer-address"
+                                                >Dirección (opcional)</label
+                                            >
+                                            <input
+                                                id="sale-customer-address"
+                                                name="customer_address"
+                                                type="text"
+                                                placeholder="Dirección del cliente"
+                                                data-customer-address
+                                            />
+                                        </div>
                                     </div>
                                     <div class="modal-row">
                                         <div>
@@ -1320,6 +1708,14 @@
                                     class="sale-receipt-actions"
                                 >
                                     <a
+                                        id="sale-invoice-create"
+                                        class="button secondary"
+                                        href="#"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        >Generar factura</a
+                                    >
+                                    <a
                                         id="sale-receipt-view"
                                         class="button secondary"
                                         href="#"
@@ -1332,6 +1728,14 @@
                                         class="button primary"
                                         href="#"
                                         >Descargar comprobante</a
+                                    >
+                                    <a
+                                        id="sale-receipt-thermal"
+                                        class="button secondary"
+                                        href="#"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        >Ticket térmico</a
                                     >
                                 </div>
                             </section>
@@ -1515,7 +1919,7 @@
                 >
                     <div class="modal-header">
                         <div>
-                            <h3 id="installment-title">Registrar cuota</h3>
+                            <h3 id="installment-title">Registrar pago</h3>
                             <div
                                 id="installment-subtitle"
                                 class="modal-subtitle"
@@ -1541,7 +1945,7 @@
                             <div class="modal-row">
                                 <div>
                                     <label for="installment-next-number"
-                                        >Cuota</label
+                                        >Siguiente cuota</label
                                     >
                                     <input
                                         id="installment-next-number"
@@ -1563,9 +1967,35 @@
                                 </div>
                             </div>
 
+                            <div class="modal-row">
+                                <div>
+                                    <label for="installment-payment-type"
+                                        >Tipo de pago</label
+                                    >
+                                    <select
+                                        id="installment-payment-type"
+                                        name="payment_type"
+                                    >
+                                        <option value="cuota">Cuota</option>
+                                        <option value="abono">Abono</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="installment-current-debt"
+                                        >Deuda actual</label
+                                    >
+                                    <input
+                                        id="installment-current-debt"
+                                        type="text"
+                                        value="-"
+                                        disabled
+                                    />
+                                </div>
+                            </div>
+
                             <div>
                                 <label for="installment-amount-paid"
-                                    >Valor abonado</label
+                                    >Valor pagado</label
                                 >
                                 <input
                                     id="installment-amount-paid"
@@ -1575,8 +2005,8 @@
                                     placeholder="0"
                                 />
                                 <div class="modal-hint">
-                                    Puedes registrar un abono mayor al valor
-                                    sugerido de la cuota.
+                                    Registra una cuota o un abono sin salir del
+                                    contexto del crédito.
                                 </div>
                             </div>
 
@@ -1593,13 +2023,900 @@
                                     type="submit"
                                     class="primary"
                                 >
-                                    Guardar cuota
+                                    Guardar pago
                                 </button>
                             </div>
                         </form>
                     </div>
                 </div>
             </div>
+
+            {{if .CanLoan}}
+            <div
+                id="product-loan-modal"
+                class="modal-backdrop"
+                aria-hidden="true"
+            >
+                <div
+                    class="modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="product-loan-title"
+                >
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="product-loan-title">Registrar préstamo</h3>
+                            <div
+                                id="product-loan-subtitle"
+                                class="modal-subtitle"
+                            ></div>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            data-modal-close
+                            aria-label="Cerrar"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="product-loan-form" class="modal-grid">
+                            <div
+                                id="product-loan-error"
+                                class="modal-error"
+                                hidden
+                            ></div>
+
+                            <div class="customer-lookup" data-customer-lookup>
+                                <input
+                                    id="product-loan-customer-id"
+                                    name="customer_id"
+                                    type="hidden"
+                                    data-customer-id
+                                />
+                                <div class="customer-lookup-search">
+                                    <label for="product-loan-customer-search"
+                                        >Buscar cliente existente</label
+                                    >
+                                    <input
+                                        id="product-loan-customer-search"
+                                        type="search"
+                                        placeholder="Nombre, documento o teléfono"
+                                        autocomplete="off"
+                                        data-customer-search
+                                    />
+                                    <div
+                                        class="customer-lookup-helper"
+                                        data-customer-status
+                                    ></div>
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="product-loan-qty"
+                                        >Cantidad</label
+                                    >
+                                    <input
+                                        id="product-loan-qty"
+                                        name="cantidad"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value="1"
+                                    />
+                                </div>
+                                <div>
+                                    <label for="product-loan-max"
+                                        >Disponible</label
+                                    >
+                                    <input
+                                        id="product-loan-max"
+                                        type="text"
+                                        value="-"
+                                        disabled
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="product-loan-borrower-name"
+                                        >Nombre del cliente</label
+                                    >
+                                    <input
+                                        id="product-loan-borrower-name"
+                                        name="customer_name"
+                                        type="text"
+                                        placeholder="Nombre de quien recibe el producto"
+                                        data-customer-name
+                                    />
+                                </div>
+                                <div>
+                                    <label for="product-loan-borrower-phone"
+                                        >Teléfono</label
+                                    >
+                                    <input
+                                        id="product-loan-borrower-phone"
+                                        name="customer_phone"
+                                        type="text"
+                                        inputmode="tel"
+                                        placeholder="Ej. 3001234567"
+                                        data-customer-phone
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="product-loan-document-type"
+                                        >Tipo de documento</label
+                                    >
+                                    <select
+                                        id="product-loan-document-type"
+                                        name="customer_document_type"
+                                        data-customer-document-type
+                                    >
+                                        <option value="">Selecciona</option>
+                                        <option value="CC">CC</option>
+                                        <option value="C Extranjeria">
+                                            C Extranjeria
+                                        </option>
+                                        <option value="Pasaporte">
+                                            Pasaporte
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="product-loan-document-number"
+                                        >Número de documento</label
+                                    >
+                                    <input
+                                        id="product-loan-document-number"
+                                        name="customer_document_number"
+                                        type="text"
+                                        inputmode="numeric"
+                                        placeholder="Ej. 1234567890"
+                                        data-customer-document-number
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="product-loan-customer-city"
+                                        >Ciudad (opcional)</label
+                                    >
+                                    <input
+                                        id="product-loan-customer-city"
+                                        name="customer_city"
+                                        type="text"
+                                        placeholder="Ciudad del cliente"
+                                        data-customer-city
+                                    />
+                                </div>
+                                <div>
+                                    <label for="product-loan-due-at"
+                                        >Retorno esperado</label
+                                    >
+                                    <input
+                                        id="product-loan-due-at"
+                                        name="due_at"
+                                        type="date"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label for="product-loan-address"
+                                    >Dirección (opcional)</label
+                                >
+                                <input
+                                    id="product-loan-address"
+                                    name="customer_address"
+                                    type="text"
+                                    placeholder="Dirección de referencia"
+                                    data-customer-address
+                                />
+                            </div>
+
+                            <div>
+                                <label for="product-loan-notes"
+                                    >Observaciones</label
+                                >
+                                <textarea
+                                    id="product-loan-notes"
+                                    name="notes"
+                                    placeholder="Condiciones del préstamo o nota operativa"
+                                ></textarea>
+                            </div>
+
+                            <div class="modal-actions">
+                                <button
+                                    type="button"
+                                    class="secondary"
+                                    data-modal-close
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    id="product-loan-submit"
+                                    type="submit"
+                                    class="primary"
+                                >
+                                    Confirmar préstamo
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div
+                id="product-loan-close-modal"
+                class="modal-backdrop"
+                aria-hidden="true"
+            >
+                <div
+                    class="modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="product-loan-close-title"
+                >
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="product-loan-close-title">
+                                Cerrar préstamo
+                            </h3>
+                            <div
+                                id="product-loan-close-subtitle"
+                                class="modal-subtitle"
+                            ></div>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            data-modal-close
+                            aria-label="Cerrar"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="product-loan-close-form" class="modal-grid">
+                            <div
+                                id="product-loan-close-error"
+                                class="modal-error"
+                                hidden
+                            ></div>
+
+                            <section
+                                id="product-loan-close-summary"
+                                class="credit-edit-summary"
+                            ></section>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="product-loan-close-status"
+                                        >Resultado</label
+                                    >
+                                    <select
+                                        id="product-loan-close-status"
+                                        name="status"
+                                    >
+                                        <option value="returned">
+                                            Retornado
+                                        </option>
+                                        <option value="paid">
+                                            Cerrado por pago
+                                        </option>
+                                        <option value="cancelled">
+                                            Cancelado
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label for="product-loan-close-notes"
+                                    >Observaciones de cierre</label
+                                >
+                                <textarea
+                                    id="product-loan-close-notes"
+                                    name="notes"
+                                    placeholder="Ej: retornado en buen estado, se cerró por pago, etc."
+                                ></textarea>
+                            </div>
+
+                            <div class="modal-actions">
+                                <button
+                                    type="button"
+                                    class="secondary"
+                                    data-modal-close
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    id="product-loan-close-submit"
+                                    type="submit"
+                                    class="primary"
+                                >
+                                    Guardar cierre
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {{end}} {{if .CanCredit}}
+            <div id="loan-modal" class="modal-backdrop" aria-hidden="true">
+                <div
+                    class="modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="loan-title"
+                >
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="loan-title">Nuevo crédito</h3>
+                            <div id="loan-subtitle" class="modal-subtitle">
+                                Elige si vas a registrar un crédito con producto
+                                o un préstamo de dinero.
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            data-modal-close
+                            aria-label="Cerrar"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="loan-form-view" class="sale-view">
+                            <form id="loan-form" class="modal-grid">
+                                <div
+                                    id="loan-error"
+                                    class="modal-error"
+                                    hidden
+                                ></div>
+
+                                <div
+                                    class="customer-lookup"
+                                    data-customer-lookup
+                                >
+                                    <input
+                                        id="loan-customer-id"
+                                        name="customer_id"
+                                        type="hidden"
+                                        data-customer-id
+                                    />
+                                    <div class="customer-lookup-search">
+                                        <label for="loan-customer-search"
+                                            >Buscar cliente existente</label
+                                        >
+                                        <input
+                                            id="loan-customer-search"
+                                            type="search"
+                                            placeholder="Nombre, documento o teléfono"
+                                            autocomplete="off"
+                                            data-customer-search
+                                        />
+                                        <div
+                                            class="customer-lookup-helper"
+                                            data-customer-status
+                                        ></div>
+                                    </div>
+                                </div>
+
+                                <section class="credit-kind-switch">
+                                    <div
+                                        class="credit-kind-track"
+                                        role="tablist"
+                                        aria-label="Tipo de crédito"
+                                    >
+                                        <button
+                                            id="credit-kind-product"
+                                            type="button"
+                                            class="credit-kind-option active"
+                                            data-credit-kind="product_credit"
+                                        >
+                                            <strong
+                                                >Crédito con producto</strong
+                                            >
+                                            <span
+                                                >Descuenta stock y mantiene el
+                                                flujo actual.</span
+                                            >
+                                        </button>
+                                        <button
+                                            id="credit-kind-cash"
+                                            type="button"
+                                            class="credit-kind-option"
+                                            data-credit-kind="cash_loan"
+                                        >
+                                            <strong>Préstamo de dinero</strong>
+                                            <span
+                                                >No toca inventario ni productos
+                                                físicos.</span
+                                            >
+                                        </button>
+                                    </div>
+                                    <div id="credit-kind-context" hidden></div>
+                                </section>
+
+                                <section
+                                    id="loan-product-fields"
+                                    class="modal-grid"
+                                >
+                                    <div class="modal-row">
+                                        <div>
+                                            <label for="loan-product-id"
+                                                >Producto</label
+                                            >
+                                            <select
+                                                id="loan-product-id"
+                                                name="product_id"
+                                            ></select>
+                                        </div>
+                                        <div>
+                                            <label for="loan-qty"
+                                                >Cantidad</label
+                                            >
+                                            <input
+                                                id="loan-qty"
+                                                name="quantity"
+                                                type="number"
+                                                min="1"
+                                                step="1"
+                                                value="1"
+                                            />
+                                            <div
+                                                id="loan-product-stock"
+                                                class="credit-product-stock"
+                                            >
+                                                Disponible: -
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <div class="modal-row">
+                                    <div>
+                                        <label for="loan-customer-name"
+                                            >Nombre del cliente</label
+                                        >
+                                        <input
+                                            id="loan-customer-name"
+                                            name="customer_name"
+                                            type="text"
+                                            placeholder="Nombre del cliente"
+                                            data-customer-name
+                                        />
+                                    </div>
+                                    <div>
+                                        <label for="loan-customer-phone"
+                                            >Teléfono</label
+                                        >
+                                        <input
+                                            id="loan-customer-phone"
+                                            name="customer_phone"
+                                            type="text"
+                                            inputmode="tel"
+                                            placeholder="Ej. 3001234567"
+                                            data-customer-phone
+                                        />
+                                    </div>
+                                </div>
+
+                                <div class="modal-row">
+                                    <div>
+                                        <label for="loan-document-type"
+                                            >Tipo de documento</label
+                                        >
+                                        <select
+                                            id="loan-document-type"
+                                            name="customer_document_type"
+                                            data-customer-document-type
+                                        >
+                                            <option value="">Selecciona</option>
+                                            <option value="CC">CC</option>
+                                            <option value="C Extranjeria">
+                                                C Extranjeria
+                                            </option>
+                                            <option value="Pasaporte">
+                                                Pasaporte
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="loan-document-number"
+                                            >Número de documento</label
+                                        >
+                                        <input
+                                            id="loan-document-number"
+                                            name="customer_document_number"
+                                            type="text"
+                                            inputmode="numeric"
+                                            placeholder="Ej. 1234567890"
+                                            data-customer-document-number
+                                        />
+                                    </div>
+                                </div>
+
+                                <div class="modal-row">
+                                    <div>
+                                        <label for="loan-customer-city"
+                                            >Ciudad</label
+                                        >
+                                        <input
+                                            id="loan-customer-city"
+                                            name="customer_city"
+                                            type="text"
+                                            placeholder="Ciudad del cliente"
+                                            data-customer-city
+                                        />
+                                    </div>
+                                    <div>
+                                        <label for="loan-customer-address"
+                                            >Dirección (opcional)</label
+                                        >
+                                        <input
+                                            id="loan-customer-address"
+                                            name="customer_address"
+                                            type="text"
+                                            placeholder="Dirección del cliente"
+                                            data-customer-address
+                                        />
+                                    </div>
+                                </div>
+
+                                <div class="modal-row">
+                                    <div>
+                                        <label for="loan-installments-total"
+                                            >Cuotas totales</label
+                                        >
+                                        <input
+                                            id="loan-installments-total"
+                                            name="installments_total"
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            value="1"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label
+                                            id="loan-total-label"
+                                            for="loan-total-value"
+                                            >Valor total del crédito</label
+                                        >
+                                        <input
+                                            id="loan-total-value"
+                                            name="total_value"
+                                            type="text"
+                                            inputmode="numeric"
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div class="modal-row">
+                                    <div>
+                                        <label for="loan-interest-percent"
+                                            >% de interés (opcional)</label
+                                        >
+                                        <input
+                                            id="loan-interest-percent"
+                                            name="interest_percent"
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label for="loan-installment-value"
+                                            >Valor por cuota</label
+                                        >
+                                        <input
+                                            id="loan-installment-value"
+                                            name="installment_value"
+                                            type="text"
+                                            inputmode="numeric"
+                                            placeholder="0"
+                                            readonly
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="modal-hint">
+                                        El valor por cuota se calcula
+                                        automáticamente usando monto total,
+                                        interés y número de cuotas.
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label for="loan-notes"
+                                        >Observaciones</label
+                                    >
+                                    <textarea
+                                        id="loan-notes"
+                                        name="notes"
+                                        placeholder="Observaciones del crédito"
+                                    ></textarea>
+                                </div>
+
+                                <div class="modal-actions">
+                                    <button
+                                        type="button"
+                                        class="secondary"
+                                        data-modal-close
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        id="loan-submit"
+                                        type="submit"
+                                        class="primary"
+                                    >
+                                        Confirmar
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div
+                            id="loan-success-view"
+                            class="sale-view sale-result"
+                            hidden
+                        >
+                            <section class="sale-result-hero">
+                                <p
+                                    id="loan-result-kicker"
+                                    class="sale-result-kicker"
+                                >
+                                    Crédito completado
+                                </p>
+                                <h4 id="loan-result-title">
+                                    Crédito registrado correctamente.
+                                </h4>
+                                <p
+                                    id="loan-result-message"
+                                    class="sale-result-message"
+                                >
+                                    El cliente ya quedó asociado y la deuda está
+                                    activa.
+                                </p>
+                            </section>
+
+                            <div class="modal-actions">
+                                <button
+                                    type="button"
+                                    class="secondary"
+                                    data-modal-close
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {{end}} {{if and .CanCredit .CurrentUser (or (eq .CurrentUser.Role
+            "admin") (eq .CurrentUser.Role "platform_admin"))}}
+            <div
+                id="credit-manage-modal"
+                class="modal-backdrop"
+                aria-hidden="true"
+            >
+                <div
+                    class="modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="credit-manage-title"
+                >
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="credit-manage-title">Editar créditos</h3>
+                            <div class="modal-subtitle">
+                                Administra créditos con producto y préstamos de
+                                dinero sin tocar el historial de pagos.
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            data-modal-close
+                            aria-label="Cerrar"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div
+                            id="credit-manage-error"
+                            class="modal-error"
+                            hidden
+                        ></div>
+                        <div
+                            id="credit-manage-loading"
+                            class="modal-hint"
+                            hidden
+                        >
+                            Cargando créditos...
+                        </div>
+                        <div id="credit-manage-empty" class="modal-hint" hidden>
+                            No hay créditos disponibles para editar.
+                        </div>
+                        <div
+                            id="credit-manage-list"
+                            class="credit-manager-list"
+                        ></div>
+                    </div>
+                </div>
+            </div>
+
+            <div
+                id="credit-edit-modal"
+                class="modal-backdrop"
+                aria-hidden="true"
+            >
+                <div
+                    class="modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="credit-edit-title"
+                >
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="credit-edit-title">Editar crédito</h3>
+                            <div
+                                id="credit-edit-subtitle"
+                                class="modal-subtitle"
+                            ></div>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            data-modal-close
+                            aria-label="Cerrar"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="credit-edit-form" class="modal-grid">
+                            <div
+                                id="credit-edit-error"
+                                class="modal-error"
+                                hidden
+                            ></div>
+
+                            <section
+                                id="credit-edit-summary"
+                                class="credit-edit-summary"
+                            ></section>
+
+                            <section class="credit-edit-history">
+                                <div class="credit-edit-history-head">
+                                    <strong>Historial de cambios</strong>
+                                    <span
+                                        >Ultimas ediciones registradas para este
+                                        credito.</span
+                                    >
+                                </div>
+                                <div
+                                    id="credit-edit-history-loading"
+                                    class="modal-loading"
+                                    hidden
+                                >
+                                    Cargando historial de cambios...
+                                </div>
+                                <div
+                                    id="credit-edit-history-empty"
+                                    class="modal-empty"
+                                    hidden
+                                >
+                                    Este credito no tiene ediciones registradas.
+                                </div>
+                                <div
+                                    id="credit-edit-history-list"
+                                    class="credit-edit-history-list"
+                                ></div>
+                            </section>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="credit-edit-installments-total"
+                                        >Cuotas totales</label
+                                    >
+                                    <input
+                                        id="credit-edit-installments-total"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                    />
+                                </div>
+                                <div>
+                                    <label for="credit-edit-installments-paid"
+                                        >Cuotas pagadas</label
+                                    >
+                                    <input
+                                        id="credit-edit-installments-paid"
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="credit-edit-installment-value"
+                                        >Valor por cuota</label
+                                    >
+                                    <input
+                                        id="credit-edit-installment-value"
+                                        type="text"
+                                        inputmode="numeric"
+                                        placeholder="0"
+                                    />
+                                </div>
+                                <div>
+                                    <label for="credit-edit-status"
+                                        >Estado</label
+                                    >
+                                    <select id="credit-edit-status">
+                                        <option value="active">Activo</option>
+                                        <option value="suspended">
+                                            Suspendido
+                                        </option>
+                                        <option value="cancelled">
+                                            Cancelado
+                                        </option>
+                                        <option value="completed">
+                                            Completado
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label for="credit-edit-notes"
+                                    >Observaciones</label
+                                >
+                                <textarea
+                                    id="credit-edit-notes"
+                                    placeholder="Observaciones del crédito"
+                                ></textarea>
+                            </div>
+
+                            <div class="modal-actions">
+                                <button
+                                    type="button"
+                                    class="secondary"
+                                    data-modal-close
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    id="credit-edit-submit"
+                                    type="submit"
+                                    class="primary"
+                                >
+                                    Guardar cambios
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {{end}}
 
             <div id="edit-modal" class="modal-backdrop" aria-hidden="true">
                 <div
@@ -1676,6 +2993,16 @@
                                 </div>
                             </div>
 
+                            <div>
+                                <label for="edit-location">Locación</label>
+                                <input
+                                    id="edit-location"
+                                    name="location"
+                                    type="text"
+                                    placeholder="Ej: Estante A-03"
+                                />
+                            </div>
+
                             <div class="modal-row">
                                 <div>
                                     <label class="checkline">
@@ -1748,18 +3075,34 @@
               {
                 entryType: "{{js .EntryType}}",
                 creditSaleId: {{.CreditSaleID}},
+                productLoanId: {{.ProductLoanID}},
+                customerId: {{.CustomerID}},
                 baseProductId: "{{js .BaseProductID}}",
                 id: "{{js .ID}}",
                 name: "{{js .Name}}",
                 line: "{{js .Line}}",
+                location: "{{js .Location}}",
                 debtorName: "{{js .DebtorName}}",
+                debtorPhone: "{{js .DebtorPhone}}",
                 debtorDocumentNumber: "{{js .DebtorDocumentNumber}}",
+                customerCity: "{{js .CustomerCity}}",
+                customerAddress: "{{js .CustomerAddress}}",
+                customerNotes: "{{js .CustomerNotes}}",
+                managedByName: "{{js .ManagedByName}}",
+                dueAt: "{{js .DueAt}}",
+                closedAt: "{{js .ClosedAt}}",
+                closeStatus: "{{js .CloseStatus}}",
                 installmentsTotal: {{.InstallmentsTotal}},
                 installmentsPaid: {{.InstallmentsPaid}},
+                paidInstallmentsCount: {{.PaidInstallmentsCount}},
                 totalValue: {{printf "%.0f" .TotalValue}},
+                debtTotal: {{printf "%.0f" .DebtTotal}},
+                totalPaid: {{printf "%.0f" .TotalPaid}},
+                currentDebt: {{printf "%.0f" .CurrentDebt}},
                 installmentValue: {{printf "%.0f" .InstallmentValue}},
                 lastPaymentAmount: {{printf "%.0f" .LastPaymentAmount}},
                 lastPaymentAt: "{{js .LastPaymentAt}}",
+                lastPaymentType: "{{js .LastPaymentType}}",
                 creditEnabled: {{if .CreditEnabled}}true{{else}}false{{end}},
                 notes: "{{js .Notes}}",
                 ingreso: "{{js .FechaIngreso}}",
@@ -1868,10 +3211,19 @@
             const statusLabels = {
               available: "Disponible",
               credit_active: "Crédito activo",
+              credit_completed: "Crédito completado",
+              credit_suspended: "Crédito suspendido",
+              credit_cancelled: "Crédito cancelado",
+              suspended: "Crédito suspendido",
+              cancelled: "Crédito cancelado",
+              completed: "Crédito completado",
+              loaned: "Prestado",
               sold: "Vendido",
               swapped: "Cambio",
               reserved: "Crédito activo",
               Disponible: "Disponible",
+              Prestada: "Prestado",
+              Prestado: "Prestado",
               Vendida: "Vendido",
               Vendido: "Vendido",
               Cambio: "Cambio"
@@ -1880,6 +3232,10 @@
             const formatCOP = (value) => {
               const n = Math.max(0, Math.round(Number(value || 0)));
               return n.toLocaleString("es-CO");
+            };
+            const paymentTypeLabel = (value) => {
+              if (String(value || "").toLowerCase() === "abono") return "Abono";
+              return "Cuota";
             };
             const parseCOP = (raw) => {
               const digits = String(raw || "").replace(/[^\d]/g, "");
@@ -1907,10 +3263,6 @@
                   <h3>Unidades</h3>
                   <span>${totalUnits}</span>
                 </div>
-                <div class="summary-card">
-                  <h3>Por caducar</h3>
-                  <span>${expiringProducts}</span>
-                </div>
               `;
             };
 
@@ -1937,14 +3289,20 @@
 
               const filtered = products.filter((product) => {
                 const debtorName = String(product.debtorName || "").toLowerCase();
+                const debtorPhone = String(product.debtorPhone || "").toLowerCase();
                 const debtorDocumentNumber = String(product.debtorDocumentNumber || "").toLowerCase();
+                const customerCity = String(product.customerCity || "").toLowerCase();
+                const productLocation = String(product.location || "").toLowerCase();
                 const matchesSearch =
                   product.name.toLowerCase().includes(query) ||
                   product.id.toLowerCase().includes(query) ||
                   String(product.baseProductId || "").toLowerCase().includes(query) ||
                   normalizeLine(product.line).toLowerCase().includes(query) ||
+                  productLocation.includes(query) ||
                   debtorName.includes(query) ||
-                  debtorDocumentNumber.includes(query);
+                  debtorDocumentNumber.includes(query) ||
+                  debtorPhone.includes(query) ||
+                  customerCity.includes(query);
                 const matchesStatus = statusValue === "all" || product.statusClass === statusValue;
                 const matchesLine = lineValue === "all" || normalizeLine(product.line) === lineValue;
                 const matchesExpiry =
@@ -1972,42 +3330,79 @@
 
               items.forEach((product) => {
                 const row = document.createElement("tr");
+                const isCredit = product.entryType === "credit";
+                const isPhysicalLoan = product.entryType === "loan";
                 row.innerHTML = `
                   <td>
                     <div class="product-name" data-product="${product.id}">
                       ${product.name}
                       ${product.ageAlert ? `<span class="age-pill" title="En stock ${product.ageMonths} meses (fecha ingreso: ${product.ingreso || '-'})">+6 meses</span>` : ``}
                     </div>
-                    <div class="fifo-note">${product.entryType === "credit" ? `Crédito ${product.id} · Producto ${product.baseProductId || "-"}` : `ID ${product.id} · ${product.available} disponibles`}</div>
-                    ${product.entryType === "credit"
+                    <div class="fifo-note">${isCredit ? `Crédito ${product.id} · Producto ${product.baseProductId || "-"}` : isPhysicalLoan ? `Préstamo ${product.id} · Producto ${product.baseProductId || "-"}` : `ID ${product.id} · ${product.available} disponibles`}</div>
+                    ${product.entryType === "product" && product.location ? `<div class="fifo-note">Locación · ${product.location}</div>` : ``}
+                    ${isCredit
                       ? `<details class="credit-details">
                           <summary>
                             <span class="credit-badge">Crédito</span>
                             <span class="credit-caret" aria-hidden="true"></span>
                           </summary>
                           <div class="credit-meta">
-                            <span class="credit-meta-item"><strong>Deudor:</strong><span>${product.debtorName || "Sin definir"}</span></span>
-                            <span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.installmentsPaid}/${product.installmentsTotal}</span></span>
-                            <span class="credit-meta-item"><strong>Ultimo abono:</strong><span>${product.lastPaymentAmount > 0 ? formatCOP(product.lastPaymentAmount) : "Sin registro"}</span></span>
-                            <span class="credit-meta-item"><strong>Ultima cuota:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span>
+                            <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
+                            <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
+                            <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
+                            <span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.paidInstallmentsCount || product.installmentsPaid || 0}/${product.installmentsTotal}</span></span>
+                            <span class="credit-meta-item"><strong>Total pagado:</strong><span>${formatCOP(product.totalPaid || 0)}</span></span>
+                            <span class="credit-meta-item"><strong>Deuda actual:</strong><span>${formatCOP(product.currentDebt || 0)}</span></span>
+                            <span class="credit-meta-item"><strong>Último pago:</strong><span>${product.lastPaymentAmount > 0 ? `${paymentTypeLabel(product.lastPaymentType)} · ${formatCOP(product.lastPaymentAmount)}` : "Sin registro"}</span></span>
+                            <span class="credit-meta-item"><strong>Último movimiento:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span>
                           </div>
                         </details>`
+                      : isPhysicalLoan
+                        ? `<details class="credit-details">
+                            <summary>
+                              <span class="credit-badge">Préstamo físico</span>
+                              <span class="credit-caret" aria-hidden="true"></span>
+                            </summary>
+                            <div class="credit-meta">
+                              <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
+                              <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
+                              <span class="credit-meta-item"><strong>Teléfono:</strong><span>${product.debtorPhone || "Sin registro"}</span></span>
+                              <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
+                              <span class="credit-meta-item"><strong>Gestionado por:</strong><span>${product.managedByName || "Sin registro"}</span></span>
+                              <span class="credit-meta-item"><strong>Prestado desde:</strong><span>${product.ingreso || "Sin registro"}</span></span>
+                              <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${formatOptionalDate(product.dueAt)}</span></span>
+                              <span class="credit-meta-item"><strong>Observaciones:</strong><span>${product.notes || "Sin notas"}</span></span>
+                            </div>
+                          </details>`
                       : ``}
                   </td>
                   <td>${normalizeLine(product.line)}</td>
                   <td>
                     <div class="value-cell">
                       <div class="value-line sale">
-                        <span class="value-label">${product.entryType === "credit" ? "Total" : "Venta"}</span>
-                        <span class="value-amount">${formatCOP(product.entryType === "credit" ? (product.totalValue || 0) : (product.salePrice || 0))}</span>
+                        <span class="value-label">${isCredit ? "Deuda total" : isPhysicalLoan ? "Valor ref." : "Venta"}</span>
+                        <span class="value-amount">${formatCOP(isCredit ? (product.debtTotal || 0) : (product.salePrice || 0))}</span>
                       </div>
-                      ${product.entryType === "credit"
+                      ${isCredit
                         ? `<div class="value-line sale">
+                            <span class="value-label">Deuda actual</span>
+                            <span class="value-amount">${formatCOP(product.currentDebt || 0)}</span>
+                          </div>
+                          <div class="value-line sale">
                             <span class="value-label">Cuota</span>
                             <span class="value-amount">${formatCOP(product.installmentValue || 0)}</span>
                           </div>`
+                        : isPhysicalLoan
+                          ? `<div class="value-line sale">
+                              <span class="value-label">Cantidad prestada</span>
+                              <span class="value-amount">${product.units.length || 0}</span>
+                            </div>
+                            <div class="value-line sale">
+                              <span class="value-label">Retorno</span>
+                              <span class="value-amount">${formatOptionalDate(product.dueAt)}</span>
+                            </div>`
                         : ``}
-                      ${product.retomaEnabled
+                      ${product.entryType === "product" && product.retomaEnabled
                         ? `<div class="value-line retoma ${product.retomaPrice > 0 ? "" : "is-empty"}">
                             <span class="value-label">Retoma</span>
                             <span class="value-amount">${product.retomaPrice > 0 ? formatCOP(product.retomaPrice) : "No definido"}</span>
@@ -2016,11 +3411,16 @@
                     </div>
                   </td>
                   <td><span class="status ${product.statusClass}">${statusLabel(product.statusLabel)}</span></td>
-                  <td><strong>${product.available}</strong></td>
+                  <td>
+                    <strong>${isPhysicalLoan ? product.units.length : product.available}</strong>
+                    ${isPhysicalLoan ? `<div class="fifo-note">Prestadas</div>` : ``}
+                  </td>
                   <td>
                     <div class="actions">
-                      ${product.entryType === "credit"
-                        ? `{{if .CanCredit}}<button class="primary" data-action="installment" data-product="${product.id}">Agregar cuota</button>{{end}}`
+                      ${isCredit
+                        ? `{{if .CanCredit}}<button class="primary" data-action="installment" data-product="${product.id}">Registrar pago</button>{{end}}`
+                        : isPhysicalLoan
+                          ? `{{if .CanLoan}}<button class="primary" data-action="close-loan" data-product="${product.id}">Cerrar préstamo</button>{{end}}`
                         : `
                       <input type="number" min="1" max="${Math.max(product.available, 1)}" value="1" data-qty="${product.id}" />
                       {{if .CanSell}}
@@ -2039,12 +3439,25 @@
                     <div class="menu">
                       <button class="ghost" data-menu="${product.id}">⋮</button>
                       <div class="menu-panel" id="menu-${product.id}">
-                        ${product.entryType === "credit" ? `
+                        ${isCredit ? `
+                        {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}
+                        <button type="button" data-menu-action="edit-credit" data-product="${product.id}">Editar crédito</button>
+                        {{end}}
+                        <button type="button" data-menu-action="invoice-credit" data-product="${product.id}">Generar factura</button>
+                        <button type="button" data-menu-action="history" data-product="${product.id}">Ver historial</button>
+                        ` : isPhysicalLoan ? `
+                        {{if .CanLoan}}
+                        <button type="button" data-menu-action="close-loan" data-product="${product.id}">Cerrar préstamo</button>
+                        {{end}}
                         <button type="button" data-menu-action="history" data-product="${product.id}">Ver historial</button>
                         ` : `
                         <button type="button" data-menu-action="reserve" data-product="${product.id}">Reservar unidades</button>
                         <button type="button" data-menu-action="damage" data-product="${product.id}">Registrar daño</button>
+                        {{if .CanLoan}}
+                        <button type="button" data-menu-action="loan-product" data-product="${product.id}">Prestar producto</button>
+                        {{end}}
                         <button type="button" data-menu-action="edit" data-product="${product.id}">Editar producto</button>
+                        <button type="button" data-menu-action="print-label" data-product="${product.id}">Imprimir etiqueta</button>
                         {{if .CanRetoma}}
                         ${product.retomaEnabled ? `<button type="button" data-menu-action="retoma" data-product="${product.id}">Preparar retoma</button>` : ``}
                         {{end}}
@@ -2061,10 +3474,47 @@
                 productTable.appendChild(row);
 
                 const unitsRow = document.createElement("tr");
-                if (product.entryType === "credit") {
+                if (isCredit) {
                   unitsRow.innerHTML = `
                     <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
                       <div class="fifo-note">Este registro corresponde a una venta a crédito ya generada.</div>
+                    </td>
+                  </tr>
+                  `;
+                  productTable.appendChild(unitsRow);
+                  return;
+                }
+                if (isPhysicalLoan) {
+                  unitsRow.innerHTML = `
+                    <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
+                      <div class="units-header">
+                        <h4>Unidades prestadas</h4>
+                        <span class="fifo-note">Seguimiento operativo del préstamo</span>
+                      </div>
+                      <table class="units-table" aria-label="Unidades prestadas">
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            <th>Prestado desde</th>
+                            <th>Retorno esperado</th>
+                            <th>Estado</th>
+                            <th>Gestionado por</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${product.units
+                            .map((unit) => `
+                              <tr>
+                                <td>${unit.id}</td>
+                                <td>${product.ingreso || "-"}</td>
+                                <td>${formatOptionalDate(product.dueAt)}</td>
+                                <td>${statusLabel(unit.statusLabel)}</td>
+                                <td>${product.managedByName || "-"}</td>
+                              </tr>
+                            `)
+                            .join("")}
+                        </tbody>
+                      </table>
                     </td>
                   </tr>
                   `;
@@ -2097,7 +3547,7 @@
                                 <td>${unit.id}</td>
                                 <td>${formatOptionalDate(unit.created)}</td>
                                 <td>${formatOptionalDate(unit.expires)}</td>
-                                <td>-</td>
+                                <td>${product.location || "-"}</td>
                                 <td>${statusLabel(unit.statusLabel)}</td>
                                 <td><span class="unit-tag">${fifoOrder}</span></td>
                               </tr>
@@ -2126,6 +3576,7 @@
             }
         </script>
 
+        <script src="/static/customer_lookup.js"></script>
         <script>
             const historyModal = document.getElementById("history-modal");
             const historySubtitle = document.getElementById("history-subtitle");
@@ -2178,6 +3629,10 @@
             const saleMethod = document.getElementById("sale-method");
             const saleCreditFields =
                 document.getElementById("sale-credit-fields");
+            const saleCustomerId = document.getElementById("sale-customer-id");
+            const saleCustomerSearch = document.getElementById(
+                "sale-customer-search",
+            );
             const saleDebtorName = document.getElementById("sale-debtor-name");
             const saleDebtorDocumentType = document.getElementById(
                 "sale-debtor-document-type",
@@ -2187,6 +3642,14 @@
             );
             const saleDebtorPhone =
                 document.getElementById("sale-debtor-phone");
+            const saleCustomerCity =
+                document.getElementById("sale-customer-city");
+            const saleCustomerAddress = document.getElementById(
+                "sale-customer-address",
+            );
+            const saleCustomerNotes = document.getElementById(
+                "sale-customer-notes",
+            );
             const saleInstallmentsTotal = document.getElementById(
                 "sale-installments-total",
             );
@@ -2221,9 +3684,129 @@
             );
             const saleReceiptView =
                 document.getElementById("sale-receipt-view");
+            const saleInvoiceCreate = document.getElementById(
+                "sale-invoice-create",
+            );
             const saleReceiptDownload = document.getElementById(
                 "sale-receipt-download",
             );
+            const saleReceiptThermal = document.getElementById(
+                "sale-receipt-thermal",
+            );
+            const loanOpen = document.getElementById("loan-open");
+            const loanModal = document.getElementById("loan-modal");
+            const loanSubtitle = document.getElementById("loan-subtitle");
+            const loanFormView = document.getElementById("loan-form-view");
+            const loanForm = document.getElementById("loan-form");
+            const loanError = document.getElementById("loan-error");
+            const loanKindButtons = Array.from(
+                document.querySelectorAll("[data-credit-kind]"),
+            );
+            const creditKindContext = document.getElementById(
+                "credit-kind-context",
+            );
+            const loanProductFields = document.getElementById(
+                "loan-product-fields",
+            );
+            const loanProductId = document.getElementById("loan-product-id");
+            const loanQty = document.getElementById("loan-qty");
+            const loanProductStock =
+                document.getElementById("loan-product-stock");
+            const loanCustomerId = document.getElementById("loan-customer-id");
+            const loanCustomerSearch = document.getElementById(
+                "loan-customer-search",
+            );
+            const loanCustomerName =
+                document.getElementById("loan-customer-name");
+            const loanCustomerPhone = document.getElementById(
+                "loan-customer-phone",
+            );
+            const loanDocumentType =
+                document.getElementById("loan-document-type");
+            const loanDocumentNumber = document.getElementById(
+                "loan-document-number",
+            );
+            const loanCustomerCity =
+                document.getElementById("loan-customer-city");
+            const loanCustomerAddress = document.getElementById(
+                "loan-customer-address",
+            );
+            const loanInstallmentsTotal = document.getElementById(
+                "loan-installments-total",
+            );
+            const loanTotalLabel = document.getElementById("loan-total-label");
+            const loanTotalValue = document.getElementById("loan-total-value");
+            const loanInterestPercent = document.getElementById(
+                "loan-interest-percent",
+            );
+            const loanInstallmentValue = document.getElementById(
+                "loan-installment-value",
+            );
+            const loanCustomerNotes = document.getElementById(
+                "loan-customer-notes",
+            );
+            const loanNotes = document.getElementById("loan-notes");
+            const loanSubmit = document.getElementById("loan-submit");
+            const loanSuccessView =
+                document.getElementById("loan-success-view");
+            const loanResultKicker =
+                document.getElementById("loan-result-kicker");
+            const loanResultTitle =
+                document.getElementById("loan-result-title");
+            const loanResultMessage = document.getElementById(
+                "loan-result-message",
+            );
+            const creditManageOpen =
+                document.getElementById("credit-manage-open");
+            const creditManageModal = document.getElementById(
+                "credit-manage-modal",
+            );
+            const creditManageError = document.getElementById(
+                "credit-manage-error",
+            );
+            const creditManageLoading = document.getElementById(
+                "credit-manage-loading",
+            );
+            const creditManageEmpty = document.getElementById(
+                "credit-manage-empty",
+            );
+            const creditManageList =
+                document.getElementById("credit-manage-list");
+            const creditEditModal =
+                document.getElementById("credit-edit-modal");
+            const creditEditSubtitle = document.getElementById(
+                "credit-edit-subtitle",
+            );
+            const creditEditForm = document.getElementById("credit-edit-form");
+            const creditEditError =
+                document.getElementById("credit-edit-error");
+            const creditEditSummary = document.getElementById(
+                "credit-edit-summary",
+            );
+            const creditEditHistoryLoading = document.getElementById(
+                "credit-edit-history-loading",
+            );
+            const creditEditHistoryEmpty = document.getElementById(
+                "credit-edit-history-empty",
+            );
+            const creditEditHistoryList = document.getElementById(
+                "credit-edit-history-list",
+            );
+            const creditEditInstallmentsTotal = document.getElementById(
+                "credit-edit-installments-total",
+            );
+            const creditEditInstallmentsPaid = document.getElementById(
+                "credit-edit-installments-paid",
+            );
+            const creditEditInstallmentValue = document.getElementById(
+                "credit-edit-installment-value",
+            );
+            const creditEditStatus =
+                document.getElementById("credit-edit-status");
+            const creditEditNotes =
+                document.getElementById("credit-edit-notes");
+            const creditEditSubmit =
+                document.getElementById("credit-edit-submit");
             const installmentModal =
                 document.getElementById("installment-modal");
             const installmentSubtitle = document.getElementById(
@@ -2238,12 +3821,85 @@
             const installmentDefaultValue = document.getElementById(
                 "installment-default-value",
             );
+            const installmentPaymentType = document.getElementById(
+                "installment-payment-type",
+            );
+            const installmentCurrentDebt = document.getElementById(
+                "installment-current-debt",
+            );
             const installmentAmountPaid = document.getElementById(
                 "installment-amount-paid",
             );
             const installmentSubmit =
                 document.getElementById("installment-submit");
             const retomaModal = document.getElementById("retoma-modal");
+            const productLoanModal =
+                document.getElementById("product-loan-modal");
+            const productLoanSubtitle = document.getElementById(
+                "product-loan-subtitle",
+            );
+            const productLoanForm =
+                document.getElementById("product-loan-form");
+            const productLoanError =
+                document.getElementById("product-loan-error");
+            const productLoanQty = document.getElementById("product-loan-qty");
+            const productLoanMax = document.getElementById("product-loan-max");
+            const productLoanCustomerId = document.getElementById(
+                "product-loan-customer-id",
+            );
+            const productLoanCustomerSearch = document.getElementById(
+                "product-loan-customer-search",
+            );
+            const productLoanBorrowerName = document.getElementById(
+                "product-loan-borrower-name",
+            );
+            const productLoanBorrowerPhone = document.getElementById(
+                "product-loan-borrower-phone",
+            );
+            const productLoanDocumentType = document.getElementById(
+                "product-loan-document-type",
+            );
+            const productLoanDocumentNumber = document.getElementById(
+                "product-loan-document-number",
+            );
+            const productLoanCustomerCity = document.getElementById(
+                "product-loan-customer-city",
+            );
+            const productLoanAddress = document.getElementById(
+                "product-loan-address",
+            );
+            const productLoanDueAt = document.getElementById(
+                "product-loan-due-at",
+            );
+            const productLoanNotes =
+                document.getElementById("product-loan-notes");
+            const productLoanSubmit = document.getElementById(
+                "product-loan-submit",
+            );
+            const productLoanCloseModal = document.getElementById(
+                "product-loan-close-modal",
+            );
+            const productLoanCloseSubtitle = document.getElementById(
+                "product-loan-close-subtitle",
+            );
+            const productLoanCloseForm = document.getElementById(
+                "product-loan-close-form",
+            );
+            const productLoanCloseError = document.getElementById(
+                "product-loan-close-error",
+            );
+            const productLoanCloseSummary = document.getElementById(
+                "product-loan-close-summary",
+            );
+            const productLoanCloseStatus = document.getElementById(
+                "product-loan-close-status",
+            );
+            const productLoanCloseNotes = document.getElementById(
+                "product-loan-close-notes",
+            );
+            const productLoanCloseSubmit = document.getElementById(
+                "product-loan-close-submit",
+            );
             const retomaSubtitle = document.getElementById("retoma-subtitle");
             const retomaForm = document.getElementById("retoma-form");
             const retomaProduct = document.getElementById("retoma-product");
@@ -2267,6 +3923,7 @@
             const editPrice = document.getElementById("edit-price");
             const editName = document.getElementById("edit-name");
             const editLine = document.getElementById("edit-line");
+            const editLocation = document.getElementById("edit-location");
             const editRetomaEnabled = document.getElementById(
                 "edit-retoma-enabled",
             );
@@ -2299,7 +3956,7 @@
                     saleFinal.value = formatCOP(n);
                 });
             }
-            [saleTotalValue].forEach((input) => {
+            [saleTotalValue, loanTotalValue].forEach((input) => {
                 if (!input) return;
                 input.addEventListener("input", () => {
                     const n = parseCOP(input.value);
@@ -2411,6 +4068,20 @@
                     installmentSubtitle
                 )
                     installmentSubtitle.textContent = subtitleText;
+                if (subtitleText && backdrop === loanModal && loanSubtitle)
+                    loanSubtitle.textContent = subtitleText;
+                if (
+                    subtitleText &&
+                    backdrop === productLoanModal &&
+                    productLoanSubtitle
+                )
+                    productLoanSubtitle.textContent = subtitleText;
+                if (
+                    subtitleText &&
+                    backdrop === productLoanCloseModal &&
+                    productLoanCloseSubtitle
+                )
+                    productLoanCloseSubtitle.textContent = subtitleText;
                 if (subtitleText && backdrop === retomaModal && retomaSubtitle)
                     retomaSubtitle.textContent = subtitleText;
                 if (subtitleText && backdrop === editModal && editSubtitle)
@@ -2426,6 +4097,16 @@
                     resetSaleSuccessState();
                     saleContext = null;
                 }
+                if (backdrop === loanModal) {
+                    resetLoanModalState();
+                    loanContext = null;
+                }
+                if (backdrop === productLoanModal) {
+                    productLoanContext = null;
+                }
+                if (backdrop === productLoanCloseModal) {
+                    productLoanCloseContext = null;
+                }
                 if (backdrop === retomaModal) {
                     retomaContext = null;
                 }
@@ -2434,6 +4115,9 @@
                 }
                 if (backdrop === editModal) {
                     editContext = null;
+                }
+                if (backdrop === creditEditModal) {
+                    creditEditContext = null;
                 }
                 if (!document.querySelector(".modal-backdrop.open")) {
                     document.body.style.overflow = "";
@@ -2453,7 +4137,11 @@
 
             let actionContext = null;
             let saleContext = null;
+            let loanContext = null;
+            let productLoanContext = null;
+            let productLoanCloseContext = null;
             let installmentContext = null;
+            let creditEditContext = null;
             let retomaContext = null;
             let editContext = null;
             let openMenuContext = null;
@@ -2671,6 +4359,7 @@
                 if (saleReceiptActions) saleReceiptActions.hidden = false;
                 if (saleReceiptView) saleReceiptView.href = "#";
                 if (saleReceiptDownload) saleReceiptDownload.href = "#";
+                if (saleReceiptThermal) saleReceiptThermal.href = "#";
                 setSaleStage("form");
             };
 
@@ -2705,11 +4394,21 @@
                 if (saleCreditToggle) saleCreditToggle.checked = false;
                 if (salePrice) salePrice.value = "";
                 if (saleFinal) saleFinal.value = "";
+                if (saleCustomerId) saleCustomerId.value = "";
+                if (saleCustomerSearch) {
+                    saleCustomerSearch.value = "";
+                    saleCustomerSearch.dispatchEvent(
+                        new Event("input", { bubbles: true }),
+                    );
+                }
                 if (saleDebtorName) saleDebtorName.value = "";
                 if (saleDebtorDocumentType) saleDebtorDocumentType.value = "";
                 if (saleDebtorDocumentNumber)
                     saleDebtorDocumentNumber.value = "";
                 if (saleDebtorPhone) saleDebtorPhone.value = "";
+                if (saleCustomerCity) saleCustomerCity.value = "";
+                if (saleCustomerAddress) saleCustomerAddress.value = "";
+                if (saleCustomerNotes) saleCustomerNotes.value = "";
                 if (saleInstallmentsTotal) saleInstallmentsTotal.value = "1";
                 if (saleInterestPercent) saleInterestPercent.value = "";
                 if (saleTotalValue) saleTotalValue.value = "";
@@ -2780,6 +4479,7 @@
             const refreshProductStatus = (product) => {
                 if (!product || !Array.isArray(product.units)) return;
                 let availableCount = 0;
+                let loanedCount = 0;
                 let reservedCount = 0;
                 let changeCount = 0;
                 let damagedCount = 0;
@@ -2800,6 +4500,17 @@
                         return;
                     }
                     unit.fifo = "-";
+                    if (
+                        cls === "loaned" ||
+                        label === "Prestada" ||
+                        label === "Prestado" ||
+                        label === "loaned"
+                    ) {
+                        loanedCount += 1;
+                        unit.statusClass = "loaned";
+                        unit.statusLabel = "Prestada";
+                        return;
+                    }
                     if (
                         cls === "reserved" ||
                         label === "Reservada" ||
@@ -2839,6 +4550,9 @@
                 if (availableCount > 0) {
                     product.statusClass = "available";
                     product.statusLabel = "Disponible";
+                } else if (loanedCount > 0) {
+                    product.statusClass = "loaned";
+                    product.statusLabel = "Prestado";
                 } else if (reservedCount > 0) {
                     product.statusClass = "reserved";
                     product.statusLabel = "Reservado";
@@ -2857,7 +4571,7 @@
             const applySaleLocally = ({ productId, quantity }) => {
                 const product = products.find(
                     (item) =>
-                        item.id === productId && item.entryType !== "credit",
+                        item.id === productId && item.entryType === "product",
                 );
                 if (
                     !product ||
@@ -2888,6 +4602,8 @@
                 totalValue,
                 receiptURL,
                 receiptDownloadURL,
+                thermalTicketURL,
+                invoiceCreateURL,
             }) => {
                 if (saleTitle) {
                     saleTitle.textContent =
@@ -2927,18 +4643,634 @@
                             : "La venta ya quedó registrada. Si lo necesitas, descarga el comprobante desde este mismo popup.";
                 }
                 if (saleReceiptActions) {
-                    const hasReceipt = !!(receiptURL || receiptDownloadURL);
-                    saleReceiptActions.hidden = !hasReceipt;
-                    if (hasReceipt) {
+                    const hasActions = !!(
+                        invoiceCreateURL ||
+                        receiptURL ||
+                        receiptDownloadURL
+                    );
+                    saleReceiptActions.hidden = !hasActions;
+                    if (saleInvoiceCreate) {
+                        saleInvoiceCreate.hidden = !invoiceCreateURL;
+                    }
+                    if (hasActions) {
+                        if (saleInvoiceCreate) {
+                            saleInvoiceCreate.href = invoiceCreateURL || "#";
+                        }
                         if (saleReceiptView)
                             saleReceiptView.href =
                                 receiptURL || receiptDownloadURL || "#";
                         if (saleReceiptDownload)
                             saleReceiptDownload.href =
                                 receiptDownloadURL || receiptURL || "#";
+                        if (saleReceiptThermal)
+                            saleReceiptThermal.href =
+                                thermalTicketURL ||
+                                receiptURL ||
+                                receiptDownloadURL ||
+                                "#";
                     }
                 }
                 setSaleStage("success");
+            };
+
+            const setLoanError = (msg) => {
+                if (!loanError) return;
+                if (!msg) {
+                    loanError.hidden = true;
+                    loanError.textContent = "";
+                    return;
+                }
+                loanError.hidden = false;
+                loanError.textContent = msg;
+            };
+
+            const setProductLoanError = (msg) => {
+                if (!productLoanError) return;
+                if (!msg) {
+                    productLoanError.hidden = true;
+                    productLoanError.textContent = "";
+                    return;
+                }
+                productLoanError.hidden = false;
+                productLoanError.textContent = msg;
+            };
+
+            const setProductLoanCloseError = (msg) => {
+                if (!productLoanCloseError) return;
+                if (!msg) {
+                    productLoanCloseError.hidden = true;
+                    productLoanCloseError.textContent = "";
+                    return;
+                }
+                productLoanCloseError.hidden = false;
+                productLoanCloseError.textContent = msg;
+            };
+
+            const openProductLoanModal = (product) => {
+                if (!product || product.entryType !== "product") return;
+                const maxQty = Math.max(0, Number(product.available || 0));
+                productLoanContext = {
+                    productId: product.id,
+                    productName: product.name || "",
+                    maxQty,
+                };
+                setProductLoanError("");
+                if (productLoanSubtitle) {
+                    productLoanSubtitle.textContent = `${product.name} · ID ${product.id}`;
+                }
+                if (productLoanMax) {
+                    productLoanMax.value = String(maxQty);
+                }
+                if (productLoanQty) {
+                    productLoanQty.max = String(Math.max(1, maxQty));
+                    productLoanQty.value = "1";
+                }
+                if (productLoanCustomerId) productLoanCustomerId.value = "";
+                if (productLoanCustomerSearch) {
+                    productLoanCustomerSearch.value = "";
+                    productLoanCustomerSearch.dispatchEvent(
+                        new Event("input", { bubbles: true }),
+                    );
+                }
+                if (productLoanBorrowerName) productLoanBorrowerName.value = "";
+                if (productLoanBorrowerPhone)
+                    productLoanBorrowerPhone.value = "";
+                if (productLoanDocumentType) productLoanDocumentType.value = "";
+                if (productLoanDocumentNumber)
+                    productLoanDocumentNumber.value = "";
+                if (productLoanCustomerCity) productLoanCustomerCity.value = "";
+                if (productLoanAddress) productLoanAddress.value = "";
+                if (productLoanDueAt) productLoanDueAt.value = "";
+                if (productLoanNotes) productLoanNotes.value = "";
+                if (productLoanSubmit) productLoanSubmit.disabled = maxQty < 1;
+                openModal(
+                    productLoanModal,
+                    `${product.name} · ID ${product.id}`,
+                );
+                if (maxQty < 1) {
+                    setProductLoanError(
+                        "No hay unidades disponibles para prestar.",
+                    );
+                    return;
+                }
+                if (productLoanBorrowerName) productLoanBorrowerName.focus();
+            };
+
+            const openProductLoanCloseModal = (product) => {
+                if (
+                    !product ||
+                    product.entryType !== "loan" ||
+                    !Number(product.productLoanId || 0)
+                )
+                    return;
+                productLoanCloseContext = {
+                    productLoanId: Number(product.productLoanId || 0),
+                    productId: product.baseProductId || "",
+                    productName: product.name || "",
+                };
+                setProductLoanCloseError("");
+                if (productLoanCloseStatus)
+                    productLoanCloseStatus.value = "returned";
+                if (productLoanCloseNotes) productLoanCloseNotes.value = "";
+                if (productLoanCloseSubmit)
+                    productLoanCloseSubmit.disabled = false;
+                if (productLoanCloseSummary) {
+                    productLoanCloseSummary.innerHTML = `
+                        <strong>${product.name || "Préstamo"}</strong>
+                        <p>Cliente: ${product.debtorName || "Sin cliente"} · Documento: ${product.debtorDocumentNumber || "Sin registro"}</p>
+                        <p>Prestado desde: ${product.ingreso || "Sin registro"} · Retorno esperado: ${formatOptionalDate(product.dueAt)}</p>
+                        <p>Gestionado por: ${product.managedByName || "Sin registro"} · Unidades: ${product.units.length || 0}</p>
+                    `;
+                }
+                openModal(
+                    productLoanCloseModal,
+                    `${product.name} · ${product.debtorName || "Sin cliente"}`,
+                );
+                if (productLoanCloseStatus) productLoanCloseStatus.focus();
+            };
+
+            const setCreditManageError = (msg) => {
+                if (!creditManageError) return;
+                if (!msg) {
+                    creditManageError.hidden = true;
+                    creditManageError.textContent = "";
+                    return;
+                }
+                creditManageError.hidden = false;
+                creditManageError.textContent = msg;
+            };
+
+            const setCreditEditError = (msg) => {
+                if (!creditEditError) return;
+                if (!msg) {
+                    creditEditError.hidden = true;
+                    creditEditError.textContent = "";
+                    return;
+                }
+                creditEditError.hidden = false;
+                creditEditError.textContent = msg;
+            };
+
+            const formatCreditHistoryValue = (field, value) => {
+                if (value === null || value === undefined || value === "") {
+                    return "Sin valor";
+                }
+                if (field === "installment_value") {
+                    return formatCOP(Number(value) || 0);
+                }
+                if (field === "status") {
+                    return (
+                        statusLabels[String(value)] ||
+                        String(value).replaceAll("_", " ")
+                    );
+                }
+                return String(value);
+            };
+
+            const renderCreditEditHistory = (items, emptyMessage) => {
+                if (!creditEditHistoryList) return;
+                creditEditHistoryList.innerHTML = "";
+                if (creditEditHistoryLoading) {
+                    creditEditHistoryLoading.hidden = true;
+                }
+                if (creditEditHistoryEmpty) {
+                    creditEditHistoryEmpty.hidden = items.length > 0;
+                    creditEditHistoryEmpty.textContent =
+                        emptyMessage ||
+                        "Este credito no tiene ediciones registradas.";
+                }
+                items.forEach((entry) => {
+                    const item = document.createElement("article");
+                    item.className = "credit-edit-history-item";
+                    const changes = Array.isArray(entry.changes)
+                        ? entry.changes
+                              .map((change) => {
+                                  const label =
+                                      change.label || change.field || "Cambio";
+                                  const before = formatCreditHistoryValue(
+                                      change.field,
+                                      change.before,
+                                  );
+                                  const after = formatCreditHistoryValue(
+                                      change.field,
+                                      change.after,
+                                  );
+                                  return `<span><strong>${label}:</strong> ${before} -> ${after}</span>`;
+                              })
+                              .join("")
+                        : "";
+                    const impact = entry.impact || {};
+                    item.innerHTML = `
+                        <div class="credit-edit-history-meta">
+                            <strong>${entry.event_label || "Credito editado"}</strong>
+                            <span>${entry.created_at || ""}</span>
+                            <span>${entry.created_by || "Sin usuario"}</span>
+                            <span>${entry.source || "web"}</span>
+                        </div>
+                        <div class="credit-edit-history-changes">
+                            ${changes || "<span>Sin cambios legibles registrados.</span>"}
+                        </div>
+                        <div class="credit-edit-history-impact">
+                            Deuda: ${formatCOP(impact.current_debt_before || 0)} -> ${formatCOP(impact.current_debt_after || 0)} · Estado: ${impact.status_label_before || statusLabels[String(impact.status_before || "active")] || "Activo"} -> ${impact.status_label_after || statusLabels[String(impact.status_after || "active")] || "Activo"}
+                        </div>
+                    `;
+                    creditEditHistoryList.appendChild(item);
+                });
+            };
+
+            const renderCreditManagerList = (items) => {
+                if (!creditManageList) return;
+                creditManageList.innerHTML = "";
+                if (creditManageEmpty) {
+                    creditManageEmpty.hidden = items.length > 0;
+                }
+                items.forEach((credit) => {
+                    const card = document.createElement("article");
+                    card.className = "credit-manager-card";
+                    card.innerHTML = `
+                        <div class="credit-manager-head">
+                            <div>
+                                <strong>${credit.kind === "cash_loan" ? "Préstamo de dinero" : credit.product || "Crédito"}</strong>
+                                <span>${credit.customer_name || "Sin cliente"} · ${credit.kind_label || "Crédito"} · ID ${credit.id}</span>
+                            </div>
+                            <button type="button" class="secondary" data-credit-edit="${credit.id}">Editar</button>
+                        </div>
+                        <div class="credit-manager-meta">
+                            <span>Estado: ${credit.status_label || credit.status || "-"}</span>
+                            <span>Cuotas: ${credit.installments_paid || 0}/${credit.installments_total || 0}</span>
+                            <span>Cuota: ${formatCOP(credit.installment_value || 0)}</span>
+                            <span>Deuda actual: ${formatCOP(credit.current_debt || 0)}</span>
+                        </div>
+                    `;
+                    creditManageList.appendChild(card);
+                });
+            };
+
+            const fetchEditableCredits = async () => {
+                if (creditManageLoading) creditManageLoading.hidden = false;
+                if (creditManageEmpty) creditManageEmpty.hidden = true;
+                setCreditManageError("");
+                try {
+                    const resp = await fetch("/api/credits", {
+                        headers: { Accept: "application/json" },
+                        credentials: "same-origin",
+                    });
+                    const data = await resp.json().catch(() => ({}));
+                    if (!resp.ok || !data.ok) {
+                        throw new Error(
+                            data.error || "No se pudieron cargar los créditos.",
+                        );
+                    }
+                    const items = Array.isArray(data.items) ? data.items : [];
+                    renderCreditManagerList(items);
+                } catch (err) {
+                    renderCreditManagerList([]);
+                    setCreditManageError(
+                        err?.message || "No se pudieron cargar los créditos.",
+                    );
+                } finally {
+                    if (creditManageLoading) creditManageLoading.hidden = true;
+                }
+            };
+
+            const populateCreditEditForm = (credit) => {
+                creditEditContext = {
+                    id: Number(credit.id || 0),
+                    kind: String(credit.kind || "product_credit"),
+                };
+                if (creditEditSubtitle) {
+                    creditEditSubtitle.textContent =
+                        credit.kind === "cash_loan"
+                            ? `${credit.customer_name || "Sin cliente"} · Préstamo de dinero`
+                            : `${credit.product || "Crédito"} · ${credit.customer_name || "Sin cliente"}`;
+                }
+                if (creditEditSummary) {
+                    creditEditSummary.innerHTML = `
+                        <strong>${credit.kind === "cash_loan" ? "Préstamo de dinero" : credit.product || "Crédito"}</strong>
+                        <p>Cliente: ${credit.customer_name || "Sin cliente"} · Documento: ${credit.customer_document_number || "Sin registro"}</p>
+                        <p>Total pagado: ${formatCOP(credit.total_paid || 0)} · Deuda actual: ${formatCOP(credit.current_debt || 0)}</p>
+                    `;
+                }
+                if (creditEditInstallmentsTotal)
+                    creditEditInstallmentsTotal.value = String(
+                        credit.installments_total || 1,
+                    );
+                if (creditEditInstallmentsPaid)
+                    creditEditInstallmentsPaid.value = String(
+                        credit.installments_paid || 0,
+                    );
+                if (creditEditInstallmentValue)
+                    creditEditInstallmentValue.value = formatCOP(
+                        credit.installment_value || 0,
+                    );
+                if (creditEditStatus)
+                    creditEditStatus.value = String(
+                        credit.status || "active",
+                    ).trim();
+                if (creditEditNotes)
+                    creditEditNotes.value = String(credit.notes || "");
+                setCreditEditError("");
+            };
+
+            const openCreditEditModal = async (creditSaleId) => {
+                if (!creditSaleId || !creditEditModal) return;
+                setCreditEditError("");
+                renderCreditEditHistory([], "Cargando historial de cambios...");
+                if (creditEditHistoryLoading)
+                    creditEditHistoryLoading.hidden = false;
+                if (creditEditSubmit) creditEditSubmit.disabled = true;
+                try {
+                    const [detailResp, historyResp] = await Promise.all([
+                        fetch(`/api/credits/${creditSaleId}`, {
+                            headers: { Accept: "application/json" },
+                            credentials: "same-origin",
+                        }),
+                        fetch(`/api/credits/${creditSaleId}/history?limit=12`, {
+                            headers: { Accept: "application/json" },
+                            credentials: "same-origin",
+                        }),
+                    ]);
+                    const data = await detailResp.json().catch(() => ({}));
+                    const historyData = await historyResp
+                        .json()
+                        .catch(() => ({}));
+                    if (!detailResp.ok || !data.ok) {
+                        throw new Error(
+                            data.error || "No se pudo cargar el crédito.",
+                        );
+                    }
+                    populateCreditEditForm(data.credit || {});
+                    if (historyResp.ok && historyData.ok) {
+                        renderCreditEditHistory(
+                            Array.isArray(historyData.items)
+                                ? historyData.items
+                                : [],
+                        );
+                    } else {
+                        renderCreditEditHistory(
+                            [],
+                            historyData.error ||
+                                "No se pudo cargar el historial de cambios.",
+                        );
+                    }
+                    openModal(creditEditModal, `Crédito ${creditSaleId}`);
+                    if (creditEditInstallmentsTotal)
+                        creditEditInstallmentsTotal.focus();
+                } catch (err) {
+                    renderCreditEditHistory(
+                        [],
+                        "No se pudo cargar el historial de cambios.",
+                    );
+                    window.alert(
+                        err?.message || "No se pudo cargar el crédito.",
+                    );
+                } finally {
+                    if (creditEditHistoryLoading)
+                        creditEditHistoryLoading.hidden = true;
+                    if (creditEditSubmit) creditEditSubmit.disabled = false;
+                }
+            };
+
+            const setLoanStage = (stage) => {
+                const isSuccess = stage === "success";
+                if (loanFormView) {
+                    loanFormView.hidden = isSuccess;
+                    loanFormView.style.display = isSuccess ? "none" : "grid";
+                }
+                if (loanSuccessView) {
+                    loanSuccessView.hidden = !isSuccess;
+                    loanSuccessView.style.display = isSuccess ? "grid" : "none";
+                }
+            };
+
+            const loanProductOptions = () =>
+                products
+                    .filter((item) => item.entryType === "product")
+                    .sort((a, b) =>
+                        String(a.name || "").localeCompare(
+                            String(b.name || ""),
+                            "es",
+                            { sensitivity: "base" },
+                        ),
+                    );
+
+            const selectedLoanProduct = () => {
+                const productId = String(loanProductId?.value || "").trim();
+                if (!productId) return null;
+                return (
+                    loanProductOptions().find(
+                        (item) => item.id === productId,
+                    ) || null
+                );
+            };
+
+            const renderLoanProductOptions = () => {
+                if (!loanProductId) return;
+                const entries = loanProductOptions();
+                const currentValue = String(loanProductId.value || "").trim();
+                loanProductId.innerHTML = "";
+                const placeholder = document.createElement("option");
+                placeholder.value = "";
+                placeholder.textContent =
+                    entries.length > 0
+                        ? "Selecciona un producto"
+                        : "No hay productos disponibles";
+                loanProductId.appendChild(placeholder);
+                entries.forEach((product) => {
+                    const option = document.createElement("option");
+                    option.value = product.id;
+                    option.textContent = `${product.name} · ${formatCOP(
+                        product.salePrice || 0,
+                    )}`;
+                    option.selected = product.id === currentValue;
+                    loanProductId.appendChild(option);
+                });
+                if (!entries.some((item) => item.id === currentValue)) {
+                    loanProductId.value = entries[0]?.id || "";
+                }
+                loanProductId.disabled = entries.length === 0;
+            };
+
+            const syncLoanProductSummary = () => {
+                const product = selectedLoanProduct();
+                const available = Math.max(0, Number(product?.available || 0));
+                const qty = Math.max(
+                    1,
+                    parseInt(loanQty?.value || "1", 10) || 1,
+                );
+                if (loanQty) {
+                    loanQty.max = String(Math.max(1, available || 1));
+                    if (product && available > 0 && qty > available) {
+                        loanQty.value = String(available);
+                    }
+                }
+                if (loanProductStock) {
+                    loanProductStock.textContent = product
+                        ? `Disponible: ${available} · Venta: ${formatCOP(
+                              product.salePrice || 0,
+                          )}`
+                        : "Disponible: -";
+                }
+            };
+
+            const syncLoanTotalFromProduct = () => {
+                if (!loanTotalValue) return;
+                if (loanContext?.kind !== "product_credit") return;
+                if (loanTotalValue.dataset.manual === "1") return;
+                const product = selectedLoanProduct();
+                const quantity = Math.max(
+                    1,
+                    parseInt(loanQty?.value || "1", 10) || 1,
+                );
+                const total = Number(product?.salePrice || 0) * quantity;
+                loanTotalValue.value = total > 0 ? formatCOP(total) : "";
+                computeLoanInstallmentValue();
+            };
+
+            const syncLoanKindUI = () => {
+                const kind = loanContext?.kind || "product_credit";
+                loanKindButtons.forEach((button) => {
+                    button.classList.toggle(
+                        "active",
+                        button.dataset.creditKind === kind,
+                    );
+                    button.setAttribute(
+                        "aria-selected",
+                        button.dataset.creditKind === kind ? "true" : "false",
+                    );
+                });
+                if (loanProductFields) {
+                    const isCash = kind === "cash_loan";
+                    loanProductFields.hidden = isCash;
+                    loanProductFields.style.display = isCash ? "none" : "grid";
+                }
+                if (creditKindContext) {
+                    if (kind === "cash_loan") {
+                        creditKindContext.innerHTML = `
+                            <strong>Préstamo de dinero</strong>
+                            <p>Registra una deuda comercial sin producto asociado. No afecta stock, unidades ni movimientos físicos.</p>
+                        `;
+                    } else {
+                        creditKindContext.innerHTML = `
+                            <strong>Crédito con producto</strong>
+                            <p>Selecciona el producto, la cantidad y los datos del cliente. Este flujo descuenta inventario y crea el crédito.</p>
+                        `;
+                    }
+                }
+                if (loanTotalLabel) {
+                    loanTotalLabel.textContent =
+                        kind === "cash_loan"
+                            ? "Monto total del préstamo"
+                            : "Valor total del crédito";
+                }
+                if (loanNotes) {
+                    loanNotes.placeholder =
+                        kind === "cash_loan"
+                            ? "Observaciones del préstamo"
+                            : "Observaciones del crédito";
+                }
+                if (loanResultKicker) {
+                    loanResultKicker.textContent =
+                        kind === "cash_loan"
+                            ? "Préstamo completado"
+                            : "Crédito completado";
+                }
+                if (loanResultTitle) {
+                    loanResultTitle.textContent =
+                        kind === "cash_loan"
+                            ? "Préstamo registrado correctamente."
+                            : "Crédito registrado correctamente.";
+                }
+                syncLoanProductSummary();
+                syncLoanTotalFromProduct();
+            };
+
+            const resetLoanModalState = () => {
+                setLoanError("");
+                loanContext = { kind: "product_credit" };
+                renderLoanProductOptions();
+                if (loanQty) loanQty.value = "1";
+                if (loanCustomerId) loanCustomerId.value = "";
+                if (loanCustomerSearch) {
+                    loanCustomerSearch.value = "";
+                    loanCustomerSearch.dispatchEvent(
+                        new Event("input", { bubbles: true }),
+                    );
+                }
+                if (loanCustomerName) loanCustomerName.value = "";
+                if (loanCustomerPhone) loanCustomerPhone.value = "";
+                if (loanDocumentType) loanDocumentType.value = "";
+                if (loanDocumentNumber) loanDocumentNumber.value = "";
+                if (loanCustomerCity) loanCustomerCity.value = "";
+                if (loanCustomerAddress) loanCustomerAddress.value = "";
+                if (loanInstallmentsTotal) loanInstallmentsTotal.value = "1";
+                if (loanTotalValue) loanTotalValue.value = "";
+                if (loanInterestPercent) loanInterestPercent.value = "";
+                if (loanInstallmentValue) loanInstallmentValue.value = "";
+                if (loanCustomerNotes) loanCustomerNotes.value = "";
+                if (loanNotes) loanNotes.value = "";
+                if (loanSubmit) loanSubmit.disabled = false;
+                if (loanTotalValue) loanTotalValue.dataset.manual = "0";
+                if (loanSubtitle) {
+                    loanSubtitle.textContent =
+                        "Elige si vas a registrar un crédito con producto o un préstamo de dinero.";
+                }
+                if (loanResultMessage) {
+                    loanResultMessage.textContent =
+                        "El cliente ya quedó asociado y la deuda está activa.";
+                }
+                syncLoanKindUI();
+                setLoanStage("form");
+            };
+
+            const openLoanModal = (kind = "product_credit") => {
+                resetLoanModalState();
+                loanContext.kind = kind;
+                syncLoanKindUI();
+                openModal(
+                    loanModal,
+                    "Registra un crédito o préstamo sin salir del flujo operativo.",
+                );
+                if (kind === "product_credit" && loanProductId) {
+                    loanProductId.focus();
+                    return;
+                }
+                if (loanCustomerName) loanCustomerName.focus();
+            };
+
+            const computeInstallmentValue = (
+                totalRaw,
+                installmentsRaw,
+                interestRaw,
+            ) => {
+                const total = parseCOP(totalRaw || "");
+                const installments = parseInt(installmentsRaw || "0", 10);
+                const interest = Number.parseFloat(
+                    String(interestRaw || "0").trim() || "0",
+                );
+                if (
+                    !Number.isFinite(total) ||
+                    total <= 0 ||
+                    !Number.isFinite(installments) ||
+                    installments <= 0 ||
+                    !Number.isFinite(interest) ||
+                    interest < 0
+                ) {
+                    return "";
+                }
+                const financedTotal = total + (total * interest) / 100;
+                const installment =
+                    Math.round((financedTotal / installments) * 100) / 100;
+                return formatCOP(installment);
+            };
+
+            const computeLoanInstallmentValue = () => {
+                if (!loanInstallmentValue) return;
+                loanInstallmentValue.value = computeInstallmentValue(
+                    loanTotalValue?.value || "",
+                    loanInstallmentsTotal?.value || "0",
+                    loanInterestPercent?.value || "0",
+                );
             };
 
             const setInstallmentError = (msg) => {
@@ -2952,31 +5284,25 @@
                 installmentError.textContent = msg;
             };
 
-            const computeSaleInstallmentValue = () => {
-                const total = parseCOP(saleTotalValue?.value || "");
-                const installments = parseInt(
-                    saleInstallmentsTotal?.value || "0",
-                    10,
-                );
-                const interest = Number.parseFloat(
-                    String(saleInterestPercent?.value || "0").trim() || "0",
-                );
-                if (!saleInstallmentValue) return;
-                if (
-                    !Number.isFinite(total) ||
-                    total <= 0 ||
-                    !Number.isFinite(installments) ||
-                    installments <= 0 ||
-                    !Number.isFinite(interest) ||
-                    interest < 0
-                ) {
-                    saleInstallmentValue.value = "";
-                    return;
+            const syncInstallmentPaymentMode = () => {
+                const paymentType = String(
+                    installmentPaymentType?.value || "cuota",
+                ).toLowerCase();
+                if (installmentSubmit) {
+                    installmentSubmit.textContent =
+                        paymentType === "abono"
+                            ? "Guardar abono"
+                            : "Guardar cuota";
                 }
-                const financedTotal = total + (total * interest) / 100;
-                const installment =
-                    Math.round((financedTotal / installments) * 100) / 100;
-                saleInstallmentValue.value = formatCOP(installment);
+            };
+
+            const computeSaleInstallmentValue = () => {
+                if (!saleInstallmentValue) return;
+                saleInstallmentValue.value = computeInstallmentValue(
+                    saleTotalValue?.value || "",
+                    saleInstallmentsTotal?.value || "0",
+                    saleInterestPercent?.value || "0",
+                );
             };
 
             const syncCreditTotalFromSalePrice = () => {
@@ -3045,6 +5371,60 @@
                     "input",
                     syncCreditTotalFromSalePrice,
                 );
+            if (loanOpen) {
+                loanOpen.addEventListener("click", () => {
+                    closeOpenMenuPanels();
+                    openLoanModal("product_credit");
+                });
+            }
+            if (creditManageOpen) {
+                creditManageOpen.addEventListener("click", async () => {
+                    closeOpenMenuPanels();
+                    openModal(creditManageModal, "Editar créditos");
+                    await fetchEditableCredits();
+                });
+            }
+            loanKindButtons.forEach((button) => {
+                button.addEventListener("click", () => {
+                    if (!loanContext) loanContext = { kind: "product_credit" };
+                    loanContext.kind =
+                        button.dataset.creditKind || "product_credit";
+                    if (loanTotalValue) loanTotalValue.dataset.manual = "0";
+                    syncLoanKindUI();
+                });
+            });
+            if (loanProductId) {
+                loanProductId.addEventListener("change", () => {
+                    if (loanTotalValue) loanTotalValue.dataset.manual = "0";
+                    syncLoanProductSummary();
+                    syncLoanTotalFromProduct();
+                });
+            }
+            if (loanQty) {
+                loanQty.addEventListener("input", () => {
+                    if (loanTotalValue) loanTotalValue.dataset.manual = "0";
+                    syncLoanProductSummary();
+                    syncLoanTotalFromProduct();
+                });
+            }
+            if (loanInstallmentsTotal) {
+                loanInstallmentsTotal.addEventListener(
+                    "input",
+                    computeLoanInstallmentValue,
+                );
+            }
+            if (loanInterestPercent) {
+                loanInterestPercent.addEventListener(
+                    "input",
+                    computeLoanInstallmentValue,
+                );
+            }
+            if (loanTotalValue) {
+                loanTotalValue.addEventListener("input", () => {
+                    loanTotalValue.dataset.manual = "1";
+                    computeLoanInstallmentValue();
+                });
+            }
 
             const setRetomaError = (msg) => {
                 if (!retomaError) return;
@@ -3126,6 +5506,9 @@
                     }
                     editLine.disabled = !isAdmin;
                 }
+                if (editLocation) {
+                    editLocation.value = product.location || "";
+                }
                 if (editOwner) {
                     editOwner.innerHTML =
                         '<option value="">Sin asignar</option>';
@@ -3158,10 +5541,7 @@
 
             const openInstallmentModal = (product) => {
                 if (product?.entryType !== "credit") return;
-                if (
-                    (product.installmentsPaid || 0) >=
-                    (product.installmentsTotal || 0)
-                ) {
+                if (Number(product.currentDebt || 0) <= 0) {
                     window.alert("Este crédito ya está completamente pagado.");
                     return;
                 }
@@ -3171,6 +5551,7 @@
                     creditSaleId: Number(product.creditSaleId || 0),
                     nextInstallment,
                     installmentsTotal: Number(product.installmentsTotal || 0),
+                    currentDebt: Number(product.currentDebt || 0),
                 };
                 setInstallmentError("");
                 if (installmentNextNumber)
@@ -3183,7 +5564,14 @@
                     installmentAmountPaid.value = formatCOP(
                         product.installmentValue || 0,
                     );
+                if (installmentCurrentDebt)
+                    installmentCurrentDebt.value = formatCOP(
+                        product.currentDebt || 0,
+                    );
+                if (installmentPaymentType)
+                    installmentPaymentType.value = "cuota";
                 if (installmentSubmit) installmentSubmit.disabled = false;
+                syncInstallmentPaymentMode();
                 openModal(
                     installmentModal,
                     `${product.name} · ${product.debtorName || "Sin deudor"}`,
@@ -3198,6 +5586,9 @@
                     const amountPaid = parseCOP(
                         installmentAmountPaid?.value || "",
                     );
+                    const paymentType = String(
+                        installmentPaymentType?.value || "cuota",
+                    ).trim();
                     if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
                         setInstallmentError("Ingresa un valor abonado válido.");
                         return;
@@ -3210,6 +5601,7 @@
                                 installmentContext.creditSaleId || 0,
                             ),
                             amount_paid: String(amountPaid),
+                            payment_type: paymentType,
                         });
                         const resp = await fetch("/inventario/cuota", {
                             method: "POST",
@@ -3224,19 +5616,193 @@
                         const data = await resp.json().catch(() => ({}));
                         if (!resp.ok || !data.ok) {
                             throw new Error(
-                                data.error || "No se pudo registrar la cuota.",
+                                data.error || "No se pudo registrar el pago.",
                             );
                         }
                         closeModal(installmentModal);
-                        window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Cuota registrada correctamente.")}`;
+                        window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Pago registrado correctamente.")}`;
                     } catch (err) {
                         setInstallmentError(
-                            err?.message || "No se pudo registrar la cuota.",
+                            err?.message || "No se pudo registrar el pago.",
                         );
                         if (installmentSubmit)
                             installmentSubmit.disabled = false;
                     }
                 });
+            }
+
+            if (installmentPaymentType) {
+                installmentPaymentType.addEventListener(
+                    "change",
+                    syncInstallmentPaymentMode,
+                );
+            }
+
+            if (productLoanForm) {
+                productLoanForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    if (!productLoanContext) return;
+
+                    const qty = parseInt(productLoanQty?.value || "0", 10);
+                    const maxQty = Number(productLoanContext.maxQty || 0);
+                    if (Number.isNaN(qty) || qty < 1 || qty > maxQty) {
+                        setProductLoanError(
+                            "Ingresa una cantidad válida para prestar.",
+                        );
+                        return;
+                    }
+                    if (!String(productLoanBorrowerName?.value || "").trim()) {
+                        setProductLoanError(
+                            "El nombre del cliente es obligatorio.",
+                        );
+                        return;
+                    }
+                    if (!String(productLoanBorrowerPhone?.value || "").trim()) {
+                        setProductLoanError(
+                            "El teléfono del cliente es obligatorio.",
+                        );
+                        return;
+                    }
+                    if (!String(productLoanDocumentType?.value || "").trim()) {
+                        setProductLoanError("Selecciona un tipo de documento.");
+                        return;
+                    }
+                    if (
+                        !String(productLoanDocumentNumber?.value || "").trim()
+                    ) {
+                        setProductLoanError(
+                            "El documento del cliente es obligatorio.",
+                        );
+                        return;
+                    }
+
+                    if (productLoanSubmit) productLoanSubmit.disabled = true;
+                    setProductLoanError("");
+                    try {
+                        const body = new URLSearchParams({
+                            producto_id: String(productLoanContext.productId),
+                            cantidad: String(qty),
+                            customer_id: String(
+                                productLoanCustomerId?.value || "",
+                            ).trim(),
+                            customer_name: String(
+                                productLoanBorrowerName?.value || "",
+                            ).trim(),
+                            customer_phone: String(
+                                productLoanBorrowerPhone?.value || "",
+                            ).trim(),
+                            customer_document_type: String(
+                                productLoanDocumentType?.value || "",
+                            ).trim(),
+                            customer_document_number: String(
+                                productLoanDocumentNumber?.value || "",
+                            ).trim(),
+                            customer_city: String(
+                                productLoanCustomerCity?.value || "",
+                            ).trim(),
+                            customer_address: String(
+                                productLoanAddress?.value || "",
+                            ).trim(),
+                            due_at: String(
+                                productLoanDueAt?.value || "",
+                            ).trim(),
+                            notes: String(productLoanNotes?.value || "").trim(),
+                        });
+                        const resp = await fetch("/inventario/prestamo", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type":
+                                    "application/x-www-form-urlencoded",
+                                Accept: "application/json",
+                                "X-Requested-With": "XMLHttpRequest",
+                            },
+                            body,
+                        });
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok || !data.ok) {
+                            throw new Error(
+                                data.error ||
+                                    "No se pudo registrar el préstamo.",
+                            );
+                        }
+                        closeModal(productLoanModal);
+                        window.location.href =
+                            data.redirect_url ||
+                            `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Préstamo registrado correctamente.")}`;
+                    } catch (err) {
+                        setProductLoanError(
+                            err?.message || "No se pudo registrar el préstamo.",
+                        );
+                        if (productLoanSubmit)
+                            productLoanSubmit.disabled = false;
+                    }
+                });
+            }
+
+            if (productLoanCloseForm) {
+                productLoanCloseForm.addEventListener(
+                    "submit",
+                    async (event) => {
+                        event.preventDefault();
+                        if (!productLoanCloseContext) return;
+
+                        const status = String(
+                            productLoanCloseStatus?.value || "returned",
+                        ).trim();
+                        if (!status) {
+                            setProductLoanCloseError(
+                                "Selecciona un resultado para el cierre.",
+                            );
+                            return;
+                        }
+
+                        if (productLoanCloseSubmit)
+                            productLoanCloseSubmit.disabled = true;
+                        setProductLoanCloseError("");
+                        try {
+                            const body = new URLSearchParams({
+                                product_loan_id: String(
+                                    productLoanCloseContext.productLoanId,
+                                ),
+                                status,
+                                notes: String(
+                                    productLoanCloseNotes?.value || "",
+                                ).trim(),
+                            });
+                            const resp = await fetch(
+                                "/inventario/prestamo/cerrar",
+                                {
+                                    method: "POST",
+                                    headers: {
+                                        "Content-Type":
+                                            "application/x-www-form-urlencoded",
+                                        Accept: "application/json",
+                                        "X-Requested-With": "XMLHttpRequest",
+                                    },
+                                    body,
+                                },
+                            );
+                            const data = await resp.json().catch(() => ({}));
+                            if (!resp.ok || !data.ok) {
+                                throw new Error(
+                                    data.error ||
+                                        "No se pudo cerrar el préstamo.",
+                                );
+                            }
+                            closeModal(productLoanCloseModal);
+                            window.location.href =
+                                data.redirect_url ||
+                                `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Préstamo cerrado correctamente.")}`;
+                        } catch (err) {
+                            setProductLoanCloseError(
+                                err?.message ||
+                                    "No se pudo cerrar el préstamo.",
+                            );
+                            if (productLoanCloseSubmit)
+                                productLoanCloseSubmit.disabled = false;
+                        }
+                    },
+                );
             }
 
             const addInstallment = async (product) => {
@@ -3289,7 +5855,8 @@
             const showHistory = async (product) => {
                 if (!product) return;
                 const historyProductID =
-                    product.entryType === "credit"
+                    product.entryType === "credit" ||
+                    product.entryType === "loan"
                         ? product.baseProductId || product.id
                         : product.id;
                 openModal(
@@ -3345,6 +5912,10 @@
                             venta_credito: "Venta a crédito",
                             retoma: "Retoma",
                             retoma_stock: "Retoma a stock",
+                            prestamo: "Préstamo",
+                            prestamo_retorno: "Retorno préstamo",
+                            prestamo_pagado: "Préstamo pagado",
+                            prestamo_cancelado: "Préstamo cancelado",
                             reservar: "Reserva",
                             dano: "Daño",
                             cambio_salida: "Cambio",
@@ -3564,6 +6135,15 @@
                     const debtorPhone = String(
                         saleDebtorPhone?.value || "",
                     ).trim();
+                    const customerCity = String(
+                        saleCustomerCity?.value || "",
+                    ).trim();
+                    const customerAddress = String(
+                        saleCustomerAddress?.value || "",
+                    ).trim();
+                    const customerNotes = String(
+                        saleCustomerNotes?.value || "",
+                    ).trim();
                     const installmentsTotal = parseInt(
                         saleInstallmentsTotal?.value || "0",
                         10,
@@ -3621,6 +6201,10 @@
                         }
                         if (!debtorPhone) {
                             setSaleError("Ingresa el teléfono del deudor.");
+                            return;
+                        }
+                        if (!customerCity) {
+                            setSaleError("Ingresa la ciudad del cliente.");
                             return;
                         }
                         if (
@@ -3687,6 +6271,10 @@
                             notas: notes,
                         });
                         if (saleMode === "credit") {
+                            body.set(
+                                "customer_id",
+                                String(saleCustomerId?.value || "").trim(),
+                            );
                             body.set("debtor_name", debtorName);
                             body.set(
                                 "debtor_document_type",
@@ -3697,6 +6285,9 @@
                                 debtorDocumentNumber,
                             );
                             body.set("debtor_phone", debtorPhone);
+                            body.set("customer_city", customerCity);
+                            body.set("customer_address", customerAddress);
+                            body.set("customer_notes", customerNotes);
                             body.set(
                                 "installments_total",
                                 String(installmentsTotal),
@@ -3745,12 +6336,296 @@
                             totalValue: computedTotal,
                             receiptURL: data.receipt_url,
                             receiptDownloadURL: data.receipt_download_url,
+                            thermalTicketURL: data.thermal_ticket_url,
+                            invoiceCreateURL: data.invoice_create_url,
                         });
                     } catch (err) {
                         setSaleError(
                             err?.message || "No se pudo registrar la venta.",
                         );
                         if (saleSubmit) saleSubmit.disabled = false;
+                    }
+                });
+            }
+
+            if (loanForm) {
+                loanForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    if (!loanContext) return;
+                    const kind = loanContext.kind || "product_credit";
+                    const selectedProduct = selectedLoanProduct();
+                    const quantity = Math.max(
+                        1,
+                        parseInt(loanQty?.value || "1", 10) || 1,
+                    );
+
+                    const customerName = String(
+                        loanCustomerName?.value || "",
+                    ).trim();
+                    const customerPhone = String(
+                        loanCustomerPhone?.value || "",
+                    ).trim();
+                    const customerDocumentType = String(
+                        loanDocumentType?.value || "",
+                    ).trim();
+                    const customerDocumentNumber = String(
+                        loanDocumentNumber?.value || "",
+                    ).trim();
+                    const customerCity = String(
+                        loanCustomerCity?.value || "",
+                    ).trim();
+                    const customerAddress = String(
+                        loanCustomerAddress?.value || "",
+                    ).trim();
+                    const customerNotes = String(
+                        loanCustomerNotes?.value || "",
+                    ).trim();
+                    const notes = String(loanNotes?.value || "").trim();
+                    const installmentsTotal = parseInt(
+                        loanInstallmentsTotal?.value || "0",
+                        10,
+                    );
+                    const totalValue = parseCOP(loanTotalValue?.value || "");
+                    const interestPercent = Number.parseFloat(
+                        String(loanInterestPercent?.value || "0").trim() || "0",
+                    );
+                    const installmentValue = parseCOP(
+                        loanInstallmentValue?.value || "",
+                    );
+
+                    if (kind === "product_credit") {
+                        if (!selectedProduct) {
+                            setLoanError("Selecciona un producto válido.");
+                            return;
+                        }
+                        if (
+                            !Number.isFinite(quantity) ||
+                            quantity < 1 ||
+                            quantity > Number(selectedProduct.available || 0)
+                        ) {
+                            setLoanError(
+                                "Ingresa una cantidad válida para el producto seleccionado.",
+                            );
+                            return;
+                        }
+                    }
+                    if (!customerName) {
+                        setLoanError("Ingresa el nombre del cliente.");
+                        return;
+                    }
+                    if (
+                        !["CC", "C Extranjeria", "Pasaporte"].includes(
+                            customerDocumentType,
+                        )
+                    ) {
+                        setLoanError("Selecciona un tipo de documento válido.");
+                        return;
+                    }
+                    if (!customerDocumentNumber) {
+                        setLoanError(
+                            "Ingresa el número de documento del cliente.",
+                        );
+                        return;
+                    }
+                    if (!customerPhone) {
+                        setLoanError("Ingresa el teléfono del cliente.");
+                        return;
+                    }
+                    if (!customerCity) {
+                        setLoanError("Ingresa la ciudad del cliente.");
+                        return;
+                    }
+                    if (
+                        !Number.isFinite(installmentsTotal) ||
+                        installmentsTotal < 1
+                    ) {
+                        setLoanError(
+                            "La cantidad total de cuotas debe ser mayor a 0.",
+                        );
+                        return;
+                    }
+                    if (!Number.isFinite(totalValue) || totalValue <= 0) {
+                        setLoanError("Ingresa un monto total válido.");
+                        return;
+                    }
+                    if (
+                        !Number.isFinite(interestPercent) ||
+                        interestPercent < 0
+                    ) {
+                        setLoanError(
+                            "Ingresa un porcentaje de interés válido.",
+                        );
+                        return;
+                    }
+                    if (
+                        !Number.isFinite(installmentValue) ||
+                        installmentValue <= 0
+                    ) {
+                        setLoanError("Ingresa un valor por cuota válido.");
+                        return;
+                    }
+
+                    if (loanSubmit) loanSubmit.disabled = true;
+                    setLoanError("");
+
+                    try {
+                        const resp = await fetch("/api/credits", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                Accept: "application/json",
+                            },
+                            credentials: "same-origin",
+                            body: JSON.stringify({
+                                kind,
+                                customer_id:
+                                    parseInt(
+                                        String(
+                                            loanCustomerId?.value || "0",
+                                        ).trim(),
+                                        10,
+                                    ) || 0,
+                                product_id:
+                                    kind === "product_credit"
+                                        ? selectedProduct?.id || ""
+                                        : "",
+                                quantity:
+                                    kind === "product_credit" ? quantity : 1,
+                                customer_name: customerName,
+                                customer_phone: customerPhone,
+                                customer_document_type: customerDocumentType,
+                                customer_document_number:
+                                    customerDocumentNumber,
+                                customer_address: customerAddress,
+                                customer_city: customerCity,
+                                customer_notes: customerNotes,
+                                installments_total: installmentsTotal,
+                                total_value: totalValue,
+                                interest_percent: interestPercent,
+                                installment_value: installmentValue,
+                                notes,
+                            }),
+                        });
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok || !data.ok) {
+                            throw new Error(
+                                data.error ||
+                                    "No se pudo registrar el crédito.",
+                            );
+                        }
+                        if (loanResultKicker) {
+                            loanResultKicker.textContent =
+                                kind === "cash_loan"
+                                    ? "Préstamo completado"
+                                    : "Crédito completado";
+                        }
+                        if (loanResultTitle) {
+                            loanResultTitle.textContent =
+                                kind === "cash_loan"
+                                    ? "Préstamo registrado correctamente."
+                                    : "Crédito con producto registrado.";
+                        }
+                        if (loanResultMessage) {
+                            const subject =
+                                kind === "cash_loan"
+                                    ? customerName
+                                    : `${selectedProduct?.name || "Producto"} · ${customerName}`;
+                            loanResultMessage.textContent = `${subject} · ${formatCOP(data.current_debt || totalValue)} pendientes en ${installmentsTotal} ${
+                                installmentsTotal === 1 ? "cuota" : "cuotas"
+                            }.`;
+                        }
+                        setLoanStage("success");
+                    } catch (err) {
+                        setLoanError(
+                            err?.message || "No se pudo registrar el crédito.",
+                        );
+                        if (loanSubmit) loanSubmit.disabled = false;
+                    }
+                });
+            }
+
+            if (creditEditForm) {
+                creditEditForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    if (!creditEditContext?.id) return;
+
+                    const installmentsTotal = parseInt(
+                        creditEditInstallmentsTotal?.value || "0",
+                        10,
+                    );
+                    const installmentsPaid = parseInt(
+                        creditEditInstallmentsPaid?.value || "0",
+                        10,
+                    );
+                    const installmentValue = parseCOP(
+                        creditEditInstallmentValue?.value || "",
+                    );
+                    const status = String(creditEditStatus?.value || "active");
+                    const notes = String(creditEditNotes?.value || "").trim();
+
+                    if (
+                        !Number.isFinite(installmentsTotal) ||
+                        installmentsTotal < 1
+                    ) {
+                        setCreditEditError(
+                            "La cantidad total de cuotas debe ser mayor a 0.",
+                        );
+                        return;
+                    }
+                    if (
+                        !Number.isFinite(installmentsPaid) ||
+                        installmentsPaid < 0
+                    ) {
+                        setCreditEditError(
+                            "Las cuotas pagadas deben ser 0 o mayores.",
+                        );
+                        return;
+                    }
+                    if (
+                        !Number.isFinite(installmentValue) ||
+                        installmentValue <= 0
+                    ) {
+                        setCreditEditError(
+                            "Ingresa un valor por cuota válido.",
+                        );
+                        return;
+                    }
+
+                    if (creditEditSubmit) creditEditSubmit.disabled = true;
+                    setCreditEditError("");
+                    try {
+                        const resp = await fetch(
+                            `/api/credits/${creditEditContext.id}`,
+                            {
+                                method: "PATCH",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    Accept: "application/json",
+                                },
+                                credentials: "same-origin",
+                                body: JSON.stringify({
+                                    installments_total: installmentsTotal,
+                                    installments_paid: installmentsPaid,
+                                    installment_value: installmentValue,
+                                    notes,
+                                    status,
+                                }),
+                            },
+                        );
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok || !data.ok) {
+                            throw new Error(
+                                data.error ||
+                                    "No se pudo actualizar el crédito.",
+                            );
+                        }
+                        closeModal(creditEditModal);
+                        window.location.href = `/inventario?mensaje=${encodeURIComponent(data.message || "Crédito actualizado correctamente.")}`;
+                    } catch (err) {
+                        setCreditEditError(
+                            err?.message || "No se pudo actualizar el crédito.",
+                        );
+                        if (creditEditSubmit) creditEditSubmit.disabled = false;
                     }
                 });
             }
@@ -3891,6 +6766,7 @@
                             producto_id: editContext.productId,
                             sku,
                             precio_venta: String(parsedPrice),
+                            location: String(editLocation?.value || "").trim(),
                             notas: String(editNotes?.value || "").trim(),
                         });
                         if (editRetomaEnabled?.checked) {
@@ -4090,8 +6966,42 @@
                         });
                         return;
                     }
+                    if (action === "loan-product") {
+                        openProductLoanModal(product);
+                        return;
+                    }
+                    if (action === "close-loan") {
+                        openProductLoanCloseModal(product);
+                        return;
+                    }
+                    if (action === "edit-credit") {
+                        if (!product?.creditSaleId) return;
+                        openCreditEditModal(Number(product.creditSaleId));
+                        return;
+                    }
+                    if (action === "invoice-credit") {
+                        if (!product?.creditSaleId) return;
+                        window.open(
+                            `/facturas/nueva?credit_sale_id=${encodeURIComponent(product.creditSaleId)}`,
+                            "_blank",
+                            "noopener",
+                        );
+                        return;
+                    }
                     if (action === "edit") {
                         openEditModal(product);
+                        return;
+                    }
+                    if (action === "print-label") {
+                        if (!productId) return;
+                        const params = new URLSearchParams({
+                            id: productId,
+                        });
+                        window.open(
+                            `/productos/etiquetas?${params.toString()}`,
+                            "_blank",
+                            "noopener",
+                        );
                         return;
                     }
                     if (action === "stock") {
@@ -4125,6 +7035,20 @@
                         showHistory(product);
                         return;
                     }
+                }
+
+                const creditEditButton = event.target.closest(
+                    "button[data-credit-edit]",
+                );
+                if (creditEditButton) {
+                    const creditSaleId = parseInt(
+                        creditEditButton.dataset.creditEdit || "0",
+                        10,
+                    );
+                    if (Number.isFinite(creditSaleId) && creditSaleId > 0) {
+                        openCreditEditModal(creditSaleId);
+                    }
+                    return;
                 }
 
                 const actionButton = event.target.closest(
@@ -4168,6 +7092,15 @@
                         );
                         closeOpenMenuPanels();
                         addInstallment(product);
+                        return;
+                    }
+
+                    if (action === "close-loan") {
+                        const product = products.find(
+                            (p) => p.id === productId,
+                        );
+                        closeOpenMenuPanels();
+                        openProductLoanCloseModal(product);
                         return;
                     }
 

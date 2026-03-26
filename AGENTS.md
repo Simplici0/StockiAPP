@@ -7,13 +7,59 @@ StockiAPP es una plataforma operativa ligera, adaptable a distintos negocios, co
 - UI SSR con templates
 - API interna
 - auditoría
-- integración futura con n8n y agentes de IA
+- integración activa con n8n y agentes de IA vía API
+- aislamiento multi-tenant por contexto de autenticación
 - despliegue real con Caddy/systemd
 
 El objetivo no es crear una app distinta por cliente, sino mantener una sola lógica base y adaptar:
 - labels visibles
 - configuración del negocio
 - features habilitadas
+
+---
+
+## Estado actual del proyecto
+
+Al día de hoy, StockiAPP ya no es solo inventario. El producto quedó extendido sobre un único backend Go con SSR + API multi-tenant.
+
+Dominios ya implementados:
+- inventario de productos y unidades
+- ventas
+- cambios (`swap`)
+- retomas
+- créditos de producto (`product_credit`)
+- préstamos de dinero (`cash_loan`)
+- cuotas y abonos de créditos
+- facturas operativas
+- clientes (`customers`) con trazabilidad (`customer_events`)
+- préstamos físicos de producto (`product_loans`)
+- usuarios multi-tenant con `telegram_id`
+- etiquetas de producto
+- ticket térmico de venta
+- locación por producto
+- auditoría operativa
+
+UI SSR ya disponible:
+- `/dashboard`
+- `/inventario`
+- `/clientes`
+- `/clientes/{id}`
+- `/admin/users`
+- `/configuracion`
+- `/auditoria`
+- `/creditos/editados`
+- `/prestamos/producto`
+- `/prestamos/producto/{id}`
+- `/productos/new`
+- `/productos/etiquetas`
+- `/facturas/nueva`
+- `/facturas/{id}`
+- `/venta/comprobante`
+- `/venta/ticket`
+
+Regla práctica:
+- antes de proponer una feature nueva, revisar si el dominio ya existe parcialmente en `main.go`
+- priorizar extender la base existente antes que crear tablas, pantallas o contratos paralelos
 
 ---
 
@@ -47,6 +93,73 @@ Pero esto es solo una capa de presentación. No cambiar el modelo interno por es
 n8n y agentes de IA no deben tocar la base de datos directamente.
 Toda integración externa debe usar la API interna.
 
+### 3.1 Multi-tenant canónico
+StockiAPP ya opera con aislamiento lógico multi-tenant dentro de la misma app.
+
+Reglas:
+- el tenant se resuelve por sesión web o API key
+- no enviar `tenant_id` manual en payloads, query params ni headers ad hoc
+- toda query, loader, escritura y validación nueva debe respetar tenant antes que ownership
+- ownership (`owner_user_id`) se evalúa dentro del tenant ya resuelto
+
+### 3.2 Motores de base de datos
+El proyecto mantiene compatibilidad con SQLite y quedó preparado para Postgres.
+
+Reglas:
+- no cambiar el motor de base de datos por accidente
+- preferir compatibilidad dual si se toca acceso a datos en esta fase
+- configuración actual esperada:
+  - `DB_ENGINE=sqlite|postgres`
+  - `DB_PATH` para SQLite
+  - `DB_DSN` o `DATABASE_URL` para Postgres
+- no asumir funciones o sintaxis exclusivas de SQLite en cambios nuevos si existe alternativa razonable
+
+---
+
+## Arquitectura operativa actual
+
+### A. Monolito Go con SSR y API en `main.go`
+La aplicación sigue un patrón monolítico:
+- handlers SSR
+- handlers `/api/*`
+- helpers de negocio
+- migraciones / `ensureSchema()`
+- auditoría
+
+No introducir una arquitectura paralela por carpetas o microservicios sin pedido explícito.
+
+### B. SSR como capa operativa humana
+La UI principal es SSR con templates Go en `templates/`.
+
+Reglas:
+- las nuevas pantallas operativas deben integrarse con `header.html` y `app_styles.html`
+- preferir SSR para operación humana antes que SPA o frontend separado
+- si una vista reutiliza datos ya disponibles por helper o API interna, colgarse de eso
+
+### C. API como fuente de verdad para agentes
+La automatización y agentes consumen la API, no la SSR.
+
+Patrón actual:
+- la SSR consulta helpers del backend
+- la API expone contratos JSON
+- los agentes/n8n deben reutilizar la API ya existente
+
+### D. Render SSR seguro
+El proyecto ya tuvo fallos por templates que escribían directo a `http.ResponseWriter`.
+
+Reglas:
+- para render SSR usar el helper `renderTemplate(...)` o buffer equivalente
+- no volver a `tmpl.ExecuteTemplate(w, ...)` seguido de `http.Error(...)`
+- si una página comparte el `header`, debe ser compatible con `CurrentUser` y branding
+
+### E. Header compartido y feature flags visibles
+El `header` compartido ya resuelve visibilidad de `CanLoan` y `CanCredit`.
+
+Reglas:
+- no duplicar menús por pantalla
+- si una vista necesita menú administrativo, usar el `header` compartido
+- no asumir que cada `PageData` trae todos los flags manualmente; el `header` ya tiene fallback
+
 ---
 
 ## Reglas arquitectónicas
@@ -65,12 +178,27 @@ Toda tarea debe preservar compatibilidad con:
 - auditoría existente
 - ownership actual
 - settings ya implementados
+- render SSR ya corregido
+- flujos multi-tenant y agent-first ya consolidados
 
 ### 6. Cambios de esquema
 Si se agregan columnas o tablas:
 - usar migración o `ensureSchema()`
 - no asumir base vacía
 - usar defaults seguros para datos existentes
+
+Tablas operativas ya presentes que deben revisarse antes de crear nuevas:
+- `customers`
+- `customer_events`
+- `credit_sales`
+- `credit_installments`
+- `invoices`
+- `invoice_items`
+- `product_loans`
+- `product_loan_units`
+- `audit_events`
+- `users`
+- `productos`
 
 ### 7. Auditoría
 Acciones operativas importantes deben registrar eventos en `audit_events`.
@@ -84,6 +212,10 @@ Valores de `source` esperados:
 
 No eliminar ni debilitar auditoría sin instrucción explícita.
 
+Además:
+- si el evento afecta a un cliente, evaluar también `customer_events`
+- no abrir sistemas paralelos de timeline si ya existe `customer_events` o `audit_events`
+
 ### 8. Ownership
 Si un producto tiene `owner_user_id`:
 - solo su dueño y admin lo ven/operan
@@ -91,6 +223,15 @@ Si un producto tiene `owner_user_id`:
 - productos sin `owner_user_id` son públicos
 
 Toda nueva query, handler o endpoint debe respetar esta lógica.
+
+### 8.1 Clientes y trazabilidad comercial
+El pseudo CRM ya existe y es canónico.
+
+Reglas:
+- reutilizar `customers` antes de crear datos de cliente embebidos nuevos
+- usar `resolveCustomerForCredit(...)` o helpers equivalentes cuando aplique
+- la vista SSR de clientes y la API deben seguir compartiendo la misma base
+- si una operación genera relación con cliente, preferir dejar `customer_id` además de snapshots textuales si hacen falta por compatibilidad
 
 ---
 
@@ -150,7 +291,9 @@ Helpers canónicos a reutilizar:
 - `productVisibilityPredicate(...)`
 - `productAccessibleByID(...)`
 - `availableCountsByProduct(...)`
-- `loadMovementSettings(...)`
+- `tenantIDFromRequest(...)`
+- `tenantIDFromUser(...)`
+- `loadMovementSettingsForTenant(...)`
 - `movementEnabled(...)`
 - `logAuditEvent(...)`
 
@@ -165,19 +308,55 @@ No asumir cookies como solución final para n8n.
 Antes de proponer endpoints nuevos, revisar si ya existe soporte real para el caso de uso en `main.go`.
 
 Endpoints generales ya disponibles:
+- `GET /api/health`
+- `GET /api/settings/business`
+- `GET /api/products`
+- `GET /api/products/search`
+- `POST /api/products`
 - `GET /api/inventory`
 - `POST /api/inventory/adjust`
+- `GET /api/users`
+- `POST /api/users`
+- `GET /api/users/{id}`
+- `PUT /api/users/{id}`
+- `PATCH /api/users/{id}`
+- `POST /api/users/{id}/password`
+- `POST /api/users/{id}/toggle`
+- `GET /api/customers`
+- `POST /api/customers`
+- `GET /api/customers/{id}`
+- `GET /api/customers/{id}/events`
 - `GET /api/retomas`
 - `POST /api/retomas`
 - `GET /api/sales/recent`
 - `GET /api/sales`
 - `POST /api/sales`
+- `GET /api/credits`
+- `GET /api/credits/{id}`
+- `PUT /api/credits/{id}`
+- `PATCH /api/credits/{id}`
+- `GET /api/credits/{id}/history`
+- `GET /api/credits/edited`
+- `POST /api/credits`
+- `POST /api/credits/installments`
+- `GET /api/invoices`
+- `POST /api/invoices`
+- `GET /api/invoices/{id}`
 - `GET /api/settings/lines`
 - `GET /api/settings/owners`
 
 Regla:
 - no duplicar endpoints ya existentes
 - si un contrato necesita ampliarse para n8n/agentes, ajustar el handler existente antes de crear otro
+
+Endpoints agente ya disponibles:
+- `GET /api/agent/business`
+- `GET /api/agent/customers/search`
+- `POST /api/agent/credits`
+- `POST /api/agent/invoices`
+- `GET /api/agent/products/search`
+- `GET /api/agent/products/price`
+- `GET /api/agent/inventory`
 
 ### 14.2 Auditoría de integraciones
 Toda operación relevante vía API debe dejar auditoría consistente.
@@ -187,6 +366,20 @@ Eventos que hoy ya forman parte del flujo operativo:
 - `inventory_adjusted`
 - `retoma_registered`
 - `sale_registered`
+- `credit_sale_created`
+- `credit_installment_paid`
+- `sale_receipt_generated`
+- `invoice_created`
+- `customer_created`
+- `customer_updated`
+- `product_loan_created`
+- `product_loan_closed`
+- `credit_sale_updated`
+- `tenant_created`
+- `tenant_updated`
+- `tenant_activated`
+- `tenant_deactivated`
+- `tenant_initial_api_key_rotated`
 
 Regla:
 - para llamadas API usar `source = "api"` salvo que exista una capa explícita `n8n` o `agent`
@@ -208,6 +401,16 @@ Reglas:
 - incluir ejemplos `curl` orientados a producción/n8n
 - aclarar diferencias entre endpoints parecidos, por ejemplo listados compactos vs listados completos
 - documentar filtros, validaciones, campos opcionales y supuestos de compatibilidad
+- mantener explícito el comportamiento multi-tenant y la regla de no enviar `tenant_id` manual
+
+### 14.5 API keys y tenants
+Las API keys ya son tenant-scoped y existe concepto de API key inicial por tenant.
+
+Reglas:
+- no asumir una sola API key global del sistema
+- cualquier tarea de gestión de keys debe respetar el tenant resuelto
+- la key inicial del tenant se gestiona desde configuración de empresas / tenants
+- no romper la rotación ni el naming reservado de keys iniciales sin instrucción explícita
 
 ---
 
@@ -254,6 +457,25 @@ Regla práctica:
 - una mejora visual puede reorganizar bloques, headers, contenedores, spacing y énfasis
 - si una mejora exige cambiar lógica o backend, dejarla como recomendación aparte y no implementarla en esa tarea
 
+### 19.1 Widgets reutilizables ya introducidos
+Antes de crear otra interacción similar, revisar si ya existe una base reutilizable.
+
+Ejemplos actuales:
+- lookup de clientes en UI sobre `GET /api/customers`
+- `renderTemplate(...)` para SSR segura
+- `header.html` como navegación compartida
+- `app_styles.html` como base visual común
+- `customer_lookup.js` como widget de reutilización de cliente
+
+### 20. Activos comunicativos
+El proyecto puede incluir piezas HTML autónomas de comunicación o manuales de uso fuera del flujo principal.
+
+Reglas:
+- si el archivo es solo comunicativo, mantenerlo desacoplado de la app
+- no mezclarlo con SSR, handlers ni navegación productiva salvo pedido explícito
+- el manual autónomo actual vive en `docs/manual-stockiapp.html`
+- estos archivos no sustituyen la documentación técnica de `docs/api.md`
+
 ---
 
 ## Límites de seguridad para agentes de código
@@ -267,6 +489,7 @@ Sin instrucción explícita, no hacer:
 - eliminación de auditoría
 - eliminación de ownership
 - renombrado de conceptos canónicos del backend
+- exponer `tenant_id` manual en la API como atajo para integraciones
 
 ---
 
@@ -283,6 +506,7 @@ No tocar:
 - service files
 - GitHub Actions de deploy
 - rutas de producción
+- conexión productiva al VPS de Postgres
 
 salvo que la tarea lo pida explícitamente.
 

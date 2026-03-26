@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.Title}}</title>
+  <style>
+    .detail-layout {
+      display: grid;
+      gap: 20px;
+    }
+
+    .detail-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .detail-block {
+      display: grid;
+      gap: 6px;
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: var(--bg-card-muted);
+    }
+
+    .detail-block strong {
+      color: var(--secondary);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .detail-block span,
+    .detail-block p {
+      margin: 0;
+      color: var(--text-color);
+      line-height: 1.45;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .timeline-item {
+      display: grid;
+      gap: 6px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.92);
+    }
+
+    .timeline-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-card-muted);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-chip.loaned {
+      color: #4c1d95;
+      border-color: rgba(139, 92, 246, 0.24);
+      background: rgba(245, 243, 255, 0.96);
+    }
+
+    .status-chip.returned {
+      color: #166534;
+      border-color: rgba(34, 197, 94, 0.2);
+      background: rgba(240, 253, 244, 0.96);
+    }
+
+    .status-chip.paid {
+      color: #9a3412;
+      border-color: rgba(249, 115, 22, 0.2);
+      background: rgba(255, 247, 237, 0.96);
+    }
+
+    .status-chip.cancelled {
+      color: #475569;
+      border-color: rgba(148, 163, 184, 0.24);
+      background: rgba(248, 250, 252, 0.96);
+    }
+  </style>
+  {{template "app_styles" .}}
+</head>
+<body>
+  {{template "header" .}}
+
+  <main class="page-content detail-layout">
+    {{if .Flash}}
+      <div class="flash">{{.Flash}}</div>
+    {{end}}
+    {{if .Error}}
+      <div class="flash error">{{.Error}}</div>
+    {{end}}
+
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <h1 style="margin:0;">PR-{{.Item.ProductLoanID}}</h1>
+          <p style="margin:6px 0 0;color:var(--text-muted);">{{.Subtitle}}</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <span class="status-chip {{if eq .Item.Status "active"}}loaned{{else}}{{.Item.Status}}{{end}}">{{.Item.StatusLabel}}</span>
+          <a class="button secondary" href="/prestamos/producto">Volver al reporte</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="detail-grid">
+      <article class="detail-block">
+        <strong>Cliente</strong>
+        <span>{{.Item.CustomerName}}</span>
+        <span>{{if .Item.CustomerDocument}}{{.Item.CustomerDocumentType}} {{.Item.CustomerDocument}}{{else}}Sin documento{{end}}</span>
+        <span>{{if .Item.CustomerPhone}}{{.Item.CustomerPhone}}{{else}}Sin teléfono{{end}}</span>
+        <span>{{if .Item.CustomerCity}}{{.Item.CustomerCity}}{{else}}Sin ciudad{{end}}</span>
+      </article>
+
+      <article class="detail-block">
+        <strong>Producto</strong>
+        <span>{{.Item.ProductName}}</span>
+        <span>ID {{.Item.ProductID}}</span>
+        <span>{{.Item.Quantity}} unidad(es)</span>
+      </article>
+
+      <article class="detail-block">
+        <strong>Gestión</strong>
+        <span>{{if .Item.ManagedByName}}{{.Item.ManagedByName}}{{else}}Sin usuario{{end}}</span>
+        <span>Salida: {{.Item.LoanedAt}}</span>
+        <span>{{if .Item.DueAt}}Retorno esperado: {{.Item.DueAt}}{{else}}Sin retorno esperado{{end}}</span>
+        <span>{{if .Item.ClosedAt}}Cierre: {{.Item.ClosedAt}}{{else}}Préstamo abierto{{end}}</span>
+      </article>
+
+      <article class="detail-block">
+        <strong>Unidades</strong>
+        <span>{{.Item.UnitIDsText}}</span>
+        <p>{{if .Item.Notes}}{{.Item.Notes}}{{else}}Sin observaciones iniciales.{{end}}</p>
+        {{if .Item.CloseNotes}}<p><strong style="font-size:12px;">Cierre:</strong> {{.Item.CloseNotes}}</p>{{end}}
+      </article>
+    </section>
+
+    <section class="card">
+      <h2 style="margin-top:0;">Historial del préstamo</h2>
+      {{if .Timeline}}
+        <div class="timeline">
+          {{range .Timeline}}
+            <article class="timeline-item">
+              <div class="timeline-meta">
+                <strong>{{.Label}}</strong>
+                <span>{{.CreatedAt}}</span>
+                <span>{{if .Username}}{{.Username}}{{else}}Sistema{{end}}</span>
+                <span>{{.Source}}</span>
+              </div>
+              {{if .Notes}}
+                <p>{{.Notes}}</p>
+              {{end}}
+            </article>
+          {{end}}
+        </div>
+      {{else}}
+        <p>No hay eventos registrados para este préstamo.</p>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>

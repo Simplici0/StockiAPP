@@ -230,12 +230,23 @@ func mustLoadTestUser(t *testing.T, db *sql.DB, username string) *User {
 	return &user
 }
 
-func newTenantWriteAPIHandler(db *sql.DB) http.Handler {
+func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/retomas", handleAPIRetomas(db, nil))
 	mux.HandleFunc("/api/sales", handleAPISales(db))
+	mux.HandleFunc("/api/customers", handleAPICustomers(db))
+	mux.HandleFunc("/api/customers/", handleAPICustomerRoutes(db))
+	mux.HandleFunc("/api/invoices", handleAPIInvoices(db))
+	mux.HandleFunc("/api/invoices/", handleAPIInvoiceRoutes(db))
+	mux.HandleFunc("/api/users", handleAPIUsers(db, usersCols))
+	mux.HandleFunc("/api/users/", handleAPIUserRoutes(db, usersCols))
+	mux.HandleFunc("/api/agent/customers/search", handleAPIAgentCustomerSearch(db))
+	mux.HandleFunc("/api/agent/invoices", handleAPIAgentInvoices(db))
 	mux.HandleFunc("/api/credits", handleAPICredits(db))
+	mux.HandleFunc("/api/credits/edited", handleAPICreditsEditedReport(db))
+	mux.HandleFunc("/api/credits/", handleAPICreditRoutes(db))
 	mux.HandleFunc("/api/credits/installments", handleAPICreditInstallments(db))
+	mux.HandleFunc("/api/agent/credits", handleAPIAgentCredits(db))
 	mux.HandleFunc("/api/swaps", handleAPISwaps(db))
 	return authMiddleware(db, mux)
 }
@@ -261,7 +272,229 @@ func setupTenantWriteAPIHarness(t *testing.T) (*sql.DB, http.Handler, *Tenant, s
 		t.Fatalf("createTenantWithSeed: %v", err)
 	}
 
-	return db, newTenantWriteAPIHandler(db), provisioned.Tenant, provisioned.InitialAPIToken
+	return db, newTenantWriteAPIHandler(db, usersCols), provisioned.Tenant, provisioned.InitialAPIToken
+}
+
+func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "managed-users-create.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	if !usersCols["telegram_id"] {
+		t.Fatalf("expected telegram_id column in users schema")
+	}
+
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant Tres", "tenant-tres", "tenant3.admin", "TenantTres123!")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed: %v", err)
+	}
+	tenantAdmin := mustLoadTestUser(t, db, "tenant3.admin")
+
+	created, err := createManagedUser(db, tenantAdmin, tenantAdmin.TenantID, usersCols, managedUserInput{
+		Username:   "tenant3.ops",
+		Password:   "OpsSegura123!",
+		Role:       roleEmployee,
+		IsActive:   true,
+		TelegramID: "99887766",
+	}, "manual", nil)
+	if err != nil {
+		t.Fatalf("createManagedUser: %v", err)
+	}
+	if created.TenantID != provisioned.Tenant.ID {
+		t.Fatalf("expected tenant_id=%d, got %+v", provisioned.Tenant.ID, created)
+	}
+	if created.TelegramID != "99887766" {
+		t.Fatalf("expected telegram_id persisted, got %+v", created)
+	}
+
+	var persistedTelegram string
+	var persistedTenantID int
+	if err := db.QueryRow(`SELECT telegram_id, tenant_id FROM users WHERE username = ?`, "tenant3.ops").Scan(&persistedTelegram, &persistedTenantID); err != nil {
+		t.Fatalf("query created user: %v", err)
+	}
+	if persistedTelegram != "99887766" {
+		t.Fatalf("unexpected persisted telegram_id: %q", persistedTelegram)
+	}
+	if persistedTenantID != provisioned.Tenant.ID {
+		t.Fatalf("unexpected persisted tenant_id: %d", persistedTenantID)
+	}
+}
+
+func TestUpdateManagedUserUsesTenantScopedAdminSafeguardAndTelegramID(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "managed-users-update.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant Cuatro", "tenant-cuatro", "tenant4.admin", "TenantCuatro123!")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed: %v", err)
+	}
+	tenantAdmin := mustLoadTestUser(t, db, "tenant4.admin")
+
+	updated, err := createManagedUser(db, tenantAdmin, tenantAdmin.TenantID, usersCols, managedUserInput{
+		Username:   "tenant4.staff",
+		Password:   "StaffSegura123!",
+		Role:       roleEmployee,
+		IsActive:   true,
+		TelegramID: "123123123",
+	}, "manual", nil)
+	if err != nil {
+		t.Fatalf("createManagedUser employee: %v", err)
+	}
+
+	updated, err = updateManagedUser(db, tenantAdmin, tenantAdmin.TenantID, updated.ID, usersCols, managedUserInput{
+		Username:   updated.Username,
+		Role:       roleEmployee,
+		IsActive:   true,
+		TelegramID: "555000111",
+	}, "manual", nil)
+	if err != nil {
+		t.Fatalf("updateManagedUser employee: %v", err)
+	}
+	if updated.TelegramID != "555000111" {
+		t.Fatalf("expected telegram_id updated, got %+v", updated)
+	}
+
+	_, err = updateManagedUser(db, tenantAdmin, tenantAdmin.TenantID, tenantAdmin.ID, usersCols, managedUserInput{
+		Username: tenantAdmin.Username,
+		Role:     roleEmployee,
+		IsActive: false,
+	}, "manual", nil)
+	if err == nil {
+		t.Fatalf("expected tenant-scoped admin safeguard error")
+	}
+	var reqErr requestError
+	if !errors.As(err, &reqErr) {
+		t.Fatalf("expected requestError, got %v", err)
+	}
+	if reqErr.Message != "Debe existir al menos un admin activo." {
+		t.Fatalf("unexpected request error: %+v", reqErr)
+	}
+
+	var tenantAdminActive int
+	if err := db.QueryRow(`SELECT is_active FROM users WHERE id = ? AND tenant_id = ?`, tenantAdmin.ID, provisioned.Tenant.ID).Scan(&tenantAdminActive); err != nil {
+		t.Fatalf("query tenant admin active state: %v", err)
+	}
+	if tenantAdminActive != 1 {
+		t.Fatalf("tenant admin should remain active after rejected update, got %d", tenantAdminActive)
+	}
+}
+
+func TestProductLabelItemsForUserRespectsTenantScope(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "product-labels.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant Etiquetas", "tenant-etiquetas", "tenant-labels.admin", "TenantLabels123!")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed: %v", err)
+	}
+	tenantAdmin := mustLoadTestUser(t, db, "tenant-labels.admin")
+
+	seedTenantProductWithUnits(t, db, defaultTenantID, "P-DEFAULT", "Producto Global", 18000, 1)
+	seedTenantProductWithUnits(t, db, provisioned.Tenant.ID, "P-TENANT", "Producto Tenant", 26500, 1)
+
+	items, widthMM, heightMM, err := productLabelItemsForUser(db, tenantAdmin, []string{"P-DEFAULT", "P-TENANT"}, "60x40")
+	if err != nil {
+		t.Fatalf("productLabelItemsForUser: %v", err)
+	}
+	if widthMM != 60 || heightMM != 40 {
+		t.Fatalf("unexpected label dimensions: %dx%d", widthMM, heightMM)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 visible label, got %d", len(items))
+	}
+	if items[0].ID != "P-TENANT" {
+		t.Fatalf("unexpected label item: %+v", items[0])
+	}
+	if items[0].BarcodeDataURI == "" {
+		t.Fatalf("expected barcode data uri")
+	}
+}
+
+func TestVisibleProductsAndAgentItemsIncludeLocation(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "product-location.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant Locacion", "tenant-locacion", "tenantloc.admin", "TenantLocacion123!")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed: %v", err)
+	}
+	tenantAdmin := mustLoadTestUser(t, db, "tenantloc.admin")
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, location, precio_venta, fecha_ingreso)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, "LOC-001", provisioned.Tenant.ID, "LOC-001", "Linea API", "Producto con locacion", "Estante B-04", 32000, now); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en) VALUES (?, ?, ?, 'Disponible', ?)`, "LOC-001-U-1", provisioned.Tenant.ID, "LOC-001", now); err != nil {
+		t.Fatalf("insert unit: %v", err)
+	}
+
+	productsSnapshot, err := loadVisibleProductsForUser(db, tenantAdmin)
+	if err != nil {
+		t.Fatalf("loadVisibleProductsForUser: %v", err)
+	}
+	if len(productsSnapshot) != 1 {
+		t.Fatalf("expected 1 visible product, got %d", len(productsSnapshot))
+	}
+	if productsSnapshot[0].Location != "Estante B-04" {
+		t.Fatalf("expected location in visible product, got %+v", productsSnapshot[0])
+	}
+
+	countsByProduct, err := loadInventoryCountsForProducts(db, provisioned.Tenant.ID, []string{"LOC-001"})
+	if err != nil {
+		t.Fatalf("loadInventoryCountsForProducts: %v", err)
+	}
+	item := agentProductItem(productsSnapshot[0], countsByProduct["LOC-001"], true)
+	if item["location"] != "Estante B-04" {
+		t.Fatalf("expected location in agent product item, got %+v", item)
+	}
 }
 
 func seedTenantProductWithUnits(t *testing.T, db *sql.DB, tenantID int, sku, name string, salePrice float64, units int) {
@@ -1397,7 +1630,7 @@ func TestAddCreditInstallmentRejectsCrossTenantCredit(t *testing.T) {
 		t.Fatalf("query credit sale id: %v", err)
 	}
 
-	_, err = addCreditInstallment(db, creditSaleID, nil, &User{ID: 1, Username: "admin", Role: rolePlatformAdmin, TenantID: defaultTenantID}, "api", nil)
+	_, err = addCreditInstallment(db, creditSaleID, nil, "", &User{ID: 1, Username: "admin", Role: rolePlatformAdmin, TenantID: defaultTenantID}, "api", nil)
 	var reqErr requestError
 	if !errors.As(err, &reqErr) || reqErr.Status != http.StatusNotFound {
 		t.Fatalf("expected not found cross-tenant credit installment, got %v", err)
@@ -1550,6 +1783,8 @@ func TestAPICreditsEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 		"debtor_document_type":   "CC",
 		"debtor_document_number": "123456",
 		"debtor_phone":           "3001112233",
+		"customer_city":          "Bogota",
+		"customer_address":       "Calle 1",
 		"installments_total":     4,
 		"total_value":            128000,
 		"interest_percent":       0,
@@ -1570,6 +1805,13 @@ func TestAPICreditsEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 	if tenantCredits != 1 {
 		t.Fatalf("expected 1 tenant credit sale, got %d", tenantCredits)
 	}
+	var tenantCustomers int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ? AND document_number = ?`, tenant.ID, "123456").Scan(&tenantCustomers); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if tenantCustomers != 1 {
+		t.Fatalf("expected 1 tenant customer, got %d", tenantCustomers)
+	}
 
 	var soldTenantUnits int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ? AND estado = 'Vendida'`, tenant.ID, "T2-CREDIT-001").Scan(&soldTenantUnits); err != nil {
@@ -1586,6 +1828,7 @@ func TestAPICreditsEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 		"debtor_document_type":   "CC",
 		"debtor_document_number": "999999",
 		"debtor_phone":           "3009998877",
+		"customer_city":          "Medellin",
 		"installments_total":     3,
 		"total_value":            54000,
 	})
@@ -1604,6 +1847,118 @@ func TestAPICreditsEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 	}
 	if crossCredits != 0 {
 		t.Fatalf("expected no credits for cross-tenant product, got %d", crossCredits)
+	}
+}
+
+func TestAPICreditsEndpointSupportsCashLoanWithoutInventory(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind":                     "cash_loan",
+		"customer_name":            "Cliente Prestamo",
+		"customer_phone":           "3004567890",
+		"customer_document_type":   "CC",
+		"customer_document_number": "456789",
+		"customer_city":            "Cali",
+		"installments_total":       5,
+		"total_value":              500000,
+		"interest_percent":         0,
+		"notes":                    "prestamo tenant 2",
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAPIResponse(t, resp)
+	if body["kind"] != "cash_loan" {
+		t.Fatalf("unexpected response: %+v", body)
+	}
+	if body["product_id"] != "" {
+		t.Fatalf("cash loan should not have product_id: %+v", body)
+	}
+
+	var creditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM credit_sales WHERE tenant_id = ? AND kind = 'cash_loan'`, tenant.ID).Scan(&creditCount); err != nil {
+		t.Fatalf("count cash loans: %v", err)
+	}
+	if creditCount != 1 {
+		t.Fatalf("expected 1 cash loan, got %d", creditCount)
+	}
+	var unitsTouched int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ?`, tenant.ID).Scan(&unitsTouched); err != nil {
+		t.Fatalf("count tenant units: %v", err)
+	}
+	if unitsTouched != 0 {
+		t.Fatalf("cash loan should not create or modify inventory units, got %d rows", unitsTouched)
+	}
+	var movementsTouched int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM movimientos WHERE tenant_id = ?`, tenant.ID).Scan(&movementsTouched); err != nil {
+		t.Fatalf("count tenant movements: %v", err)
+	}
+	if movementsTouched != 0 {
+		t.Fatalf("cash loan should not create inventory movements, got %d rows", movementsTouched)
+	}
+}
+
+func TestAPIAgentCreditsEndpointDefaultsToCashLoanWithoutInventory(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/credits", token, map[string]any{
+		"customer_name":            "Cliente Agente",
+		"customer_phone":           "3005678901",
+		"customer_document_type":   "CC",
+		"customer_document_number": "567890",
+		"customer_city":            "Barranquilla",
+		"installments_total":       6,
+		"total_value":              720000,
+		"interest_percent":         0,
+		"notes":                    "prestamo desde agent",
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if authMode := resp.Header().Get("X-Stocki-Auth-Mode"); authMode != "api_key" {
+		t.Fatalf("unexpected auth mode header: %q", authMode)
+	}
+	body := decodeAPIResponse(t, resp)
+	if body["kind"] != "cash_loan" {
+		t.Fatalf("unexpected response: %+v", body)
+	}
+	if body["product_id"] != "" {
+		t.Fatalf("agent cash loan should not have product_id: %+v", body)
+	}
+
+	var creditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM credit_sales WHERE tenant_id = ? AND kind = 'cash_loan'`, tenant.ID).Scan(&creditCount); err != nil {
+		t.Fatalf("count tenant cash loans: %v", err)
+	}
+	if creditCount != 1 {
+		t.Fatalf("expected 1 tenant cash loan, got %d", creditCount)
+	}
+
+	var movementCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM movimientos WHERE tenant_id = ?`, tenant.ID).Scan(&movementCount); err != nil {
+		t.Fatalf("count tenant movements: %v", err)
+	}
+	if movementCount != 0 {
+		t.Fatalf("cash loan should not create inventory movements, got %d", movementCount)
+	}
+
+	var unitCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ?`, tenant.ID).Scan(&unitCount); err != nil {
+		t.Fatalf("count tenant units: %v", err)
+	}
+	if unitCount != 0 {
+		t.Fatalf("cash loan should not touch tenant units, got %d", unitCount)
+	}
+
+	var customerEvents int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_events WHERE tenant_id = ? AND event_type = 'credit_created'`, tenant.ID).Scan(&customerEvents); err != nil {
+		t.Fatalf("count customer events: %v", err)
+	}
+	if customerEvents != 1 {
+		t.Fatalf("expected 1 customer credit_created event, got %d", customerEvents)
 	}
 }
 
@@ -1798,6 +2153,1126 @@ func TestAPICreditInstallmentsEndpointRespectsTenantScopeByAPIKey(t *testing.T) 
 	}
 }
 
+func TestAPICreditsCanUpdateProductCreditAndPersistDerivedState(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "T2-EDIT-CREDIT-001", "Producto Editado", 45000, 3)
+
+	customerResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Cliente Editado",
+		"customer_phone":           "3009991111",
+		"customer_document_type":   "CC",
+		"customer_document_number": "900111",
+		"customer_city":            "Bogota",
+	})
+	if customerResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 customer, got %d body=%s", customerResp.Code, customerResp.Body.String())
+	}
+	customerBody := decodeAPIResponse(t, customerResp)
+	customerID := int(customerBody["customer"].(map[string]any)["id"].(float64))
+
+	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind":               "product_credit",
+		"product_id":         "T2-EDIT-CREDIT-001",
+		"quantity":           1,
+		"customer_id":        customerID,
+		"installments_total": 4,
+		"total_value":        120000,
+		"interest_percent":   0,
+		"installment_value":  30000,
+		"notes":              "credito original",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 credit, got %d body=%s", createResp.Code, createResp.Body.String())
+	}
+	createBody := decodeAPIResponse(t, createResp)
+	creditSaleID := int(createBody["credit_sale_id"].(float64))
+
+	updateResp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/credits/"+strconv.Itoa(creditSaleID), token, map[string]any{
+		"installments_total": 6,
+		"installments_paid":  1,
+		"installment_value":  30000,
+		"notes":              "credito reprogramado",
+		"status":             "suspended",
+	})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating credit, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+	updateBody := decodeAPIResponse(t, updateResp)
+	credit := updateBody["credit"].(map[string]any)
+	if credit["status"] != "suspended" {
+		t.Fatalf("unexpected status after update: %+v", credit)
+	}
+	if int(credit["installments_total"].(float64)) != 6 || int(credit["installments_paid"].(float64)) != 1 {
+		t.Fatalf("unexpected installments after update: %+v", credit)
+	}
+	if credit["notes"] != "credito reprogramado" {
+		t.Fatalf("unexpected notes after update: %+v", credit)
+	}
+	if credit["current_debt"].(float64) != 150000 {
+		t.Fatalf("unexpected current_debt after update: %+v", credit)
+	}
+
+	detailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/"+strconv.Itoa(creditSaleID), token, nil)
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 detail, got %d body=%s", detailResp.Code, detailResp.Body.String())
+	}
+	detailBody := decodeAPIResponse(t, detailResp)
+	if detailBody["credit"].(map[string]any)["status"] != "suspended" {
+		t.Fatalf("unexpected detail after update: %+v", detailBody)
+	}
+
+	var (
+		installmentsTotal int
+		installmentsPaid  int
+		totalValue        float64
+		status            string
+		notes             string
+	)
+	if err := db.QueryRow(`SELECT installments_total, installments_paid, total_value, status, notes FROM credit_sales WHERE tenant_id = ? AND id = ?`, tenant.ID, creditSaleID).Scan(&installmentsTotal, &installmentsPaid, &totalValue, &status, &notes); err != nil {
+		t.Fatalf("query updated credit: %v", err)
+	}
+	if installmentsTotal != 6 || installmentsPaid != 1 || totalValue != 180000 || status != "suspended" || notes != "credito reprogramado" {
+		t.Fatalf("unexpected persisted credit state total=%d paid=%d totalValue=%.0f status=%s notes=%s", installmentsTotal, installmentsPaid, totalValue, status, notes)
+	}
+}
+
+func TestAPICreditsUpdatePreservesRecordedPaymentsAndScopesTenant(t *testing.T) {
+	db, handler, _, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	customerResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Cliente Prestamo",
+		"customer_phone":           "3007770000",
+		"customer_document_type":   "CC",
+		"customer_document_number": "770000",
+		"customer_city":            "Cali",
+	})
+	if customerResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 customer, got %d body=%s", customerResp.Code, customerResp.Body.String())
+	}
+	customerID := int(decodeAPIResponse(t, customerResp)["customer"].(map[string]any)["id"].(float64))
+
+	loanResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/credits", token, map[string]any{
+		"customer_id":        customerID,
+		"installments_total": 4,
+		"total_value":        100000,
+		"interest_percent":   0,
+		"notes":              "prestamo editable",
+	})
+	if loanResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 loan, got %d body=%s", loanResp.Code, loanResp.Body.String())
+	}
+	loanID := int(decodeAPIResponse(t, loanResp)["credit_sale_id"].(float64))
+
+	installmentResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits/installments", token, map[string]any{
+		"credit_sale_id": loanID,
+		"amount_paid":    25000,
+		"payment_type":   "cuota",
+	})
+	if installmentResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 installment, got %d body=%s", installmentResp.Code, installmentResp.Body.String())
+	}
+
+	invalidUpdate := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/credits/"+strconv.Itoa(loanID), token, map[string]any{
+		"installments_total": 4,
+		"installments_paid":  0,
+		"installment_value":  25000,
+		"notes":              "intento invalido",
+		"status":             "active",
+	})
+	if invalidUpdate.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when lowering installments below recorded payments, got %d body=%s", invalidUpdate.Code, invalidUpdate.Body.String())
+	}
+
+	validUpdate := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/credits/"+strconv.Itoa(loanID), token, map[string]any{
+		"installments_total": 5,
+		"installments_paid":  2,
+		"installment_value":  30000,
+		"notes":              "prestamo reprogramado",
+		"status":             "cancelled",
+	})
+	if validUpdate.Code != http.StatusOK {
+		t.Fatalf("expected 200 valid loan update, got %d body=%s", validUpdate.Code, validUpdate.Body.String())
+	}
+	validBody := decodeAPIResponse(t, validUpdate)
+	credit := validBody["credit"].(map[string]any)
+	if credit["status"] != "cancelled" || credit["current_debt"].(float64) != 90000 {
+		t.Fatalf("unexpected updated loan payload: %+v", credit)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Cliente Ajeno', '3000000000', 'CC', '100001', '', 'Bogota', '', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert cross customer: %v", err)
+	}
+	var crossCustomerID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '100001'`).Scan(&crossCustomerID); err != nil {
+		t.Fatalf("query cross customer id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, customer_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
+		VALUES (1, ?, 'cash_loan', NULL, 1, 'Cliente Ajeno', 'CC', '100001', '3000000000', 3, 0, 90000, 0, 30000, 'prestamo ajeno', 'active', ?, 1)
+	`, crossCustomerID, now); err != nil {
+		t.Fatalf("insert cross credit: %v", err)
+	}
+	var crossCreditID int
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = 1 AND customer_id = ?`, crossCustomerID).Scan(&crossCreditID); err != nil {
+		t.Fatalf("query cross credit id: %v", err)
+	}
+	crossUpdate := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/credits/"+strconv.Itoa(crossCreditID), token, map[string]any{
+		"installments_total": 3,
+		"installments_paid":  1,
+		"installment_value":  30000,
+		"notes":              "no deberia editar",
+		"status":             "active",
+	})
+	if crossUpdate.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 cross-tenant update, got %d body=%s", crossUpdate.Code, crossUpdate.Body.String())
+	}
+}
+
+func TestAPICreditHistoryAndCustomerEventsReflectEditChanges(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "T2-HISTORY-CREDIT-001", "Producto Historial", 50000, 2)
+
+	customerResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Cliente Historial",
+		"customer_phone":           "3001112233",
+		"customer_document_type":   "CC",
+		"customer_document_number": "9112233",
+		"customer_city":            "Bogota",
+	})
+	if customerResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 customer, got %d body=%s", customerResp.Code, customerResp.Body.String())
+	}
+	customerID := int(decodeAPIResponse(t, customerResp)["customer"].(map[string]any)["id"].(float64))
+
+	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind":               "product_credit",
+		"product_id":         "T2-HISTORY-CREDIT-001",
+		"quantity":           1,
+		"customer_id":        customerID,
+		"installments_total": 4,
+		"total_value":        120000,
+		"interest_percent":   0,
+		"installment_value":  30000,
+		"notes":              "credito base historial",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 credit, got %d body=%s", createResp.Code, createResp.Body.String())
+	}
+	creditSaleID := int(decodeAPIResponse(t, createResp)["credit_sale_id"].(float64))
+
+	updateResp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/credits/"+strconv.Itoa(creditSaleID), token, map[string]any{
+		"installments_total": 5,
+		"installments_paid":  1,
+		"installment_value":  32000,
+		"notes":              "credito ajustado para soporte",
+		"status":             "suspended",
+	})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating credit, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	historyResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/"+strconv.Itoa(creditSaleID)+"/history?limit=5", token, nil)
+	if historyResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 history, got %d body=%s", historyResp.Code, historyResp.Body.String())
+	}
+	historyBody := decodeAPIResponse(t, historyResp)
+	if int(historyBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 history item, got %+v", historyBody)
+	}
+	historyItems := historyBody["items"].([]any)
+	entry := historyItems[0].(map[string]any)
+	if entry["event_type"] != "credit_sale_updated" {
+		t.Fatalf("unexpected history event: %+v", entry)
+	}
+	if int(entry["change_count"].(float64)) < 4 {
+		t.Fatalf("expected multiple changed fields, got %+v", entry)
+	}
+	changes := entry["changes"].([]any)
+	fields := map[string]bool{}
+	for _, raw := range changes {
+		change := raw.(map[string]any)
+		fields[change["field"].(string)] = true
+	}
+	for _, field := range []string{"installments_total", "installments_paid", "installment_value", "notes", "status"} {
+		if !fields[field] {
+			t.Fatalf("expected field %q in history changes, got %+v", field, fields)
+		}
+	}
+	impact := entry["impact"].(map[string]any)
+	if impact["status_after"] != "suspended" {
+		t.Fatalf("unexpected history impact: %+v", impact)
+	}
+
+	customerEventsResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/customers/"+strconv.Itoa(customerID)+"/events?limit=10", token, nil)
+	if customerEventsResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 customer events, got %d body=%s", customerEventsResp.Code, customerEventsResp.Body.String())
+	}
+	customerEventsBody := decodeAPIResponse(t, customerEventsResp)
+	eventItems := customerEventsBody["items"].([]any)
+	foundUpdate := false
+	for _, raw := range eventItems {
+		item := raw.(map[string]any)
+		if item["event_type"] != "credit_updated" {
+			continue
+		}
+		payload := item["payload"].(map[string]any)
+		if int(payload["change_count"].(float64)) < 4 {
+			t.Fatalf("expected change_count in customer event payload, got %+v", payload)
+		}
+		if payload["status"] != "suspended" {
+			t.Fatalf("unexpected customer event payload: %+v", payload)
+		}
+		foundUpdate = true
+		break
+	}
+	if !foundUpdate {
+		t.Fatalf("expected credit_updated event in customer timeline, got %+v", eventItems)
+	}
+}
+
+func TestAPICreditsEditedReportSupportsFiltersAndTenantScope(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "T2-REPORT-CREDIT-001", "Producto Reporte", 42000, 2)
+
+	customerResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Cliente Reporte",
+		"customer_phone":           "3004445566",
+		"customer_document_type":   "CC",
+		"customer_document_number": "94445566",
+		"customer_city":            "Medellin",
+	})
+	if customerResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 customer, got %d body=%s", customerResp.Code, customerResp.Body.String())
+	}
+	customerID := int(decodeAPIResponse(t, customerResp)["customer"].(map[string]any)["id"].(float64))
+
+	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind":               "product_credit",
+		"product_id":         "T2-REPORT-CREDIT-001",
+		"quantity":           1,
+		"customer_id":        customerID,
+		"installments_total": 4,
+		"total_value":        120000,
+		"interest_percent":   0,
+		"installment_value":  30000,
+		"notes":              "credito reporte",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 credit, got %d body=%s", createResp.Code, createResp.Body.String())
+	}
+	creditSaleID := int(decodeAPIResponse(t, createResp)["credit_sale_id"].(float64))
+
+	updateResp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/credits/"+strconv.Itoa(creditSaleID), token, map[string]any{
+		"installments_total": 5,
+		"installments_paid":  1,
+		"installment_value":  32000,
+		"notes":              "credito reporte ajustado",
+		"status":             "suspended",
+	})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating credit, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	reportResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/edited?status=suspended&kind=product_credit&customer=94445566&credit_sale_id="+strconv.Itoa(creditSaleID), token, nil)
+	if reportResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 report, got %d body=%s", reportResp.Code, reportResp.Body.String())
+	}
+	reportBody := decodeAPIResponse(t, reportResp)
+	if int(reportBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 report item, got %+v", reportBody)
+	}
+	item := reportBody["items"].([]any)[0].(map[string]any)
+	if int(item["credit_sale_id"].(float64)) != creditSaleID {
+		t.Fatalf("unexpected credit_sale_id: %+v", item)
+	}
+	if item["tenant_id"].(float64) != float64(tenant.ID) {
+		t.Fatalf("unexpected tenant scope: %+v", item)
+	}
+	if item["status_after"] != "suspended" {
+		t.Fatalf("unexpected status_after: %+v", item)
+	}
+	if int(item["change_count"].(float64)) == 0 {
+		t.Fatalf("expected report changes, got %+v", item)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Cliente Ajeno Reporte', '3000009999', 'CC', '10009999', '', 'Bogota', '', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert cross customer: %v", err)
+	}
+	var crossCustomerID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '10009999'`).Scan(&crossCustomerID); err != nil {
+		t.Fatalf("query cross customer id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, customer_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
+		VALUES (1, ?, 'cash_loan', NULL, 1, 'Cliente Ajeno Reporte', 'CC', '10009999', '3000009999', 3, 0, 90000, 0, 30000, 'prestamo ajeno reporte', 'active', ?, 1)
+	`, crossCustomerID, now); err != nil {
+		t.Fatalf("insert cross credit: %v", err)
+	}
+	var crossCreditID int
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = 1 AND customer_id = ?`, crossCustomerID).Scan(&crossCreditID); err != nil {
+		t.Fatalf("query cross credit id: %v", err)
+	}
+	crossPayload := `{"changes":[{"field":"status","label":"Estado","before":"active","after":"cancelled"}],"change_count":1,"changed_fields":["status"],"impact":{"status_before":"active","status_after":"cancelled","status_label_before":"Crédito activo","status_label_after":"Crédito cancelado","current_debt_before":90000,"current_debt_after":90000,"debt_total_before":90000,"debt_total_after":90000,"total_paid_before":0,"total_paid_after":0,"installments_due_after":3}}`
+	if _, err := db.Exec(`
+		INSERT INTO audit_events (tenant_id, event_type, entity_type, entity_id, user_id, source, payload_json, created_at)
+		VALUES (1, 'credit_sale_updated', 'credit_sale', ?, 1, 'api', ?, ?)
+	`, strconv.Itoa(crossCreditID), crossPayload, now); err != nil {
+		t.Fatalf("insert cross audit event: %v", err)
+	}
+
+	crossReportResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/edited", token, nil)
+	if crossReportResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 report without cross tenant, got %d body=%s", crossReportResp.Code, crossReportResp.Body.String())
+	}
+	crossReportBody := decodeAPIResponse(t, crossReportResp)
+	if int(crossReportBody["count"].(float64)) != 1 {
+		t.Fatalf("expected only tenant-scoped report item, got %+v", crossReportBody)
+	}
+}
+
+func TestAddCreditInstallmentSupportsCashLoan(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "cash-loan-installments.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Laura Dinero', '3007778899', 'CC', '700700', '', 'Bogota', '', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	var customerID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '700700'`).Scan(&customerID); err != nil {
+		t.Fatalf("query customer id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, customer_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+		VALUES (1, ?, 'cash_loan', NULL, 1, 'Laura Dinero', 'CC', '700700', '3007778899', 4, 1, 400000, 0, 100000, 'prestamo cash', ?, 1)
+	`, customerID, now); err != nil {
+		t.Fatalf("insert cash loan: %v", err)
+	}
+	var creditSaleID int
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = 1 AND kind = 'cash_loan' ORDER BY id DESC LIMIT 1`).Scan(&creditSaleID); err != nil {
+		t.Fatalf("query credit sale id: %v", err)
+	}
+
+	result, err := addCreditInstallment(db, creditSaleID, nil, "cuota", &User{ID: 1, Username: "admin", Role: roleAdmin, TenantID: 1}, "api", nil)
+	if err != nil {
+		t.Fatalf("addCreditInstallment: %v", err)
+	}
+	if result.Kind != creditSaleKindCash {
+		t.Fatalf("unexpected kind: %+v", result)
+	}
+	if result.ProductID != "" {
+		t.Fatalf("cash loan should keep empty product_id: %+v", result)
+	}
+	if result.InstallmentsPaid != 2 {
+		t.Fatalf("expected installments_paid=2, got %+v", result)
+	}
+}
+
+func TestListCreditsForUserIncludesCustomerAndDebtMetrics(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "credits-customer-metrics.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Maria Gomez', '3001234567', 'CC', '101010', 'Calle 10', 'Bogota', 'Cliente frecuente', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	var customerID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '101010'`).Scan(&customerID); err != nil {
+		t.Fatalf("query customer id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
+		VALUES ('CRM-001', 1, 'CRM-001', 'Producto CRM', 'Linea Uno', 20000, 0)
+	`); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, customer_id, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+		VALUES (1, ?, 'CRM-001', 1, 'Maria Gomez', 'CC', '101010', '3001234567', 4, 1, 80000, 0, 20000, 'credito crm', ?, 1)
+	`, customerID, now); err != nil {
+		t.Fatalf("insert credit sale: %v", err)
+	}
+	var creditSaleID int
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = 1 AND product_id = 'CRM-001'`).Scan(&creditSaleID); err != nil {
+		t.Fatalf("query credit sale id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
+		VALUES
+			(1, ?, 'CRM-001', 1, 20000, 'cuota', ?, 1),
+			(1, ?, 'CRM-001', 1, 5000, 'abono', ?, 1)
+	`, creditSaleID, now, creditSaleID, now); err != nil {
+		t.Fatalf("insert installments: %v", err)
+	}
+
+	items, err := listCreditsForUser(db, &User{Role: roleAdmin, TenantID: 1}, "maria", 20)
+	if err != nil {
+		t.Fatalf("listCreditsForUser: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 credit item, got %d", len(items))
+	}
+	item := items[0]
+	if int(item["customer_id"].(int)) != customerID {
+		t.Fatalf("unexpected customer_id: %+v", item)
+	}
+	if item["customer_city"] != "Bogota" {
+		t.Fatalf("unexpected customer city: %+v", item)
+	}
+	if item["total_paid"].(float64) != 25000 {
+		t.Fatalf("unexpected total_paid: %+v", item)
+	}
+	if item["current_debt"].(float64) != 55000 {
+		t.Fatalf("unexpected current_debt: %+v", item)
+	}
+	if item["paid_installments_count"].(int) != 1 {
+		t.Fatalf("unexpected paid_installments_count: %+v", item)
+	}
+}
+
+func TestListCreditsForUserIncludesCashLoanKind(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "credits-cash-loan-kind.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Carlos Prestamo', '3002223344', 'CC', '808080', '', 'Bogota', '', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	var customerID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '808080'`).Scan(&customerID); err != nil {
+		t.Fatalf("query customer id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, customer_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+		VALUES (1, ?, 'cash_loan', NULL, 1, 'Carlos Prestamo', 'CC', '808080', '3002223344', 6, 1, 600000, 0, 100000, 'prestamo de dinero', ?, 1)
+	`, customerID, now); err != nil {
+		t.Fatalf("insert cash loan: %v", err)
+	}
+
+	items, err := listCreditsForUser(db, &User{Role: roleAdmin, TenantID: 1}, "prestamo", 20)
+	if err != nil {
+		t.Fatalf("listCreditsForUser: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 cash loan item, got %d", len(items))
+	}
+	item := items[0]
+	if item["kind"] != "cash_loan" {
+		t.Fatalf("unexpected kind: %+v", item)
+	}
+	if item["product"] != "Préstamo de dinero" {
+		t.Fatalf("unexpected product label: %+v", item)
+	}
+}
+
+func TestAddCreditInstallmentAbonoDoesNotIncreaseInstallmentsPaid(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "credits-abono.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Pedro Pago', '3000000000', 'CC', '454545', '', 'Bogota', '', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	var customerID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '454545'`).Scan(&customerID); err != nil {
+		t.Fatalf("query customer id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
+		VALUES ('ABONO-001', 1, 'ABONO-001', 'Producto Abono', 'Linea Uno', 15000, 0)
+	`); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, customer_id, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
+		VALUES (1, ?, 'ABONO-001', 1, 'Pedro Pago', 'CC', '454545', '3000000000', 4, 1, 60000, 0, 15000, 'credito abono', ?, 1)
+	`, customerID, now); err != nil {
+		t.Fatalf("insert credit sale: %v", err)
+	}
+	var creditSaleID int
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = 1 AND product_id = 'ABONO-001'`).Scan(&creditSaleID); err != nil {
+		t.Fatalf("query credit sale id: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
+		VALUES (1, ?, 'ABONO-001', 1, 15000, 'cuota', ?, 1)
+	`, creditSaleID, now); err != nil {
+		t.Fatalf("insert initial cuota: %v", err)
+	}
+
+	amountPaid := 5000.0
+	result, err := addCreditInstallment(db, creditSaleID, &amountPaid, "abono", &User{ID: 1, Username: "admin", Role: roleAdmin, TenantID: 1}, "api", nil)
+	if err != nil {
+		t.Fatalf("addCreditInstallment abono: %v", err)
+	}
+	if result.PaymentType != creditPaymentTypeAbono {
+		t.Fatalf("expected payment type abono, got %q", result.PaymentType)
+	}
+	if result.InstallmentsPaid != 1 {
+		t.Fatalf("expected installments_paid to remain 1, got %d", result.InstallmentsPaid)
+	}
+	if result.TotalPaid != 20000 {
+		t.Fatalf("unexpected total paid after abono: %+v", result)
+	}
+	if result.CurrentDebt != 40000 {
+		t.Fatalf("unexpected current debt after abono: %+v", result)
+	}
+
+	var installmentsPaid int
+	if err := db.QueryRow(`SELECT installments_paid FROM credit_sales WHERE tenant_id = 1 AND id = ?`, creditSaleID).Scan(&installmentsPaid); err != nil {
+		t.Fatalf("query installments_paid: %v", err)
+	}
+	if installmentsPaid != 1 {
+		t.Fatalf("expected persisted installments_paid to remain 1, got %d", installmentsPaid)
+	}
+	var paymentType string
+	if err := db.QueryRow(`SELECT payment_type FROM credit_installments WHERE tenant_id = 1 AND credit_sale_id = ? ORDER BY id DESC LIMIT 1`, creditSaleID).Scan(&paymentType); err != nil {
+		t.Fatalf("query payment_type: %v", err)
+	}
+	if paymentType != "abono" {
+		t.Fatalf("expected payment_type abono, got %q", paymentType)
+	}
+}
+
+func TestAPICustomersEndpointCreatesReusesAndScopesByTenant(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Cliente Base', '3000001111', 'CC', '111111', 'Carrera 1', 'Bogota', '', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert default customer: %v", err)
+	}
+
+	created := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Carolina Tenant",
+		"customer_phone":           "3002223333",
+		"customer_document_type":   "CC",
+		"customer_document_number": "222222",
+		"customer_address":         "Calle 22",
+		"customer_city":            "Medellin",
+		"customer_notes":           "Cliente nueva",
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", created.Code, created.Body.String())
+	}
+	createdBody := decodeAPIResponse(t, created)
+	if createdBody["created"] != true {
+		t.Fatalf("expected created=true, got %+v", createdBody)
+	}
+
+	reused := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Carolina Tenant Actualizada",
+		"customer_phone":           "3002223333",
+		"customer_document_type":   "CC",
+		"customer_document_number": "222222",
+		"customer_address":         "Calle 23",
+		"customer_city":            "Medellin",
+		"customer_notes":           "Cliente actualizada",
+	})
+	if reused.Code != http.StatusOK {
+		t.Fatalf("expected 200 for reused customer, got %d body=%s", reused.Code, reused.Body.String())
+	}
+	reusedBody := decodeAPIResponse(t, reused)
+	if reusedBody["reused"] != true {
+		t.Fatalf("expected reused=true, got %+v", reusedBody)
+	}
+
+	var tenantCustomers int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ? AND document_number = ?`, tenant.ID, "222222").Scan(&tenantCustomers); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if tenantCustomers != 1 {
+		t.Fatalf("expected 1 tenant customer after reuse, got %d", tenantCustomers)
+	}
+
+	list := performAPIJSONRequest(t, handler, http.MethodGet, "/api/customers?q=carolina", token, nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected 200 list, got %d body=%s", list.Code, list.Body.String())
+	}
+	listBody := decodeAPIResponse(t, list)
+	if int(listBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 listed customer, got %+v", listBody)
+	}
+	items := listBody["items"].([]any)
+	item := items[0].(map[string]any)
+	if item["document_number"] != "222222" {
+		t.Fatalf("unexpected customer list item: %+v", item)
+	}
+}
+
+func TestAPIAgentCustomerSearchReturnsCompactTenantScopedResults(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Cliente Base Search', '3001002000', 'CC', '100200300', 'Calle Base', 'Bogota', '', ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert default customer: %v", err)
+	}
+
+	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Diana Search",
+		"customer_phone":           "3007778888",
+		"customer_document_type":   "CC",
+		"customer_document_number": "777888999",
+		"customer_city":            "Cartagena",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating customer, got %d body=%s", createResp.Code, createResp.Body.String())
+	}
+	createBody := decodeAPIResponse(t, createResp)
+	customer := createBody["customer"].(map[string]any)
+	customerID := int(customer["id"].(float64))
+
+	creditResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/credits", token, map[string]any{
+		"customer_id":        customerID,
+		"installments_total": 4,
+		"total_value":        400000,
+		"interest_percent":   0,
+		"notes":              "prestamo para search",
+	})
+	if creditResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 credit, got %d body=%s", creditResp.Code, creditResp.Body.String())
+	}
+
+	searchResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/agent/customers/search?q=777888999", token, nil)
+	if searchResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 search, got %d body=%s", searchResp.Code, searchResp.Body.String())
+	}
+	searchBody := decodeAPIResponse(t, searchResp)
+	if int(searchBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 compact customer result, got %+v", searchBody)
+	}
+	items := searchBody["items"].([]any)
+	item := items[0].(map[string]any)
+	if int(item["id"].(float64)) != customerID {
+		t.Fatalf("unexpected compact customer id: %+v", item)
+	}
+	if item["document_number"] != "777888999" {
+		t.Fatalf("unexpected compact customer document: %+v", item)
+	}
+	if _, ok := item["address"]; ok {
+		t.Fatalf("agent search should not expose address in compact payload: %+v", item)
+	}
+	if item["credits_count"].(float64) != 1 {
+		t.Fatalf("unexpected credits_count: %+v", item)
+	}
+	if item["current_debt"].(float64) != 400000 {
+		t.Fatalf("unexpected current_debt: %+v", item)
+	}
+	if item["active_credits"].(float64) != 1 {
+		t.Fatalf("unexpected active_credits: %+v", item)
+	}
+
+	crossResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/agent/customers/search?q=100200300", token, nil)
+	if crossResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 cross search, got %d body=%s", crossResp.Code, crossResp.Body.String())
+	}
+	crossBody := decodeAPIResponse(t, crossResp)
+	if int(crossBody["count"].(float64)) != 0 {
+		t.Fatalf("expected no cross-tenant customers, got %+v", crossBody)
+	}
+
+	var tenantCustomerCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ?`, tenant.ID).Scan(&tenantCustomerCount); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if tenantCustomerCount != 1 {
+		t.Fatalf("expected 1 tenant customer, got %d", tenantCustomerCount)
+	}
+}
+
+func TestAPICustomerDetailAndEventsRespectTenantScope(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "T2-CUSTOMER-001", "Producto Cliente", 25000, 1)
+	seedTenantProductWithUnits(t, db, defaultTenantID, "T1-CUSTOMER-001", "Producto Base", 12000, 1)
+
+	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Laura Cliente",
+		"customer_phone":           "3005556666",
+		"customer_document_type":   "CC",
+		"customer_document_number": "555666",
+		"customer_city":            "Cali",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating customer, got %d body=%s", createResp.Code, createResp.Body.String())
+	}
+	createBody := decodeAPIResponse(t, createResp)
+	customer := createBody["customer"].(map[string]any)
+	customerID := int(customer["id"].(float64))
+
+	creditResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"product_id":         "T2-CUSTOMER-001",
+		"quantity":           1,
+		"customer_id":        customerID,
+		"installments_total": 4,
+		"total_value":        100000,
+		"interest_percent":   0,
+		"notes":              "credito con customer_id",
+	})
+	if creditResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 credit, got %d body=%s", creditResp.Code, creditResp.Body.String())
+	}
+	creditBody := decodeAPIResponse(t, creditResp)
+	creditSaleID := int(creditBody["credit_sale_id"].(float64))
+
+	installmentResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits/installments", token, map[string]any{
+		"credit_sale_id": creditSaleID,
+		"amount_paid":    5000,
+		"payment_type":   "abono",
+	})
+	if installmentResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 installment, got %d body=%s", installmentResp.Code, installmentResp.Body.String())
+	}
+
+	detail := performAPIJSONRequest(t, handler, http.MethodGet, "/api/customers/"+strconv.Itoa(customerID), token, nil)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("expected 200 detail, got %d body=%s", detail.Code, detail.Body.String())
+	}
+	detailBody := decodeAPIResponse(t, detail)
+	detailCustomer := detailBody["customer"].(map[string]any)
+	if int(detailCustomer["id"].(float64)) != customerID {
+		t.Fatalf("unexpected customer detail: %+v", detailCustomer)
+	}
+	if detailCustomer["current_debt"].(float64) != 95000 {
+		t.Fatalf("unexpected current_debt in detail: %+v", detailCustomer)
+	}
+	recentCredits := detailCustomer["recent_credits"].([]any)
+	if len(recentCredits) != 1 {
+		t.Fatalf("expected 1 recent credit, got %+v", detailCustomer)
+	}
+
+	events := performAPIJSONRequest(t, handler, http.MethodGet, "/api/customers/"+strconv.Itoa(customerID)+"/events", token, nil)
+	if events.Code != http.StatusOK {
+		t.Fatalf("expected 200 events, got %d body=%s", events.Code, events.Body.String())
+	}
+	eventsBody := decodeAPIResponse(t, events)
+	if int(eventsBody["count"].(float64)) < 3 {
+		t.Fatalf("expected at least 3 customer events, got %+v", eventsBody)
+	}
+
+	defaultCustomerID := 0
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '555666'`).Scan(&defaultCustomerID); err != nil && err != sql.ErrNoRows {
+		t.Fatalf("query cross-tenant customer: %v", err)
+	}
+	if defaultCustomerID != 0 {
+		t.Fatalf("unexpected cross-tenant duplicate customer id=%d", defaultCustomerID)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES (1, 'Cliente Base Ajeno', '3000001111', 'CC', '909090', '', 'Bogota', '', ?, ?)
+	`, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert cross tenant customer: %v", err)
+	}
+	var crossCustomerID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '909090'`).Scan(&crossCustomerID); err != nil {
+		t.Fatalf("query cross customer id: %v", err)
+	}
+	crossDetail := performAPIJSONRequest(t, handler, http.MethodGet, "/api/customers/"+strconv.Itoa(crossCustomerID), token, nil)
+	if crossDetail.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 cross-tenant detail, got %d body=%s", crossDetail.Code, crossDetail.Body.String())
+	}
+}
+
+func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
+	db, handler, _, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users", token, map[string]any{
+		"username":    "tenant2.ops",
+		"name":        "Operador Dos",
+		"email":       "tenant2.ops@example.com",
+		"password":    "OpsSegura123!",
+		"role":        "empleado",
+		"is_active":   true,
+		"telegram_id": "44556677",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating user, got %d body=%s", createResp.Code, createResp.Body.String())
+	}
+	createBody := decodeAPIResponse(t, createResp)
+	user := createBody["user"].(map[string]any)
+	userID := int(user["id"].(float64))
+	if user["telegram_id"] != "44556677" {
+		t.Fatalf("unexpected telegram_id in create response: %+v", user)
+	}
+	if user["role"] != "empleado" {
+		t.Fatalf("unexpected role in create response: %+v", user)
+	}
+
+	listResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users", token, nil)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing users, got %d body=%s", listResp.Code, listResp.Body.String())
+	}
+	listBody := decodeAPIResponse(t, listResp)
+	if int(listBody["count"].(float64)) < 2 {
+		t.Fatalf("expected at least tenant admin + created user, got %+v", listBody)
+	}
+
+	detailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users/"+strconv.Itoa(userID), token, nil)
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting user detail, got %d body=%s", detailResp.Code, detailResp.Body.String())
+	}
+	detailBody := decodeAPIResponse(t, detailResp)
+	detailUser := detailBody["user"].(map[string]any)
+	if detailUser["username"] != "tenant2.ops" {
+		t.Fatalf("unexpected detail payload: %+v", detailUser)
+	}
+
+	toggleOffResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(userID)+"/toggle", token, map[string]any{
+		"is_active": false,
+	})
+	if toggleOffResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 toggling user off, got %d body=%s", toggleOffResp.Code, toggleOffResp.Body.String())
+	}
+	toggleOffBody := decodeAPIResponse(t, toggleOffResp)
+	toggledOffUser := toggleOffBody["user"].(map[string]any)
+	if toggledOffUser["is_active"] != false {
+		t.Fatalf("unexpected toggle-off payload: %+v", toggledOffUser)
+	}
+
+	updateResp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/users/"+strconv.Itoa(userID), token, map[string]any{
+		"name":        "Operador Dos Actualizado",
+		"telegram_id": "88990011",
+		"is_active":   true,
+	})
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating user, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+	updateBody := decodeAPIResponse(t, updateResp)
+	updatedUser := updateBody["user"].(map[string]any)
+	if updatedUser["telegram_id"] != "88990011" || updatedUser["is_active"] != true {
+		t.Fatalf("unexpected updated payload: %+v", updatedUser)
+	}
+
+	now := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO sessions (token, user_id, tenant_id, created_at, expires_at)
+		VALUES ('user-pass-reset', ?, 2, ?, ?)
+	`, userID, time.Now().Format(time.RFC3339), now); err != nil {
+		t.Fatalf("insert session for password reset: %v", err)
+	}
+	passwordResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(userID)+"/password", token, map[string]any{
+		"password": "NuevaClave123!",
+	})
+	if passwordResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating password, got %d body=%s", passwordResp.Code, passwordResp.Body.String())
+	}
+	var remainingSessions int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ?`, userID).Scan(&remainingSessions); err != nil {
+		t.Fatalf("count user sessions after password reset: %v", err)
+	}
+	if remainingSessions != 0 {
+		t.Fatalf("expected sessions to be invalidated after password reset, got %d", remainingSessions)
+	}
+
+	crossTenantResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users/1", token, nil)
+	if crossTenantResp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 cross-tenant user detail, got %d body=%s", crossTenantResp.Code, crossTenantResp.Body.String())
+	}
+
+	forbiddenRoleResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users", token, map[string]any{
+		"username":  "tenant2.platform",
+		"password":  "PlatformSegura123!",
+		"role":      "platform_admin",
+		"is_active": true,
+	})
+	if forbiddenRoleResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when tenant admin tries to create platform admin, got %d body=%s", forbiddenRoleResp.Code, forbiddenRoleResp.Body.String())
+	}
+}
+
+func TestAPIUsersRejectsDeactivatingLastTenantAdmin(t *testing.T) {
+	db, handler, _, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(tenantAdmin.ID)+"/toggle", token, map[string]any{
+		"is_active": false,
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when deactivating last tenant admin, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAPIResponse(t, resp)
+	if body["error"] != "Debe existir al menos un admin activo." {
+		t.Fatalf("unexpected error payload: %+v", body)
+	}
+}
+
+func TestAPIInvoicesSupportSalesCreditsAndTenantScope(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "INV-001", "Producto Facturable", 45000, 2)
+
+	saleResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/sales", token, map[string]any{
+		"product_id":     "INV-001",
+		"quantity":       1,
+		"payment_method": "Efectivo",
+		"sale_price":     45000,
+		"channel":        "web",
+		"sold_by":        "tester",
+	})
+	if saleResp.Code != http.StatusCreated {
+		t.Fatalf("expected sale 201, got %d body=%s", saleResp.Code, saleResp.Body.String())
+	}
+	saleBody := decodeAPIResponse(t, saleResp)
+	saleID := int(saleBody["sale_id"].(float64))
+
+	invoiceSaleResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/invoices", token, map[string]any{
+		"sale_id":                  saleID,
+		"customer_name":            "Cliente Factura Venta",
+		"customer_phone":           "3001234567",
+		"customer_document_type":   "CC",
+		"customer_document_number": "99887766",
+		"customer_city":            "Bogota",
+		"customer_address":         "Calle 10 # 1-20",
+		"notes":                    "factura venta api",
+	})
+	if invoiceSaleResp.Code != http.StatusCreated {
+		t.Fatalf("expected invoice 201, got %d body=%s", invoiceSaleResp.Code, invoiceSaleResp.Body.String())
+	}
+	invoiceSaleBody := decodeAPIResponse(t, invoiceSaleResp)
+	invoiceSale, _ := invoiceSaleBody["invoice"].(map[string]any)
+	if invoiceSale["source_type"] != "sale" {
+		t.Fatalf("unexpected sale invoice payload: %+v", invoiceSaleBody)
+	}
+	invoiceSaleID := int(invoiceSale["id"].(float64))
+
+	invoiceDetailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/invoices/"+strconv.Itoa(invoiceSaleID), token, nil)
+	if invoiceDetailResp.Code != http.StatusOK {
+		t.Fatalf("expected invoice detail 200, got %d body=%s", invoiceDetailResp.Code, invoiceDetailResp.Body.String())
+	}
+	invoiceDetailBody := decodeAPIResponse(t, invoiceDetailResp)
+	invoiceDetail, _ := invoiceDetailBody["invoice"].(map[string]any)
+	if invoiceDetail["customer_document_number"] != "99887766" {
+		t.Fatalf("unexpected invoice detail: %+v", invoiceDetailBody)
+	}
+
+	listResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/invoices?q=99887766", token, nil)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("expected invoice list 200, got %d body=%s", listResp.Code, listResp.Body.String())
+	}
+	listBody := decodeAPIResponse(t, listResp)
+	if int(listBody["count"].(float64)) < 1 {
+		t.Fatalf("expected invoice list with items, got %+v", listBody)
+	}
+
+	creditResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind":                     "cash_loan",
+		"customer_name":            "Cliente Factura Credito",
+		"customer_phone":           "3015556677",
+		"customer_document_type":   "CC",
+		"customer_document_number": "55443322",
+		"customer_city":            "Medellin",
+		"installments_total":       4,
+		"total_value":              320000,
+		"interest_percent":         0,
+		"notes":                    "credito para factura",
+	})
+	if creditResp.Code != http.StatusCreated {
+		t.Fatalf("expected credit 201, got %d body=%s", creditResp.Code, creditResp.Body.String())
+	}
+	creditBody := decodeAPIResponse(t, creditResp)
+	creditSaleID := int(creditBody["credit_sale_id"].(float64))
+
+	invoiceCreditResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/invoices", token, map[string]any{
+		"credit_sale_id": creditSaleID,
+		"notes":          "factura credito agent",
+	})
+	if invoiceCreditResp.Code != http.StatusCreated {
+		t.Fatalf("expected credit invoice 201, got %d body=%s", invoiceCreditResp.Code, invoiceCreditResp.Body.String())
+	}
+	invoiceCreditBody := decodeAPIResponse(t, invoiceCreditResp)
+	invoiceCredit, _ := invoiceCreditBody["invoice"].(map[string]any)
+	if invoiceCredit["source_type"] != "credit" {
+		t.Fatalf("unexpected credit invoice payload: %+v", invoiceCreditBody)
+	}
+
+	reusedResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/invoices", token, map[string]any{
+		"credit_sale_id": creditSaleID,
+	})
+	if reusedResp.Code != http.StatusOK {
+		t.Fatalf("expected reused credit invoice 200, got %d body=%s", reusedResp.Code, reusedResp.Body.String())
+	}
+	reusedBody := decodeAPIResponse(t, reusedResp)
+	if created, _ := reusedBody["created"].(bool); created {
+		t.Fatalf("expected reused invoice, got %+v", reusedBody)
+	}
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant Facturas", "tenant-facturas", "tenantfact.admin", "TenantFacturas123!")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed second tenant: %v", err)
+	}
+	crossResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/invoices/"+strconv.Itoa(invoiceSaleID), provisioned.InitialAPIToken, nil)
+	if crossResp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-tenant invoice detail, got %d body=%s", crossResp.Code, crossResp.Body.String())
+	}
+}
+
 func TestAdjustInventoryProductUpdatesStockAndRetoma(t *testing.T) {
 	db := setupOperationsTestDB(t)
 	defer db.Close()
@@ -1862,5 +3337,213 @@ func TestAdjustInventoryProductUpdatesStockAndRetoma(t *testing.T) {
 	}
 	if inventoryAuditCount != 1 || productAuditCount != 1 {
 		t.Fatalf("unexpected audit counts inventory=%d product=%d", inventoryAuditCount, productAuditCount)
+	}
+}
+
+func TestCreateAndCloseProductLoanUpdatesInventoryAndTraceability(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "product-loan.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	admin := mustLoadTestUser(t, db, "admin")
+	now := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
+		VALUES ('PLOAN-001', 1, 'PLOAN-001', 'Producto prestable', 'Operaciones', 80000, 0);
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
+		VALUES
+			('UPL-001', 1, 'PLOAN-001', 'Disponible', ?),
+			('UPL-002', 1, 'PLOAN-001', 'Disponible', ?);
+	`, now, now); err != nil {
+		t.Fatalf("seed product loan db: %v", err)
+	}
+
+	createResult, err := createProductLoan(db, admin, productLoanCreateInput{
+		ProductID: "PLOAN-001",
+		Quantity:  1,
+		Customer: customerInput{
+			Name:           "Cliente Prestamo",
+			Phone:          "3001112233",
+			DocumentType:   "CC",
+			DocumentNumber: "10101010",
+			City:           "Bogota",
+		},
+		DueAt: "2026-04-05",
+		Notes: "prestamo operativo",
+	}, "web", nil)
+	if err != nil {
+		t.Fatalf("createProductLoan: %v", err)
+	}
+	if createResult.ProductLoanID <= 0 || createResult.Status != productLoanStatusActive {
+		t.Fatalf("unexpected create result: %+v", createResult)
+	}
+
+	var availableAfterCreate, loanedAfterCreate int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = 1 AND producto_id = 'PLOAN-001' AND estado = 'Disponible'`).Scan(&availableAfterCreate); err != nil {
+		t.Fatalf("count available after create: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = 1 AND producto_id = 'PLOAN-001' AND estado = 'Prestada'`).Scan(&loanedAfterCreate); err != nil {
+		t.Fatalf("count loaned after create: %v", err)
+	}
+	if availableAfterCreate != 1 || loanedAfterCreate != 1 {
+		t.Fatalf("unexpected stock after create available=%d loaned=%d", availableAfterCreate, loanedAfterCreate)
+	}
+
+	var createdAuditCount, createdCustomerEventCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE tenant_id = 1 AND event_type = 'product_loan_created'`).Scan(&createdAuditCount); err != nil {
+		t.Fatalf("count created audit: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_events WHERE tenant_id = 1 AND event_type = 'product_loan_created'`).Scan(&createdCustomerEventCount); err != nil {
+		t.Fatalf("count created customer event: %v", err)
+	}
+	if createdAuditCount != 1 || createdCustomerEventCount != 1 {
+		t.Fatalf("unexpected create traceability audit=%d customer=%d", createdAuditCount, createdCustomerEventCount)
+	}
+
+	closeResult, err := closeProductLoan(db, admin, productLoanCloseInput{
+		ProductLoanID: createResult.ProductLoanID,
+		Status:        productLoanStatusReturned,
+		Notes:         "retornado en buen estado",
+	}, "web", nil)
+	if err != nil {
+		t.Fatalf("closeProductLoan: %v", err)
+	}
+	if closeResult.Status != productLoanStatusReturned {
+		t.Fatalf("unexpected close result: %+v", closeResult)
+	}
+
+	var availableAfterClose, loanedAfterClose int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = 1 AND producto_id = 'PLOAN-001' AND estado = 'Disponible'`).Scan(&availableAfterClose); err != nil {
+		t.Fatalf("count available after close: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = 1 AND producto_id = 'PLOAN-001' AND estado = 'Prestada'`).Scan(&loanedAfterClose); err != nil {
+		t.Fatalf("count loaned after close: %v", err)
+	}
+	if availableAfterClose != 2 || loanedAfterClose != 0 {
+		t.Fatalf("unexpected stock after close available=%d loaned=%d", availableAfterClose, loanedAfterClose)
+	}
+
+	var (
+		storedStatus string
+		closedAt     sql.NullString
+	)
+	if err := db.QueryRow(`SELECT status, closed_at FROM product_loans WHERE tenant_id = 1 AND id = ?`, createResult.ProductLoanID).Scan(&storedStatus, &closedAt); err != nil {
+		t.Fatalf("query product loan: %v", err)
+	}
+	if storedStatus != string(productLoanStatusReturned) || !closedAt.Valid || strings.TrimSpace(closedAt.String) == "" {
+		t.Fatalf("unexpected persisted product loan status=%q closed_at=%v", storedStatus, closedAt)
+	}
+
+	var closedAuditCount, closedCustomerEventCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE tenant_id = 1 AND event_type = 'product_loan_closed'`).Scan(&closedAuditCount); err != nil {
+		t.Fatalf("count closed audit: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_events WHERE tenant_id = 1 AND event_type = 'product_loan_closed'`).Scan(&closedCustomerEventCount); err != nil {
+		t.Fatalf("count closed customer event: %v", err)
+	}
+	if closedAuditCount != 1 || closedCustomerEventCount != 1 {
+		t.Fatalf("unexpected close traceability audit=%d customer=%d", closedAuditCount, closedCustomerEventCount)
+	}
+}
+
+func TestListProductLoansReportSupportsOverdueAndTenantScope(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "product-loan-report.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	admin := mustLoadTestUser(t, db, "admin")
+	now := time.Now().Add(-72 * time.Hour).Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
+		VALUES
+			('PLOAN-R1', 1, 'PLOAN-R1', 'Producto Vencido', 'Operaciones', 50000, 0),
+			('PLOAN-R2', 1, 'PLOAN-R2', 'Producto En Fecha', 'Operaciones', 60000, 0),
+			('PLOAN-RX', 2, 'PLOAN-RX', 'Producto Otro Tenant', 'Operaciones', 70000, 0);
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES
+			(1, 'Cliente Vencido', '3001110000', 'CC', '7001', '', 'Bogota', '', ?, ?),
+			(1, 'Cliente Activo', '3001110001', 'CC', '7002', '', 'Medellin', '', ?, ?),
+			(2, 'Cliente Externo', '3001110002', 'CC', '7003', '', 'Cali', '', ?, ?);
+	`, now, now, now, now, now, now); err != nil {
+		t.Fatalf("seed report db: %v", err)
+	}
+
+	var customerExpiredID, customerActiveID, customerOtherTenantID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '7001'`).Scan(&customerExpiredID); err != nil {
+		t.Fatalf("customer expired id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = '7002'`).Scan(&customerActiveID); err != nil {
+		t.Fatalf("customer active id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 2 AND document_number = '7003'`).Scan(&customerOtherTenantID); err != nil {
+		t.Fatalf("customer other tenant id: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO product_loans (
+			tenant_id, product_id, customer_id, quantity, borrower_name, borrower_phone,
+			borrower_document_type, borrower_document_number, borrower_address, borrower_city,
+			notes, status, loaned_at, due_at, created_by
+		) VALUES
+			(1, 'PLOAN-R1', ?, 1, 'Cliente Vencido', '3001110000', 'CC', '7001', '', 'Bogota', 'prestamo vencido', 'active', ?, '2026-03-01', 1),
+			(1, 'PLOAN-R2', ?, 1, 'Cliente Activo', '3001110001', 'CC', '7002', '', 'Medellin', 'prestamo activo', 'active', ?, '2099-03-01', 1),
+			(2, 'PLOAN-RX', ?, 1, 'Cliente Externo', '3001110002', 'CC', '7003', '', 'Cali', 'otro tenant', 'active', ?, '2026-03-01', 1)
+	`, customerExpiredID, now, customerActiveID, now, customerOtherTenantID, now); err != nil {
+		t.Fatalf("insert product loans: %v", err)
+	}
+
+	var loanExpiredID, loanActiveID, loanOtherTenantID int
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 1 AND product_id = 'PLOAN-R1'`).Scan(&loanExpiredID); err != nil {
+		t.Fatalf("loan expired id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 1 AND product_id = 'PLOAN-R2'`).Scan(&loanActiveID); err != nil {
+		t.Fatalf("loan active id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 2 AND product_id = 'PLOAN-RX'`).Scan(&loanOtherTenantID); err != nil {
+		t.Fatalf("loan other tenant id: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO product_loan_units (tenant_id, product_loan_id, unit_id)
+		VALUES
+			(1, ?, 'ULR-001'),
+			(1, ?, 'ULR-002'),
+			(2, ?, 'ULR-003')
+	`, loanExpiredID, loanActiveID, loanOtherTenantID); err != nil {
+		t.Fatalf("insert product loan units: %v", err)
+	}
+
+	items, err := listProductLoansReport(db, admin, 1, productLoanReportFilters{
+		Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("listProductLoansReport: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 tenant-scoped items, got %d", len(items))
+	}
+
+	overdueItems, err := listProductLoansReport(db, admin, 1, productLoanReportFilters{
+		Overdue: "yes",
+		Limit:   50,
+	})
+	if err != nil {
+		t.Fatalf("listProductLoansReport overdue: %v", err)
+	}
+	if len(overdueItems) != 1 || !overdueItems[0].IsOverdue || overdueItems[0].ProductID != "PLOAN-R1" {
+		t.Fatalf("unexpected overdue items: %+v", overdueItems)
+	}
+	if overdueItems[0].UnitIDsText != "ULR-001" {
+		t.Fatalf("expected unit ids in overdue item, got %+v", overdueItems[0])
 	}
 }

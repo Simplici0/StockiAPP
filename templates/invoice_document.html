@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            .invoice-shell {
+                width: min(860px, 100%);
+                margin: 0 auto;
+                display: grid;
+                gap: 18px;
+            }
+
+            .invoice-card {
+                background: rgba(255, 255, 255, 0.98);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                border-radius: 22px;
+                box-shadow: 0 18px 40px rgba(10, 25, 55, 0.08);
+                overflow: hidden;
+            }
+
+            .invoice-head {
+                display: flex;
+                justify-content: space-between;
+                gap: 18px;
+                align-items: flex-start;
+                flex-wrap: wrap;
+                padding: 22px 24px 18px;
+                background: linear-gradient(
+                    180deg,
+                    rgba(248, 250, 252, 0.98) 0%,
+                    rgba(255, 255, 255, 0.95) 100%
+                );
+                border-bottom: 1px solid rgba(15, 40, 80, 0.08);
+            }
+
+            .invoice-brand {
+                display: flex;
+                gap: 14px;
+                align-items: center;
+            }
+
+            .invoice-brand img {
+                width: 56px;
+                height: 56px;
+                object-fit: contain;
+                border-radius: 14px;
+                background: rgba(255, 255, 255, 0.92);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                padding: 8px;
+            }
+
+            .invoice-kicker {
+                margin: 0 0 6px;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--primary);
+            }
+
+            .invoice-meta {
+                display: grid;
+                gap: 6px;
+                min-width: min(100%, 240px);
+            }
+
+            .invoice-meta-item {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                font-size: 13px;
+                color: var(--text-muted);
+            }
+
+            .invoice-meta-item strong {
+                color: var(--secondary);
+                font-size: 11px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .invoice-body {
+                padding: 20px 24px 24px;
+                display: grid;
+                gap: 18px;
+            }
+
+            .invoice-block {
+                display: grid;
+                gap: 12px;
+                padding: 16px 18px;
+                border-radius: 16px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: rgba(248, 250, 252, 0.9);
+            }
+
+            .invoice-block h2 {
+                margin: 0;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--text-muted);
+            }
+
+            .invoice-grid {
+                display: grid;
+                gap: 12px;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            }
+
+            .invoice-field {
+                display: grid;
+                gap: 5px;
+            }
+
+            .invoice-field strong {
+                color: var(--text-muted);
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .invoice-field span {
+                color: var(--secondary);
+                font-size: 14px;
+                font-weight: 600;
+            }
+
+            .invoice-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            .invoice-table th,
+            .invoice-table td {
+                padding: 10px 0;
+                text-align: left;
+                border-bottom: 1px dashed rgba(15, 40, 80, 0.14);
+                font-size: 13px;
+            }
+
+            .invoice-table th:last-child,
+            .invoice-table td:last-child {
+                text-align: right;
+            }
+
+            .invoice-total {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 16px;
+                padding: 16px 18px;
+                border-radius: 18px;
+                background: linear-gradient(
+                    135deg,
+                    rgba(16, 42, 76, 0.96) 0%,
+                    rgba(11, 29, 54, 0.98) 100%
+                );
+                color: #ffffff;
+            }
+
+            .invoice-total strong {
+                font-size: 12px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: rgba(255, 255, 255, 0.74);
+            }
+
+            .invoice-total span {
+                font-size: 26px;
+                font-weight: 800;
+                letter-spacing: -0.04em;
+            }
+
+            .invoice-actions {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            @media print {
+                .topbar,
+                .page-header,
+                .invoice-actions {
+                    display: none !important;
+                }
+
+                body,
+                html {
+                    background: #ffffff !important;
+                }
+
+                .page-content {
+                    width: 100%;
+                    padding: 0;
+                }
+
+                .invoice-card {
+                    border: 0;
+                    box-shadow: none;
+                }
+            }
+
+            @media (max-width: 720px) {
+                .invoice-head,
+                .invoice-body {
+                    padding: 16px;
+                }
+
+                .invoice-total {
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="invoice-shell">
+                <section class="invoice-card">
+                    <header class="invoice-head">
+                        <div class="invoice-brand">
+                            {{if .Settings.LogoPath}}
+                            <img src="{{.Settings.LogoPath}}" alt="{{.Settings.BusinessName}}" />
+                            {{end}}
+                            <div>
+                                <p class="invoice-kicker">Factura operativa</p>
+                                <h1>{{if .Settings.BusinessName}}{{.Settings.BusinessName}}{{else}}StockiAPP{{end}}</h1>
+                                <p>{{.Subtitle}}</p>
+                            </div>
+                        </div>
+                        <div class="invoice-meta">
+                            <div class="invoice-meta-item">
+                                <strong>Número</strong>
+                                <span>{{.InvoiceNumber}}</span>
+                            </div>
+                            <div class="invoice-meta-item">
+                                <strong>Fecha</strong>
+                                <span>{{.CreatedAt}}</span>
+                            </div>
+                            <div class="invoice-meta-item">
+                                <strong>Origen</strong>
+                                <span>{{.SourceLabel}}</span>
+                            </div>
+                            <div class="invoice-meta-item">
+                                <strong>Estado</strong>
+                                <span>{{.StatusLabel}}</span>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div class="invoice-body">
+                        <section class="invoice-block">
+                            <h2>Cliente</h2>
+                            <div class="invoice-grid">
+                                <div class="invoice-field">
+                                    <strong>Nombre</strong>
+                                    <span>{{.CustomerName}}</span>
+                                </div>
+                                <div class="invoice-field">
+                                    <strong>Documento</strong>
+                                    <span>{{.CustomerDocumentType}} {{.CustomerDocumentNumber}}</span>
+                                </div>
+                                <div class="invoice-field">
+                                    <strong>Teléfono</strong>
+                                    <span>{{.CustomerPhone}}</span>
+                                </div>
+                                <div class="invoice-field">
+                                    <strong>Ciudad</strong>
+                                    <span>{{.CustomerCity}}</span>
+                                </div>
+                                {{if .CustomerAddress}}
+                                <div class="invoice-field">
+                                    <strong>Dirección</strong>
+                                    <span>{{.CustomerAddress}}</span>
+                                </div>
+                                {{end}}
+                            </div>
+                        </section>
+
+                        <section class="invoice-block">
+                            <h2>Detalle</h2>
+                            <table class="invoice-table">
+                                <thead>
+                                    <tr>
+                                        <th>Descripción</th>
+                                        <th>Cant.</th>
+                                        <th>Unitario</th>
+                                        <th>Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .Items}}
+                                    <tr>
+                                        <td>
+                                            {{.Description}}
+                                            {{if .ProductID}}
+                                            <div class="muted">ID {{.ProductID}}</div>
+                                            {{end}}
+                                        </td>
+                                        <td>{{.Quantity}}</td>
+                                        <td>{{.UnitPriceText}}</td>
+                                        <td>{{.LineTotalText}}</td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </section>
+
+                        <section class="invoice-block">
+                            <h2>Referencia</h2>
+                            <div class="invoice-grid">
+                                {{if gt .SaleID 0}}
+                                <div class="invoice-field">
+                                    <strong>Venta</strong>
+                                    <span>#{{.SaleID}}</span>
+                                </div>
+                                {{end}} {{if gt .CreditSaleID 0}}
+                                <div class="invoice-field">
+                                    <strong>Crédito</strong>
+                                    <span>#{{.CreditSaleID}}</span>
+                                </div>
+                                {{end}}
+                            </div>
+                        </section>
+
+                        {{if .Notes}}
+                        <section class="invoice-block">
+                            <h2>Observaciones</h2>
+                            <p>{{.Notes}}</p>
+                        </section>
+                        {{end}}
+
+                        <div class="invoice-total">
+                            <strong>Total documento</strong>
+                            <span>{{.TotalText}}</span>
+                        </div>
+
+                        <div class="invoice-actions">
+                            <button class="button primary" type="button" onclick="window.print()">Imprimir factura</button>
+                            <a class="button secondary" href="/inventario">Volver</a>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </body>
+</html>

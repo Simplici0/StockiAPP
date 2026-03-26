@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        {{template "app_styles" .}}
+        <style>
+            .customer-detail-layout {
+                display: grid;
+                gap: 18px;
+            }
+
+            .customer-hero {
+                display: grid;
+                gap: 18px;
+                grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+            }
+
+            .hero-card,
+            .section-card {
+                border-radius: 20px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.97) 0%,
+                    rgba(248, 250, 252, 0.94) 100%
+                );
+                box-shadow: 0 16px 28px rgba(12, 28, 52, 0.06);
+                padding: 20px;
+            }
+
+            .hero-head {
+                display: flex;
+                justify-content: space-between;
+                gap: 16px;
+                align-items: flex-start;
+                margin-bottom: 14px;
+            }
+
+            .hero-head h2 {
+                margin: 0;
+                font-size: 26px;
+                line-height: 1.05;
+                color: var(--secondary);
+            }
+
+            .hero-doc {
+                color: var(--text-muted);
+                font-size: 13px;
+                margin-top: 4px;
+            }
+
+            .hero-meta {
+                display: grid;
+                gap: 8px;
+                color: var(--text-muted);
+                font-size: 13px;
+            }
+
+            .hero-notes {
+                margin-top: 14px;
+                padding: 14px;
+                border-radius: 16px;
+                background: var(--bg-card-muted);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                font-size: 13px;
+            }
+
+            .hero-metrics {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+            }
+
+            .metric {
+                padding: 14px;
+                border-radius: 16px;
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.95) 0%,
+                    rgba(242, 246, 250, 0.92) 100%
+                );
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                display: grid;
+                gap: 6px;
+            }
+
+            .metric span {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--text-muted);
+                font-weight: 700;
+            }
+
+            .metric strong {
+                font-size: 18px;
+                color: var(--secondary);
+            }
+
+            .status-chip {
+                display: inline-flex;
+                align-items: center;
+                min-height: 30px;
+                padding: 0 10px;
+                border-radius: 999px;
+                border: 1px solid rgba(14, 165, 201, 0.18);
+                background: rgba(236, 254, 255, 0.96);
+                color: var(--secondary);
+                font-size: 12px;
+                font-weight: 700;
+                white-space: nowrap;
+            }
+
+            .section-card h3 {
+                margin: 0 0 14px;
+                font-size: 18px;
+                color: var(--secondary);
+            }
+
+            .section-grid {
+                display: grid;
+                gap: 18px;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .entity-list {
+                display: grid;
+                gap: 12px;
+            }
+
+            .entity-row {
+                padding: 14px 16px;
+                border-radius: 16px;
+                background: var(--bg-card-muted);
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                display: grid;
+                gap: 6px;
+            }
+
+            .entity-row strong {
+                color: var(--secondary);
+                font-size: 15px;
+            }
+
+            .entity-meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                color: var(--text-muted);
+                font-size: 12.5px;
+            }
+
+            .entity-summary {
+                color: var(--text);
+                font-size: 13px;
+            }
+
+            .entity-link {
+                color: var(--secondary);
+                font-weight: 700;
+                font-size: 12.5px;
+            }
+
+            .timeline {
+                display: grid;
+                gap: 12px;
+            }
+
+            .timeline-item {
+                display: grid;
+                gap: 6px;
+                padding: 16px;
+                border-radius: 16px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.95) 0%,
+                    rgba(244, 248, 252, 0.92) 100%
+                );
+            }
+
+            .timeline-head {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                align-items: flex-start;
+                flex-wrap: wrap;
+            }
+
+            .timeline-head strong {
+                color: var(--secondary);
+                font-size: 15px;
+            }
+
+            .timeline-meta {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                color: var(--text-muted);
+                font-size: 12.5px;
+            }
+
+            .back-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                font-weight: 700;
+                color: var(--secondary);
+                text-decoration: none;
+            }
+
+            .empty-inline {
+                color: var(--text-muted);
+                font-size: 13px;
+                padding: 4px 0;
+            }
+
+            @media (max-width: 980px) {
+                .customer-hero,
+                .section-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        {{template "header" .}}
+
+        <main class="page-content customer-detail-layout">
+            {{if .Flash}}
+            <div class="flash">{{.Flash}}</div>
+            {{end}} {{if .Error}}
+            <div class="flash error">{{.Error}}</div>
+            {{end}}
+
+            <a class="back-link" href="/clientes">← Volver a clientes</a>
+
+            <section class="customer-hero">
+                <article class="hero-card">
+                    <div class="hero-head">
+                        <div>
+                            <h2>{{.Customer.Summary.Name}}</h2>
+                            <div class="hero-doc">
+                                {{.Customer.Summary.DocumentType}}
+                                {{.Customer.Summary.DocumentNumber}}
+                            </div>
+                        </div>
+                        <span class="status-chip"
+                            >{{.Customer.Summary.CurrentDebtText}}</span
+                        >
+                    </div>
+
+                    <div class="hero-meta">
+                        {{if .Customer.Summary.Phone}}
+                        <div>
+                            Teléfono:
+                            <strong>{{.Customer.Summary.Phone}}</strong>
+                        </div>
+                        {{end}} {{if .Customer.Summary.City}}
+                        <div>
+                            Ciudad: <strong>{{.Customer.Summary.City}}</strong>
+                        </div>
+                        {{end}} {{if .Customer.Summary.Address}}
+                        <div>
+                            Dirección:
+                            <strong>{{.Customer.Summary.Address}}</strong>
+                        </div>
+                        {{end}}
+                        <div>
+                            Creado:
+                            <strong>{{.Customer.Summary.CreatedAt}}</strong>
+                        </div>
+                        <div>
+                            Actualizado:
+                            <strong>{{.Customer.Summary.UpdatedAt}}</strong>
+                        </div>
+                    </div>
+
+                    {{if .Customer.Summary.Notes}}
+                    <div class="hero-notes">
+                        <strong>Notas</strong>
+                        <div>{{.Customer.Summary.Notes}}</div>
+                    </div>
+                    {{end}}
+                </article>
+
+                <aside class="hero-card hero-metrics">
+                    <div class="metric">
+                        <span>Créditos</span>
+                        <strong>{{.Customer.Summary.CreditsCount}}</strong>
+                    </div>
+                    <div class="metric">
+                        <span>Activos</span>
+                        <strong>{{.Customer.Summary.ActiveCredits}}</strong>
+                    </div>
+                    <div class="metric">
+                        <span>Total financiado</span>
+                        <strong>{{.Customer.Summary.DebtTotalText}}</strong>
+                    </div>
+                    <div class="metric">
+                        <span>Total pagado</span>
+                        <strong>{{.Customer.Summary.TotalPaidText}}</strong>
+                    </div>
+                </aside>
+            </section>
+
+            <section class="section-card">
+                <h3>Timeline del cliente</h3>
+                {{if .Customer.Timeline}}
+                <div class="timeline">
+                    {{range .Customer.Timeline}}
+                    <article class="timeline-item">
+                        <div class="timeline-head">
+                            <strong>{{.EventLabel}}</strong>
+                            <span class="status-chip">{{.CreatedAt}}</span>
+                        </div>
+                        {{if .Summary}}
+                        <div class="entity-summary">{{.Summary}}</div>
+                        {{end}}
+                        <div class="timeline-meta">
+                            {{if .CreatedBy}}<span
+                                >Gestionado por {{.CreatedBy}}</span
+                            >{{end}} {{if .AmountText}}<span
+                                >Monto {{.AmountText}}</span
+                            >{{end}} {{if .RefType}}<span
+                                >Ref. {{.RefType}} #{{.RefID}}</span
+                            >{{end}}
+                        </div>
+                        {{if .DetailURL}}<a
+                            class="entity-link"
+                            href="{{.DetailURL}}"
+                            >Abrir referencia</a
+                        >{{end}}
+                    </article>
+                    {{end}}
+                </div>
+                {{else}}
+                <div class="empty-inline">
+                    No hay eventos registrados todavía.
+                </div>
+                {{end}}
+            </section>
+
+            <section class="section-grid">
+                <article class="section-card">
+                    <h3>Productos adquiridos</h3>
+                    {{if .Customer.Products}}
+                    <div class="entity-list">
+                        {{range .Customer.Products}}
+                        <div class="entity-row">
+                            <strong>{{.ProductName}}</strong>
+                            <div class="entity-meta">
+                                {{if
+                                .ProductID}}<span>{{.ProductID}}</span>{{end}}
+                                <span>Cantidad {{.Quantity}}</span>
+                                {{if .LastAt}}<span
+                                    >Último movimiento {{.LastAt}}</span
+                                >{{end}}
+                            </div>
+                            <div class="entity-summary">
+                                {{.TotalText}} · {{.SourcesText}}
+                            </div>
+                        </div>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <div class="empty-inline">
+                        Aún no hay productos asociados por factura o crédito.
+                    </div>
+                    {{end}}
+                </article>
+
+                <article class="section-card">
+                    <h3>Facturas</h3>
+                    {{if .Customer.Invoices}}
+                    <div class="entity-list">
+                        {{range .Customer.Invoices}}
+                        <div class="entity-row">
+                            <strong>{{.InvoiceNumber}}</strong>
+                            <div class="entity-meta">
+                                <span>{{.SourceLabel}}</span>
+                                <span>{{.StatusLabel}}</span>
+                                <span>{{.CreatedAt}}</span>
+                            </div>
+                            <div class="entity-summary">{{.TotalText}}</div>
+                            <a class="entity-link" href="{{.ViewURL}}"
+                                >Ver factura</a
+                            >
+                        </div>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <div class="empty-inline">
+                        No hay facturas registradas para este cliente.
+                    </div>
+                    {{end}}
+                </article>
+
+                <article class="section-card">
+                    <h3>Créditos recientes</h3>
+                    {{if .Customer.Credits}}
+                    <div class="entity-list">
+                        {{range .Customer.Credits}}
+                        <div class="entity-row">
+                            <strong>{{.KindLabel}} · {{.ProductName}}</strong>
+                            <div class="entity-meta">
+                                <span>#{{.ID}}</span>
+                                <span>{{.CreatedAt}}</span>
+                                <span
+                                    >Cuotas {{.InstallmentsPaid}} /
+                                    {{.InstallmentsTotal}}</span
+                                >
+                            </div>
+                            <div class="entity-summary">
+                                Total {{.DebtTotalText}} · Pagado
+                                {{.TotalPaidText}} · Saldo {{.CurrentDebtText}}
+                            </div>
+                        </div>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <div class="empty-inline">
+                        No hay créditos registrados para este cliente.
+                    </div>
+                    {{end}}
+                </article>
+
+                <article class="section-card">
+                    <h3>Préstamos físicos</h3>
+                    {{if .Customer.Loans}}
+                    <div class="entity-list">
+                        {{range .Customer.Loans}}
+                        <div class="entity-row">
+                            <strong>{{.ProductName}}</strong>
+                            <div class="entity-meta">
+                                <span>{{.StatusLabel}}</span>
+                                <span>Salida {{.LoanedAt}}</span>
+                                {{if .DueAt}}<span>Retorno {{.DueAt}}</span
+                                >{{end}}
+                                <span>Cantidad {{.Quantity}}</span>
+                            </div>
+                            <div class="entity-summary">
+                                {{if .IsOverdue}}Préstamo
+                                vencido{{else}}Seguimiento en curso{{end}}
+                            </div>
+                            <a class="entity-link" href="{{.DetailURL}}"
+                                >Ver préstamo</a
+                            >
+                        </div>
+                        {{end}}
+                    </div>
+                    {{else}}
+                    <div class="empty-inline">
+                        No hay préstamos físicos asociados a este cliente.
+                    </div>
+                    {{end}}
+                </article>
+            </section>
+        </main>
+    </body>
+</html>

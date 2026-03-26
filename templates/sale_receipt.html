@@ -288,6 +288,15 @@
                             </div>
                         </div>
                         <div class="receipt-actions">
+                            {{if .InvoiceCreateURL}}
+                            <a
+                                class="button secondary"
+                                href="{{.InvoiceCreateURL}}"
+                                target="_blank"
+                                rel="noreferrer"
+                                >Generar factura</a
+                            >
+                            {{end}}
                             <button class="button primary" type="submit">
                                 Ver comprobante
                             </button>
@@ -299,6 +308,15 @@
                             >
                                 Descargar comprobante
                             </button>
+                            {{if .ThermalURL}}
+                            <a
+                                class="button secondary"
+                                href="{{.ThermalURL}}"
+                                target="_blank"
+                                rel="noreferrer"
+                                >Ticket térmico</a
+                            >
+                            {{end}}
                             <a class="button secondary" href="/inventario"
                                 >Volver al inventario</a
                             >
@@ -310,9 +328,27 @@
                     <a class="button secondary" href="/inventario"
                         >Volver al inventario</a
                     >
+                    {{if .InvoiceCreateURL}}
+                    <a
+                        class="button secondary"
+                        href="{{.InvoiceCreateURL}}"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Generar factura</a
+                    >
+                    {{end}}
                     <a class="button secondary" href="{{.DownloadURL}}"
                         >Descargar comprobante</a
                     >
+                    {{if .ThermalURL}}
+                    <a
+                        class="button secondary"
+                        href="{{.ThermalURL}}"
+                        target="_blank"
+                        rel="noreferrer"
+                        >Ticket térmico</a
+                    >
+                    {{end}}
                     <button
                         class="primary"
                         type="button"

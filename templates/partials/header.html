@@ -211,6 +211,32 @@
       font-weight: 500;
     }
 
+    .topbar-menu-panel button.menu-item {
+      all: unset;
+      display: grid;
+      gap: 3px;
+      padding: 12px 13px;
+      border-radius: 12px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .topbar-menu-panel button.menu-item:hover {
+      background: var(--secondary-soft);
+      color: var(--secondary);
+    }
+
+    .topbar-menu-panel .menu-sep {
+      height: 1px;
+      background: rgba(15, 40, 80, 0.07);
+      margin: 4px 0;
+    }
+
     /* Separador de sección admin */
     .topbar-sep {
       width: 1px;
@@ -424,6 +450,7 @@
         <nav class="topbar-nav" aria-label="Navegación principal">
             <a href="/dashboard" class="topbar-link">Dashboard</a>
             <a href="/inventario" class="topbar-link">Inventario</a>
+            <a href="/clientes" class="topbar-link">Clientes</a>
         </nav>
 
         <div class="topbar-admin-nav" aria-label="Menús administrativos">
@@ -443,6 +470,20 @@
                         <span>Importar</span>
                         <small>Plantilla y carga de productos</small>
                     </a>
+                    {{if pageCanLoan .}}
+                    <div class="menu-sep"></div>
+                    <a href="/prestamos/producto">
+                        <span>Ver préstamos</span>
+                        <small>Reporte de préstamos físicos</small>
+                    </a>
+                    {{end}}
+                    {{if pageCanCredit .}}
+                    {{if not (pageCanLoan .)}}<div class="menu-sep"></div>{{end}}
+                    <button id="credit-manage-open" class="menu-item" type="button">
+                        <span>Editar créditos</span>
+                        <small>Gestión de créditos activos</small>
+                    </button>
+                    {{end}}
                 </div>
             </details>
             <details class="topbar-menu">

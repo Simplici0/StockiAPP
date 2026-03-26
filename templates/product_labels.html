@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            :root {
+                color-scheme: light;
+                --label-width: {{.WidthMM}}mm;
+                --label-height: {{.HeightMM}}mm;
+                --paper: #eef2f6;
+                --ink: #111827;
+                --muted: #6b7280;
+                --line: rgba(17, 24, 39, 0.12);
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                background: var(--paper);
+                color: var(--ink);
+            }
+
+            .label-shell {
+                max-width: 980px;
+                margin: 0 auto;
+                padding: 24px 20px 40px;
+                display: grid;
+                gap: 18px;
+            }
+
+            .label-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 14px 16px;
+                border-radius: 18px;
+                background: rgba(255, 255, 255, 0.96);
+                border: 1px solid var(--line);
+            }
+
+            .label-toolbar-copy {
+                display: grid;
+                gap: 4px;
+            }
+
+            .label-toolbar-copy h1 {
+                margin: 0;
+                font-size: 18px;
+            }
+
+            .label-toolbar-copy p {
+                margin: 0;
+                color: var(--muted);
+                font-size: 13px;
+            }
+
+            .label-toolbar-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .label-size-picker {
+                display: grid;
+                gap: 4px;
+            }
+
+            .label-size-picker label {
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--muted);
+            }
+
+            .label-size-picker select {
+                min-width: 164px;
+                padding: 12px 14px;
+                border-radius: 14px;
+                border: 1px solid rgba(17, 24, 39, 0.14);
+                background: #ffffff;
+                color: var(--ink);
+                font: inherit;
+            }
+
+            .label-grid {
+                display: grid;
+                gap: 20px;
+                justify-content: center;
+            }
+
+            .label-card {
+                width: var(--label-width);
+                min-height: var(--label-height);
+                background: #ffffff;
+                color: var(--ink);
+                border: 1px solid rgba(17, 24, 39, 0.14);
+                border-radius: 14px;
+                padding: 3.2mm 3.4mm;
+                display: grid;
+                grid-template-rows: auto auto 1fr auto auto;
+                gap: 2.2mm;
+                box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+                overflow: hidden;
+            }
+
+            .label-brand {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-height: 12px;
+            }
+
+            .label-logo {
+                max-width: 24mm;
+                max-height: 8mm;
+                object-fit: contain;
+                filter: grayscale(1) contrast(1.1);
+            }
+
+            .label-business {
+                font-size: 9px;
+                line-height: 1.2;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+            }
+
+            .label-name {
+                margin: 0;
+                font-size: 12px;
+                line-height: 1.2;
+                font-weight: 800;
+                letter-spacing: 0.01em;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                min-height: 29px;
+            }
+
+            .label-price {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 8px;
+                border-top: 1px dashed rgba(17, 24, 39, 0.24);
+                border-bottom: 1px dashed rgba(17, 24, 39, 0.24);
+                padding: 1.6mm 0;
+            }
+
+            .label-price span {
+                font-size: 8px;
+                font-weight: 700;
+                color: var(--muted);
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .label-price strong {
+                font-size: 15px;
+                line-height: 1;
+            }
+
+            .label-barcode {
+                display: grid;
+                justify-items: center;
+                align-content: center;
+                gap: 1.4mm;
+            }
+
+            .label-barcode img {
+                width: 100%;
+                max-height: 16mm;
+                object-fit: contain;
+                image-rendering: pixelated;
+            }
+
+            .label-code {
+                font-family: "SFMono-Regular", "Consolas", "Liberation Mono",
+                    "Menlo", monospace;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .label-footnote {
+                font-size: 8px;
+                color: var(--muted);
+                text-align: center;
+                line-height: 1.2;
+            }
+
+            .label-card.is-compact {
+                padding: 2.1mm 2.4mm;
+                grid-template-rows: auto auto auto 1fr;
+                gap: 1.2mm;
+            }
+
+            .label-card.is-compact .label-brand {
+                min-height: 0;
+                gap: 6px;
+            }
+
+            .label-card.is-compact .label-logo {
+                max-width: 14mm;
+                max-height: 5mm;
+            }
+
+            .label-card.is-compact .label-business {
+                font-size: 7px;
+                letter-spacing: 0.05em;
+            }
+
+            .label-card.is-compact .label-name {
+                font-size: 8.8px;
+                min-height: 0;
+                -webkit-line-clamp: 1;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+
+            .label-card.is-compact .label-price {
+                padding: 1mm 0;
+            }
+
+            .label-card.is-compact .label-price span {
+                font-size: 6.4px;
+            }
+
+            .label-card.is-compact .label-price strong {
+                font-size: 10.8px;
+            }
+
+            .label-card.is-compact .label-barcode {
+                gap: 0.6mm;
+                align-content: end;
+            }
+
+            .label-card.is-compact .label-barcode img {
+                max-height: 8mm;
+            }
+
+            .label-card.is-compact .label-code {
+                font-size: 7.4px;
+                letter-spacing: 0.04em;
+            }
+
+            .label-card.is-compact .label-footnote {
+                display: none;
+            }
+
+            @page {
+                size: {{.WidthMM}}mm {{.HeightMM}}mm;
+                margin: 0;
+            }
+
+            @media print {
+                .topbar,
+                .page-header,
+                .label-toolbar {
+                    display: none !important;
+                }
+
+                body,
+                html {
+                    background: #ffffff !important;
+                }
+
+                .page-content,
+                .label-shell {
+                    width: 100%;
+                    margin: 0;
+                    padding: 0;
+                }
+
+                .label-grid {
+                    gap: 0;
+                }
+
+                .label-card {
+                    width: {{.WidthMM}}mm;
+                    min-height: {{.HeightMM}}mm;
+                    height: {{.HeightMM}}mm;
+                    border: 0;
+                    border-radius: 0;
+                    box-shadow: none;
+                    page-break-after: always;
+                    break-after: page;
+                }
+
+                .label-card:last-child {
+                    page-break-after: auto;
+                    break-after: auto;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="label-shell">
+                <section class="label-toolbar">
+                    <div class="label-toolbar-copy">
+                        <h1>{{.Title}}</h1>
+                        <p>{{len .Items}} etiqueta(s) · formato {{.Size}} mm · orientación horizontal · lista para impresora térmica.</p>
+                    </div>
+                    <div class="label-toolbar-actions">
+                        <div class="label-size-picker">
+                            <label for="label-size">Formato</label>
+                            <select
+                                id="label-size"
+                                onchange="if (this.value) window.location.href = this.value;"
+                            >
+                                <option value="{{.DefaultURL}}" {{if eq .Size "60x40"}}selected{{end}}>
+                                    60 x 40 mm
+                                </option>
+                                <option value="{{.CompactURL}}" {{if eq .Size "50x30"}}selected{{end}}>
+                                    50 x 30 mm
+                                </option>
+                            </select>
+                        </div>
+                        <button class="primary" type="button" onclick="window.print()">Imprimir etiquetas</button>
+                    </div>
+                </section>
+
+                <section class="label-grid" aria-label="Vista previa de etiquetas">
+                    {{range .Items}}
+                    <article class="label-card {{if eq $.Size "50x30"}}is-compact{{end}}">
+                        <div class="label-brand">
+                            {{if businessLogoPath $}}
+                            <img class="label-logo" src="{{businessLogoPath $}}" alt="{{businessName $}}" />
+                            {{end}}
+                            <div class="label-business">{{businessName $}}</div>
+                        </div>
+                        <h2 class="label-name">{{.Name}}</h2>
+                        <div class="label-price">
+                            <span>Precio</span>
+                            <strong>{{.Price}}</strong>
+                        </div>
+                        <div class="label-barcode">
+                            <img src="{{.BarcodeDataURI}}" alt="Barcode {{.ID}}" />
+                            <div class="label-code">{{.ID}}</div>
+                        </div>
+                        <div class="label-footnote">Etiqueta operativa para venta rápida y lectura en caja.</div>
+                    </article>
+                    {{end}}
+                </section>
+            </div>
+        </main>
+    </body>
+</html>
