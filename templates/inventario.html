@@ -723,10 +723,70 @@
                 color: #6b7f99;
             }
 
+            .sale-result-primary {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .sale-result-primary .button {
+                min-width: min(100%, 280px);
+            }
+
+            .sale-receipt-request {
+                display: grid;
+                gap: 12px;
+                padding: 14px 16px;
+                border-radius: 14px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: rgba(255, 255, 255, 0.9);
+            }
+
+            .sale-receipt-request[hidden] {
+                display: none !important;
+            }
+
+            .sale-receipt-request .modal-row {
+                margin: 0;
+            }
+
+            .sale-receipt-preview {
+                display: grid;
+                gap: 12px;
+            }
+
+            .sale-receipt-preview[hidden] {
+                display: none !important;
+            }
+
+            .sale-receipt-frame {
+                width: 100%;
+                min-height: 420px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                border-radius: 14px;
+                background: #fff;
+            }
+
+            .sale-receipt-preview-actions {
+                display: flex;
+                justify-content: flex-start;
+            }
+
+            .sale-receipt-print-frame {
+                position: absolute;
+                width: 0;
+                height: 0;
+                border: 0;
+                visibility: hidden;
+                pointer-events: none;
+            }
+
             .sale-receipt-actions {
                 display: flex;
                 gap: 10px;
                 flex-wrap: wrap;
+                align-items: center;
             }
 
             .sale-receipt-actions[hidden] {
@@ -737,6 +797,31 @@
                 margin: 0;
                 font-size: 12px;
                 color: #6b7f99;
+            }
+
+            .sale-result-secondary {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+                padding-top: 2px;
+            }
+
+            .sale-result-secondary[hidden] {
+                display: none !important;
+            }
+
+            .sale-result-secondary small {
+                color: #7a93ae;
+                font-size: 12px;
+            }
+
+            .sale-inline-link {
+                color: var(--secondary);
+                font-weight: 700;
+                font-size: 12.5px;
+                text-decoration: none;
             }
 
             .checkline {
@@ -1699,46 +1784,76 @@
                                     id="sale-receipt-note"
                                     class="sale-receipt-note"
                                 >
-                                    La venta ya quedó registrada. Si lo
-                                    necesitas, descarga el comprobante desde
-                                    este mismo popup.
+                                    Completa los datos del cliente para generar
+                                    el comprobante dentro de este mismo popup.
                                 </p>
-                                <div
-                                    id="sale-receipt-actions"
-                                    class="sale-receipt-actions"
+                                <section
+                                    id="sale-receipt-request"
+                                    class="sale-receipt-request"
                                 >
-                                    <a
-                                        id="sale-invoice-create"
-                                        class="button secondary"
-                                        href="#"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        >Generar factura</a
-                                    >
-                                    <a
-                                        id="sale-receipt-view"
-                                        class="button secondary"
-                                        href="#"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        >Ver comprobante</a
-                                    >
-                                    <a
-                                        id="sale-receipt-download"
-                                        class="button primary"
-                                        href="#"
-                                        >Descargar comprobante</a
-                                    >
-                                    <a
-                                        id="sale-receipt-thermal"
-                                        class="button secondary"
-                                        href="#"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        >Ticket térmico</a
-                                    >
-                                </div>
+                                    <div class="modal-row">
+                                        <div>
+                                            <label for="sale-receipt-buyer-name"
+                                                >Nombre</label
+                                            >
+                                            <input
+                                                id="sale-receipt-buyer-name"
+                                                type="text"
+                                                placeholder="Nombre del cliente"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label
+                                                for="sale-receipt-buyer-document"
+                                                >Documento</label
+                                            >
+                                            <input
+                                                id="sale-receipt-buyer-document"
+                                                type="text"
+                                                placeholder="Documento"
+                                                inputmode="numeric"
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                    <div class="sale-result-primary">
+                                        <button
+                                            id="sale-receipt-generate"
+                                            type="button"
+                                            class="button primary"
+                                        >
+                                            Generar comprobante
+                                        </button>
+                                    </div>
+                                </section>
+                                <section
+                                    id="sale-receipt-preview"
+                                    class="sale-receipt-preview"
+                                    hidden
+                                >
+                                    <iframe
+                                        id="sale-receipt-frame"
+                                        class="sale-receipt-frame"
+                                        title="Comprobante de venta"
+                                    ></iframe>
+                                    <div class="sale-receipt-preview-actions">
+                                        <button
+                                            id="sale-receipt-print"
+                                            type="button"
+                                            class="button primary"
+                                        >
+                                            Imprimir
+                                        </button>
+                                    </div>
+                                </section>
                             </section>
+
+                            <iframe
+                                id="sale-receipt-print-frame"
+                                class="sale-receipt-print-frame"
+                                title="Impresión térmica de comprobante"
+                            ></iframe>
 
                             <div class="modal-actions">
                                 <button
@@ -3679,19 +3794,27 @@
                 document.getElementById("sale-receipt-block");
             const saleReceiptNote =
                 document.getElementById("sale-receipt-note");
-            const saleReceiptActions = document.getElementById(
-                "sale-receipt-actions",
+            const saleReceiptRequest = document.getElementById(
+                "sale-receipt-request",
             );
-            const saleReceiptView =
-                document.getElementById("sale-receipt-view");
-            const saleInvoiceCreate = document.getElementById(
-                "sale-invoice-create",
+            const saleReceiptGenerate = document.getElementById(
+                "sale-receipt-generate",
             );
-            const saleReceiptDownload = document.getElementById(
-                "sale-receipt-download",
+            const saleReceiptBuyerName = document.getElementById(
+                "sale-receipt-buyer-name",
             );
-            const saleReceiptThermal = document.getElementById(
-                "sale-receipt-thermal",
+            const saleReceiptBuyerDocument = document.getElementById(
+                "sale-receipt-buyer-document",
+            );
+            const saleReceiptPreview = document.getElementById(
+                "sale-receipt-preview",
+            );
+            const saleReceiptFrame =
+                document.getElementById("sale-receipt-frame");
+            const saleReceiptPrint =
+                document.getElementById("sale-receipt-print");
+            const saleReceiptPrintFrame = document.getElementById(
+                "sale-receipt-print-frame",
             );
             const loanOpen = document.getElementById("loan-open");
             const loanModal = document.getElementById("loan-modal");
@@ -4137,6 +4260,7 @@
 
             let actionContext = null;
             let saleContext = null;
+            let saleReceiptContext = null;
             let loanContext = null;
             let productLoanContext = null;
             let productLoanCloseContext = null;
@@ -4341,6 +4465,7 @@
             };
 
             const resetSaleSuccessState = () => {
+                saleReceiptContext = null;
                 if (saleTitle) saleTitle.textContent = "Registrar venta";
                 if (saleResultKicker)
                     saleResultKicker.textContent = "Venta completada";
@@ -4349,18 +4474,63 @@
                         "Venta registrada correctamente.";
                 if (saleResultMessage)
                     saleResultMessage.textContent =
-                        "Puedes cerrar este popup o descargar el comprobante desde aquí.";
+                        "La venta quedó registrada. Si necesitas el comprobante, genéralo aquí mismo.";
                 if (saleResultSectionTitle)
                     saleResultSectionTitle.textContent = "Comprobante";
                 if (saleReceiptNote)
                     saleReceiptNote.textContent =
-                        "La venta ya quedó registrada. Si lo necesitas, descarga el comprobante desde este mismo popup.";
+                        "Completa nombre y documento para generar el comprobante dentro de este mismo popup.";
                 if (saleReceiptBlock) saleReceiptBlock.hidden = false;
-                if (saleReceiptActions) saleReceiptActions.hidden = false;
-                if (saleReceiptView) saleReceiptView.href = "#";
-                if (saleReceiptDownload) saleReceiptDownload.href = "#";
-                if (saleReceiptThermal) saleReceiptThermal.href = "#";
+                if (saleReceiptRequest) saleReceiptRequest.hidden = false;
+                if (saleReceiptPreview) saleReceiptPreview.hidden = true;
+                if (saleReceiptBuyerName) saleReceiptBuyerName.value = "";
+                if (saleReceiptBuyerDocument)
+                    saleReceiptBuyerDocument.value = "";
+                if (saleReceiptFrame) saleReceiptFrame.src = "about:blank";
+                if (saleReceiptPrintFrame)
+                    saleReceiptPrintFrame.src = "about:blank";
                 setSaleStage("form");
+            };
+
+            const withBuyerData = (baseURL, buyerName, buyerDocument) => {
+                const rawURL = String(baseURL || "").trim();
+                if (!rawURL || rawURL === "#") return "";
+                try {
+                    const url = new URL(rawURL, window.location.origin);
+                    url.searchParams.set(
+                        "buyer_name",
+                        String(buyerName || "").trim(),
+                    );
+                    url.searchParams.set(
+                        "buyer_document",
+                        String(buyerDocument || "").trim(),
+                    );
+                    return (
+                        url.pathname +
+                        (url.search ? url.search : "") +
+                        (url.hash ? url.hash : "")
+                    );
+                } catch (_) {
+                    return rawURL;
+                }
+            };
+
+            const printThermalReceipt = (thermalURL) => {
+                if (!saleReceiptPrintFrame || !thermalURL) return;
+                const finalURL = withBuyerData(
+                    thermalURL,
+                    saleReceiptBuyerName?.value || "",
+                    saleReceiptBuyerDocument?.value || "",
+                );
+                if (!finalURL) return;
+                saleReceiptPrintFrame.onload = () => {
+                    try {
+                        saleReceiptPrintFrame.contentWindow?.focus();
+                        saleReceiptPrintFrame.contentWindow?.print();
+                    } catch (_) {}
+                };
+                const separator = finalURL.includes("?") ? "&" : "?";
+                saleReceiptPrintFrame.src = `${finalURL}${separator}ts=${Date.now()}`;
             };
 
             const resetSaleForm = ({
@@ -4604,6 +4774,9 @@
                 receiptDownloadURL,
                 thermalTicketURL,
                 invoiceCreateURL,
+                customerName,
+                customerDocument,
+                customerPhone,
             }) => {
                 if (saleTitle) {
                     saleTitle.textContent =
@@ -4631,45 +4804,30 @@
                             : `${productName || "La venta"} · ${quantity || 0} ${quantity === 1 ? "unidad" : "unidades"} · ${Number.isFinite(totalValue) && totalValue > 0 ? formatCOP(totalValue) : "-"}`;
                 }
                 if (saleResultSectionTitle) {
-                    saleResultSectionTitle.textContent =
-                        saleMode === "credit"
-                            ? "Registro completado"
-                            : "Comprobante";
+                    saleResultSectionTitle.textContent = "Comprobante";
                 }
                 if (saleReceiptNote) {
                     saleReceiptNote.textContent =
-                        saleMode === "credit"
-                            ? "La venta a crédito quedó registrada. Puedes cerrar este popup o registrar otra venta."
-                            : "La venta ya quedó registrada. Si lo necesitas, descarga el comprobante desde este mismo popup.";
+                        "Completa nombre y documento para generar el comprobante dentro de este mismo popup.";
                 }
-                if (saleReceiptActions) {
-                    const hasActions = !!(
-                        invoiceCreateURL ||
-                        receiptURL ||
-                        receiptDownloadURL
-                    );
-                    saleReceiptActions.hidden = !hasActions;
-                    if (saleInvoiceCreate) {
-                        saleInvoiceCreate.hidden = !invoiceCreateURL;
-                    }
-                    if (hasActions) {
-                        if (saleInvoiceCreate) {
-                            saleInvoiceCreate.href = invoiceCreateURL || "#";
-                        }
-                        if (saleReceiptView)
-                            saleReceiptView.href =
-                                receiptURL || receiptDownloadURL || "#";
-                        if (saleReceiptDownload)
-                            saleReceiptDownload.href =
-                                receiptDownloadURL || receiptURL || "#";
-                        if (saleReceiptThermal)
-                            saleReceiptThermal.href =
-                                thermalTicketURL ||
-                                receiptURL ||
-                                receiptDownloadURL ||
-                                "#";
-                    }
+                saleReceiptContext = {
+                    receiptURL: receiptURL || receiptDownloadURL || "",
+                    thermalTicketURL: thermalTicketURL || "",
+                    invoiceCreateURL: invoiceCreateURL || "",
+                };
+                if (saleReceiptBuyerName) {
+                    saleReceiptBuyerName.value = String(
+                        customerName || "",
+                    ).trim();
                 }
+                if (saleReceiptBuyerDocument) {
+                    saleReceiptBuyerDocument.value = String(
+                        customerDocument || "",
+                    ).trim();
+                }
+                if (saleReceiptRequest) saleReceiptRequest.hidden = false;
+                if (saleReceiptPreview) saleReceiptPreview.hidden = true;
+                if (saleReceiptFrame) saleReceiptFrame.src = "about:blank";
                 setSaleStage("success");
             };
 
@@ -6110,6 +6268,71 @@
                 });
             }
 
+            if (saleReceiptGenerate) {
+                saleReceiptGenerate.addEventListener("click", () => {
+                    if (!saleReceiptContext?.receiptURL) return;
+                    if (
+                        !saleReceiptBuyerName?.reportValidity() ||
+                        !saleReceiptBuyerDocument?.reportValidity()
+                    ) {
+                        return;
+                    }
+                    const buyerName = String(
+                        saleReceiptBuyerName?.value || "",
+                    ).trim();
+                    const buyerDocument = String(
+                        saleReceiptBuyerDocument?.value || "",
+                    ).trim();
+                    const receiptURL = withBuyerData(
+                        saleReceiptContext.receiptURL,
+                        buyerName,
+                        buyerDocument,
+                    );
+                    const embeddedReceiptURL = withBuyerData(
+                        saleReceiptContext.receiptURL,
+                        buyerName,
+                        buyerDocument,
+                    );
+                    const embeddedReceipt = new URL(
+                        embeddedReceiptURL,
+                        window.location.origin,
+                    );
+                    embeddedReceipt.searchParams.set("embedded", "1");
+                    const thermalURL = withBuyerData(
+                        saleReceiptContext.thermalTicketURL ||
+                            saleReceiptContext.receiptURL,
+                        buyerName,
+                        buyerDocument,
+                    );
+                    saleReceiptContext = {
+                        ...saleReceiptContext,
+                        generatedReceiptURL: receiptURL,
+                        generatedThermalURL: thermalURL,
+                    };
+                    if (saleReceiptFrame)
+                        saleReceiptFrame.src =
+                            embeddedReceipt.pathname +
+                            embeddedReceipt.search +
+                            embeddedReceipt.hash;
+                    if (saleReceiptRequest) saleReceiptRequest.hidden = true;
+                    if (saleReceiptPreview) saleReceiptPreview.hidden = false;
+                    if (saleReceiptNote) {
+                        saleReceiptNote.textContent =
+                            "Este es el comprobante generado. Usa Imprimir para sacar el ticket térmico.";
+                    }
+                });
+            }
+
+            if (saleReceiptPrint) {
+                saleReceiptPrint.addEventListener("click", () => {
+                    printThermalReceipt(
+                        saleReceiptContext?.generatedThermalURL ||
+                            saleReceiptContext?.thermalTicketURL ||
+                            "",
+                    );
+                });
+            }
+
             if (saleForm) {
                 saleForm.addEventListener("submit", async (event) => {
                     event.preventDefault();
@@ -6338,6 +6561,14 @@
                             receiptDownloadURL: data.receipt_download_url,
                             thermalTicketURL: data.thermal_ticket_url,
                             invoiceCreateURL: data.invoice_create_url,
+                            customerName:
+                                saleMode === "credit" ? debtorName : "",
+                            customerDocument:
+                                saleMode === "credit"
+                                    ? debtorDocumentNumber
+                                    : "",
+                            customerPhone:
+                                saleMode === "credit" ? debtorPhone : "",
                         });
                     } catch (err) {
                         setSaleError(

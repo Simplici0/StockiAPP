@@ -241,6 +241,42 @@
                     flex-direction: column;
                 }
             }
+
+            .thermal-print-frame {
+                position: absolute;
+                width: 0;
+                height: 0;
+                border: 0;
+                visibility: hidden;
+                pointer-events: none;
+            }
+
+            body.embedded-receipt .topbar,
+            body.embedded-receipt .page-header,
+            body.embedded-receipt .receipt-actions {
+                display: none !important;
+            }
+
+            html.embedded-receipt,
+            body.embedded-receipt {
+                background: transparent !important;
+            }
+
+            body.embedded-receipt .page-content {
+                width: 100%;
+                padding: 0;
+            }
+
+            body.embedded-receipt .receipt-shell {
+                width: 100%;
+                margin: 0;
+            }
+
+            body.embedded-receipt .receipt-card {
+                border: 0;
+                border-radius: 0;
+                box-shadow: none;
+            }
         </style>
         {{template "app_styles" .}}
     </head>
@@ -288,76 +324,13 @@
                             </div>
                         </div>
                         <div class="receipt-actions">
-                            {{if .InvoiceCreateURL}}
-                            <a
-                                class="button secondary"
-                                href="{{.InvoiceCreateURL}}"
-                                target="_blank"
-                                rel="noreferrer"
-                                >Generar factura</a
-                            >
-                            {{end}}
                             <button class="button primary" type="submit">
-                                Ver comprobante
+                                Generar comprobante
                             </button>
-                            <button
-                                class="button secondary"
-                                type="submit"
-                                name="download"
-                                value="1"
-                            >
-                                Descargar comprobante
-                            </button>
-                            {{if .ThermalURL}}
-                            <a
-                                class="button secondary"
-                                href="{{.ThermalURL}}"
-                                target="_blank"
-                                rel="noreferrer"
-                                >Ticket térmico</a
-                            >
-                            {{end}}
-                            <a class="button secondary" href="/inventario"
-                                >Volver al inventario</a
-                            >
                         </div>
                     </form>
                 </section>
                 {{else}}
-                <div class="receipt-actions">
-                    <a class="button secondary" href="/inventario"
-                        >Volver al inventario</a
-                    >
-                    {{if .InvoiceCreateURL}}
-                    <a
-                        class="button secondary"
-                        href="{{.InvoiceCreateURL}}"
-                        target="_blank"
-                        rel="noreferrer"
-                        >Generar factura</a
-                    >
-                    {{end}}
-                    <a class="button secondary" href="{{.DownloadURL}}"
-                        >Descargar comprobante</a
-                    >
-                    {{if .ThermalURL}}
-                    <a
-                        class="button secondary"
-                        href="{{.ThermalURL}}"
-                        target="_blank"
-                        rel="noreferrer"
-                        >Ticket térmico</a
-                    >
-                    {{end}}
-                    <button
-                        class="primary"
-                        type="button"
-                        onclick="window.print()"
-                    >
-                        Imprimir
-                    </button>
-                </div>
-
                 <article class="receipt-card">
                     <header class="receipt-head">
                         <div class="receipt-brand">
@@ -468,8 +441,60 @@
                         </section>
                     </div>
                 </article>
+                <div class="receipt-actions">
+                    <button
+                        id="thermal-print-button"
+                        class="primary"
+                        type="button"
+                        data-thermal-url="{{.ThermalURL}}"
+                    >
+                        Imprimir
+                    </button>
+                </div>
+                <iframe
+                    id="thermal-print-frame"
+                    class="thermal-print-frame"
+                    title="Impresión térmica"
+                ></iframe>
                 {{end}}
             </div>
         </main>
+        <script>
+            (function () {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get("embedded") === "1") {
+                    document.documentElement.classList.add("embedded-receipt");
+                    document.body.classList.add("embedded-receipt");
+                }
+                const printButton = document.getElementById(
+                    "thermal-print-button",
+                );
+                const printFrame = document.getElementById(
+                    "thermal-print-frame",
+                );
+                if (!printButton) return;
+                printButton.addEventListener("click", () => {
+                    const thermalURL = String(
+                        printButton.dataset.thermalUrl || "",
+                    ).trim();
+                    if (!thermalURL) {
+                        window.print();
+                        return;
+                    }
+                    if (!printFrame) {
+                        window.open(thermalURL, "_blank", "noreferrer");
+                        return;
+                    }
+                    printFrame.onload = () => {
+                        try {
+                            printFrame.contentWindow?.focus();
+                            printFrame.contentWindow?.print();
+                        } catch (_) {}
+                    };
+                    const separator = thermalURL.includes("?") ? "&" : "?";
+                    printFrame.src = `${thermalURL}${separator}ts=${Date.now()}`;
+                });
+            })();
+        </script>
     </body>
 </html>
