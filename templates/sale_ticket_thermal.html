@@ -5,8 +5,12 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{{.Title}} - Ticket termico</title>
         <style>
+            :root {
+                --thermal-width: {{.PaperWidthMM}};
+            }
+
             .thermal-shell {
-                width: min(100%, 420px);
+                width: min(100%, calc(var(--thermal-width) * 1mm + 34px));
                 margin: 0 auto;
                 display: grid;
                 gap: 16px;
@@ -19,7 +23,7 @@
             }
 
             .thermal-ticket {
-                width: 80mm;
+                width: calc(var(--thermal-width) * 1mm);
                 max-width: 100%;
                 margin: 0 auto;
                 padding: 12px 10px 16px;
@@ -134,7 +138,7 @@
             }
 
             @page {
-                size: 80mm auto;
+                size: {{.PaperWidthMM}}mm auto;
                 margin: 4mm;
             }
 
@@ -156,7 +160,7 @@
                 }
 
                 .thermal-shell {
-                    width: 80mm;
+                    width: {{.PaperWidthMM}}mm;
                     margin: 0;
                 }
 
@@ -185,10 +189,16 @@
                         </p>
                     </div>
                     <form method="GET" action="/venta/ticket">
-                        <input type="hidden" name="sale_id" value="{{.SaleID}}" />
+                        <input
+                            type="hidden"
+                            name="sale_id"
+                            value="{{.SaleID}}"
+                        />
                         <div class="thermal-form-grid">
                             <div>
-                                <label for="buyer_name">Nombre del cliente</label>
+                                <label for="buyer_name"
+                                    >Nombre del cliente</label
+                                >
                                 <input
                                     id="buyer_name"
                                     name="buyer_name"
@@ -212,7 +222,10 @@
                             <button class="button primary" type="submit">
                                 Ver ticket térmico
                             </button>
-                            <a class="button secondary" href="/venta/comprobante?sale_id={{.SaleID}}">
+                            <a
+                                class="button secondary"
+                                href="/venta/comprobante?sale_id={{.SaleID}}"
+                            >
                                 Ver comprobante
                             </a>
                             <a class="button secondary" href="/inventario">
@@ -223,19 +236,34 @@
                 </section>
                 {{else}}
                 <div class="thermal-actions">
-                    <a class="button secondary" href="/venta/comprobante?sale_id={{.SaleID}}&buyer_name={{.BuyerName}}&buyer_document={{.BuyerDocument}}" target="_blank" rel="noreferrer">
+                    <a
+                        class="button secondary"
+                        href="/venta/comprobante?sale_id={{.SaleID}}&buyer_name={{.BuyerName}}&buyer_document={{.BuyerDocument}}"
+                        target="_blank"
+                        rel="noreferrer"
+                    >
                         Ver comprobante
                     </a>
-                    <button class="primary" type="button" onclick="window.print()">
+                    <button
+                        class="primary"
+                        type="button"
+                        onclick="window.print()"
+                    >
                         Imprimir ticket
                     </button>
-                    <a class="button secondary" href="/inventario">Volver al inventario</a>
+                    <a class="button secondary" href="/inventario"
+                        >Volver al inventario</a
+                    >
                 </div>
 
                 <article class="thermal-ticket">
                     <header class="thermal-center thermal-business">
                         {{if businessLogoPath .}}
-                        <img class="thermal-logo" src="{{businessLogoPath .}}" alt="{{businessName .}}" />
+                        <img
+                            class="thermal-logo"
+                            src="{{businessLogoPath .}}"
+                            alt="{{businessName .}}"
+                        />
                         {{end}}
                         <h1>{{businessName .}}</h1>
                         <div class="thermal-kicker">Ticket de operacion</div>
@@ -285,7 +313,10 @@
 
                     <section class="thermal-lines">
                         <div class="thermal-product">
-                            <strong>{{if .ProductoNom}}{{.ProductoNom}}{{else}}{{.ProductoID}}{{end}}</strong>
+                            <strong
+                                >{{if
+                                .ProductoNom}}{{.ProductoNom}}{{else}}{{.ProductoID}}{{end}}</strong
+                            >
                             <span>ID {{.ProductoID}}</span>
                         </div>
                         <div class="thermal-row">
@@ -307,15 +338,17 @@
                     <section class="thermal-summary">
                         <div class="thermal-row">
                             <strong>Pago</strong>
-                            <span>{{if .MetodoPago}}{{.MetodoPago}}{{else}}Sin metodo{{end}}</span>
+                            <span
+                                >{{if .MetodoPago}}{{.MetodoPago}}{{else}}Sin
+                                metodo{{end}}</span
+                            >
                         </div>
                         {{if .SoldBy}}
                         <div class="thermal-row">
                             <strong>Usuario</strong>
                             <span>{{.SoldBy}}</span>
                         </div>
-                        {{end}}
-                        {{if .Channel}}
+                        {{end}} {{if .Channel}}
                         <div class="thermal-row">
                             <strong>Canal</strong>
                             <span>{{.Channel}}</span>

@@ -5,8 +5,12 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{{.Title}}</title>
         <style>
+            :root {
+                --paper-width: {{.PaperWidthMM}};
+            }
+
             .invoice-shell {
-                width: min(860px, 100%);
+                width: min(100%, calc(var(--paper-width) * 1mm + 42px));
                 margin: 0 auto;
                 display: grid;
                 gap: 18px;
@@ -182,6 +186,40 @@
                 flex-wrap: wrap;
             }
 
+            .invoice-shell.paper-compact .invoice-head,
+            .invoice-shell.paper-standard .invoice-head,
+            .invoice-shell.paper-compact .invoice-body,
+            .invoice-shell.paper-standard .invoice-body {
+                padding-left: 14px;
+                padding-right: 14px;
+            }
+
+            .invoice-shell.paper-compact .invoice-table,
+            .invoice-shell.paper-standard .invoice-table {
+                table-layout: fixed;
+            }
+
+            .invoice-shell.paper-compact .invoice-table th,
+            .invoice-shell.paper-standard .invoice-table th,
+            .invoice-shell.paper-compact .invoice-table td,
+            .invoice-shell.paper-standard .invoice-table td {
+                font-size: 11px;
+                padding: 8px 0;
+                word-break: break-word;
+            }
+
+            .invoice-shell.paper-compact .invoice-table th:nth-child(2),
+            .invoice-shell.paper-standard .invoice-table th:nth-child(2) {
+                width: 12%;
+            }
+
+            .invoice-shell.paper-compact .invoice-table th:nth-child(3),
+            .invoice-shell.paper-standard .invoice-table th:nth-child(3),
+            .invoice-shell.paper-compact .invoice-table th:nth-child(4),
+            .invoice-shell.paper-standard .invoice-table th:nth-child(4) {
+                width: 22%;
+            }
+
             @media print {
                 .topbar,
                 .page-header,
@@ -199,10 +237,20 @@
                     padding: 0;
                 }
 
+                .invoice-shell {
+                    width: {{.PaperWidthMM}}mm;
+                    margin: 0;
+                }
+
                 .invoice-card {
                     border: 0;
                     box-shadow: none;
                 }
+            }
+
+            @page {
+                size: {{.PaperWidthMM}}mm auto;
+                margin: 4mm;
             }
 
             @media (max-width: 720px) {
@@ -222,16 +270,22 @@
     <body>
         {{template "header" .}}
         <main class="page-content">
-            <div class="invoice-shell">
+            <div class="invoice-shell paper-{{.PaperClass}}">
                 <section class="invoice-card">
                     <header class="invoice-head">
                         <div class="invoice-brand">
                             {{if .Settings.LogoPath}}
-                            <img src="{{.Settings.LogoPath}}" alt="{{.Settings.BusinessName}}" />
+                            <img
+                                src="{{.Settings.LogoPath}}"
+                                alt="{{.Settings.BusinessName}}"
+                            />
                             {{end}}
                             <div>
                                 <p class="invoice-kicker">Factura operativa</p>
-                                <h1>{{if .Settings.BusinessName}}{{.Settings.BusinessName}}{{else}}StockiAPP{{end}}</h1>
+                                <h1>
+                                    {{if
+                                    .Settings.BusinessName}}{{.Settings.BusinessName}}{{else}}StockiAPP{{end}}
+                                </h1>
                                 <p>{{.Subtitle}}</p>
                             </div>
                         </div>
@@ -265,7 +319,10 @@
                                 </div>
                                 <div class="invoice-field">
                                     <strong>Documento</strong>
-                                    <span>{{.CustomerDocumentType}} {{.CustomerDocumentNumber}}</span>
+                                    <span
+                                        >{{.CustomerDocumentType}}
+                                        {{.CustomerDocumentNumber}}</span
+                                    >
                                 </div>
                                 <div class="invoice-field">
                                     <strong>Teléfono</strong>
@@ -299,9 +356,10 @@
                                     {{range .Items}}
                                     <tr>
                                         <td>
-                                            {{.Description}}
-                                            {{if .ProductID}}
-                                            <div class="muted">ID {{.ProductID}}</div>
+                                            {{.Description}} {{if .ProductID}}
+                                            <div class="muted">
+                                                ID {{.ProductID}}
+                                            </div>
                                             {{end}}
                                         </td>
                                         <td>{{.Quantity}}</td>
@@ -343,8 +401,16 @@
                         </div>
 
                         <div class="invoice-actions">
-                            <button class="button primary" type="button" onclick="window.print()">Imprimir factura</button>
-                            <a class="button secondary" href="/inventario">Volver</a>
+                            <button
+                                class="button primary"
+                                type="button"
+                                onclick="window.print()"
+                            >
+                                Imprimir factura
+                            </button>
+                            <a class="button secondary" href="/inventario"
+                                >Volver</a
+                            >
                         </div>
                     </div>
                 </section>

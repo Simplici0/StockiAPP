@@ -68,29 +68,6 @@
                 align-items: center;
             }
 
-            .label-size-picker {
-                display: grid;
-                gap: 4px;
-            }
-
-            .label-size-picker label {
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                color: var(--muted);
-            }
-
-            .label-size-picker select {
-                min-width: 164px;
-                padding: 12px 14px;
-                border-radius: 14px;
-                border: 1px solid rgba(17, 24, 39, 0.14);
-                background: #ffffff;
-                color: var(--ink);
-                font: inherit;
-            }
-
             .label-grid {
                 display: grid;
                 gap: 20px;
@@ -259,6 +236,33 @@
                 display: none;
             }
 
+            .label-card.paper-wide {
+                padding: 4mm 4.2mm;
+                gap: 2.6mm;
+            }
+
+            .label-card.paper-wide .label-logo {
+                max-width: 30mm;
+                max-height: 10mm;
+            }
+
+            .label-card.paper-wide .label-business {
+                font-size: 10px;
+            }
+
+            .label-card.paper-wide .label-name {
+                font-size: 13px;
+                min-height: 32px;
+            }
+
+            .label-card.paper-wide .label-price strong {
+                font-size: 16px;
+            }
+
+            .label-card.paper-wide .label-barcode img {
+                max-height: 18mm;
+            }
+
             @page {
                 size: {{.WidthMM}}mm {{.HeightMM}}mm;
                 margin: 0;
@@ -313,30 +317,16 @@
                 <section class="label-toolbar">
                     <div class="label-toolbar-copy">
                         <h1>{{.Title}}</h1>
-                        <p>{{len .Items}} etiqueta(s) · formato {{.Size}} mm · orientación horizontal · lista para impresora térmica.</p>
+                        <p>{{len .Items}} etiqueta(s) · {{.WidthMM}} x {{.HeightMM}} mm · {{.PaperDPI}} DPI · formato definido en Configuración.</p>
                     </div>
                     <div class="label-toolbar-actions">
-                        <div class="label-size-picker">
-                            <label for="label-size">Formato</label>
-                            <select
-                                id="label-size"
-                                onchange="if (this.value) window.location.href = this.value;"
-                            >
-                                <option value="{{.DefaultURL}}" {{if eq .Size "60x40"}}selected{{end}}>
-                                    60 x 40 mm
-                                </option>
-                                <option value="{{.CompactURL}}" {{if eq .Size "50x30"}}selected{{end}}>
-                                    50 x 30 mm
-                                </option>
-                            </select>
-                        </div>
                         <button class="primary" type="button" onclick="window.print()">Imprimir etiquetas</button>
                     </div>
                 </section>
 
                 <section class="label-grid" aria-label="Vista previa de etiquetas">
                     {{range .Items}}
-                    <article class="label-card {{if eq $.Size "50x30"}}is-compact{{end}}">
+                    <article class="label-card paper-{{$.PaperClass}} {{if eq $.PaperClass "compact"}}is-compact{{end}}">
                         <div class="label-brand">
                             {{if businessLogoPath $}}
                             <img class="label-logo" src="{{businessLogoPath $}}" alt="{{businessName $}}" />

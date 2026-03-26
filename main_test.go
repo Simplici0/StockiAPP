@@ -430,7 +430,7 @@ func TestProductLabelItemsForUserRespectsTenantScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("productLabelItemsForUser: %v", err)
 	}
-	if widthMM != 60 || heightMM != 40 {
+	if widthMM != 58 || heightMM != 40 {
 		t.Fatalf("unexpected label dimensions: %dx%d", widthMM, heightMM)
 	}
 	if len(items) != 1 {

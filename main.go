@@ -75,6 +75,10 @@ type inventoryPageData struct {
 type saleReceiptData struct {
 	Title            string
 	Subtitle         string
+	PaperSize        string
+	PaperWidthMM     int
+	PaperDPI         int
+	PaperClass       string
 	SaleID           int
 	ReceiptNumber    string
 	SaleDate         string
@@ -115,8 +119,8 @@ type productLabelsPageData struct {
 	Size        string
 	WidthMM     int
 	HeightMM    int
-	DefaultURL  string
-	CompactURL  string
+	PaperDPI    int
+	PaperClass  string
 	Items       []productLabelItem
 	CanLoan     bool
 	CanCredit   bool
@@ -138,6 +142,10 @@ type invoiceViewData struct {
 	Title                  string
 	Subtitle               string
 	Flash                  string
+	PaperSize              string
+	PaperWidthMM           int
+	PaperDPI               int
+	PaperClass             string
 	InvoiceID              int
 	InvoiceNumber          string
 	SourceType             string
@@ -310,13 +318,16 @@ type productInventoryCounts struct {
 }
 
 type BusinessSettings struct {
-	ID           int
-	BusinessName string
-	LogoPath     string
-	PrimaryColor string
-	Currency     string
-	DateFormat   string
-	UpdatedAt    string
+	ID                int
+	BusinessName      string
+	LogoPath          string
+	PrimaryColor      string
+	Currency          string
+	DateFormat        string
+	LabelPaperWidth   string
+	InvoicePaperWidth string
+	TicketPaperWidth  string
+	UpdatedAt         string
 }
 
 type BusinessLine struct {
@@ -670,12 +681,15 @@ var (
 
 func defaultBusinessSettings() BusinessSettings {
 	return BusinessSettings{
-		ID:           1,
-		BusinessName: "Stocki App",
-		LogoPath:     "/static/img/logo1.svg",
-		PrimaryColor: "#0ea5c9",
-		Currency:     "COP",
-		DateFormat:   "2006-01-02",
+		ID:                1,
+		BusinessName:      "Stocki App",
+		LogoPath:          "/static/img/logo1.svg",
+		PrimaryColor:      "#0ea5c9",
+		Currency:          "COP",
+		DateFormat:        "2006-01-02",
+		LabelPaperWidth:   "58mm",
+		InvoicePaperWidth: "58mm",
+		TicketPaperWidth:  "58mm",
 	}
 }
 
@@ -6380,6 +6394,9 @@ func normalizeBusinessSettings(settings BusinessSettings) BusinessSettings {
 	settings.PrimaryColor = normalizeHexColor(settings.PrimaryColor, defaults.PrimaryColor)
 	settings.Currency = normalizeCurrency(settings.Currency)
 	settings.DateFormat = normalizeDateFormat(settings.DateFormat)
+	settings.LabelPaperWidth = normalizePaperWidth(settings.LabelPaperWidth, defaults.LabelPaperWidth)
+	settings.InvoicePaperWidth = normalizePaperWidth(settings.InvoicePaperWidth, defaults.InvoicePaperWidth)
+	settings.TicketPaperWidth = normalizePaperWidth(settings.TicketPaperWidth, defaults.TicketPaperWidth)
 	return settings
 }
 
@@ -6423,6 +6440,19 @@ func normalizeDateFormat(raw string) string {
 		return strings.TrimSpace(raw)
 	default:
 		return defaultBusinessSettings().DateFormat
+	}
+}
+
+func normalizePaperWidth(raw, fallback string) string {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "80", "80mm", "80x50":
+		return "80mm"
+	case "57", "57mm", "57x30", "50x30":
+		return "57mm"
+	case "58", "58mm", "58x40", "60x40":
+		return "58mm"
+	default:
+		return normalizePaperWidth(fallback, defaultBusinessSettings().LabelPaperWidth)
 	}
 }
 
@@ -6512,15 +6542,32 @@ func loadBusinessSettings(db *sql.DB) (BusinessSettings, error) {
 
 func loadBusinessSettingsForTenant(db *sql.DB, tenantID int) (BusinessSettings, error) {
 	settings := defaultBusinessSettings()
-	row := db.QueryRow(`
-		SELECT id, business_name, logo_path, primary_color, currency, date_format, updated_at
+	cols, err := tableColumns(db, "business_settings")
+	if err != nil {
+		return BusinessSettings{}, err
+	}
+	labelExpr := "'58mm'"
+	invoiceExpr := "'58mm'"
+	ticketExpr := "'58mm'"
+	if cols["label_paper_width"] {
+		labelExpr = "label_paper_width"
+	}
+	if cols["invoice_paper_width"] {
+		invoiceExpr = "invoice_paper_width"
+	}
+	if cols["ticket_paper_width"] {
+		ticketExpr = "ticket_paper_width"
+	}
+	query := fmt.Sprintf(`
+		SELECT id, business_name, logo_path, primary_color, currency, date_format, %s AS label_paper_width, %s AS invoice_paper_width, %s AS ticket_paper_width, updated_at
 		FROM business_settings
 		WHERE tenant_id = ?
 		ORDER BY id ASC
 		LIMIT 1
-	`, normalizeTenantID(tenantID))
+	`, labelExpr, invoiceExpr, ticketExpr)
+	row := db.QueryRow(query, normalizeTenantID(tenantID))
 	var updatedAt sql.NullString
-	err := row.Scan(&settings.ID, &settings.BusinessName, &settings.LogoPath, &settings.PrimaryColor, &settings.Currency, &settings.DateFormat, &updatedAt)
+	err = row.Scan(&settings.ID, &settings.BusinessName, &settings.LogoPath, &settings.PrimaryColor, &settings.Currency, &settings.DateFormat, &settings.LabelPaperWidth, &settings.InvoicePaperWidth, &settings.TicketPaperWidth, &updatedAt)
 	if err == sql.ErrNoRows {
 		return normalizeBusinessSettings(settings), nil
 	}
@@ -6538,17 +6585,46 @@ func saveBusinessSettings(db *sql.DB, settings BusinessSettings) (BusinessSettin
 func saveBusinessSettingsForTenant(db *sql.DB, tenantID int, settings BusinessSettings) (BusinessSettings, error) {
 	settings = normalizeBusinessSettings(settings)
 	settings.UpdatedAt = time.Now().Format(time.RFC3339)
-	if _, err := db.Exec(`
-		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	cols, err := tableColumns(db, "business_settings")
+	if err != nil {
+		return BusinessSettings{}, err
+	}
+	insertCols := []string{"tenant_id", "business_name", "logo_path", "primary_color", "currency", "date_format", "updated_at"}
+	args := []any{normalizeTenantID(tenantID), settings.BusinessName, settings.LogoPath, settings.PrimaryColor, settings.Currency, settings.DateFormat, settings.UpdatedAt}
+	updateCols := []string{
+		"business_name = excluded.business_name",
+		"logo_path = excluded.logo_path",
+		"primary_color = excluded.primary_color",
+		"currency = excluded.currency",
+		"date_format = excluded.date_format",
+		"updated_at = excluded.updated_at",
+	}
+	if cols["label_paper_width"] {
+		insertCols = append(insertCols, "label_paper_width")
+		args = append(args, settings.LabelPaperWidth)
+		updateCols = append(updateCols, "label_paper_width = excluded.label_paper_width")
+	}
+	if cols["invoice_paper_width"] {
+		insertCols = append(insertCols, "invoice_paper_width")
+		args = append(args, settings.InvoicePaperWidth)
+		updateCols = append(updateCols, "invoice_paper_width = excluded.invoice_paper_width")
+	}
+	if cols["ticket_paper_width"] {
+		insertCols = append(insertCols, "ticket_paper_width")
+		args = append(args, settings.TicketPaperWidth)
+		updateCols = append(updateCols, "ticket_paper_width = excluded.ticket_paper_width")
+	}
+	placeholders := make([]string, 0, len(insertCols))
+	for range insertCols {
+		placeholders = append(placeholders, "?")
+	}
+	query := fmt.Sprintf(`
+		INSERT INTO business_settings (%s)
+		VALUES (%s)
 		ON CONFLICT(tenant_id) DO UPDATE SET
-			business_name = excluded.business_name,
-			logo_path = excluded.logo_path,
-			primary_color = excluded.primary_color,
-			currency = excluded.currency,
-			date_format = excluded.date_format,
-			updated_at = excluded.updated_at
-	`, normalizeTenantID(tenantID), settings.BusinessName, settings.LogoPath, settings.PrimaryColor, settings.Currency, settings.DateFormat, settings.UpdatedAt); err != nil {
+			%s
+	`, strings.Join(insertCols, ", "), strings.Join(placeholders, ", "), strings.Join(updateCols, ", "))
+	if _, err := db.Exec(query, args...); err != nil {
 		return BusinessSettings{}, err
 	}
 	if err := db.QueryRow(`SELECT id FROM business_settings WHERE tenant_id = ?`, normalizeTenantID(tenantID)).Scan(&settings.ID); err != nil {
@@ -6913,8 +6989,13 @@ func productLabelPrintURL(productIDs []string, size string) string {
 		values.Add("id", productID)
 	}
 	size = strings.TrimSpace(strings.ToLower(size))
-	if size == "50x30" {
-		values.Set("size", "50x30")
+	switch size {
+	case "80", "80mm", "80x50":
+		values.Set("size", "80mm")
+	case "57", "57mm", "57x30", "50x30":
+		values.Set("size", "57mm")
+	case "58", "58mm", "58x40", "60x40":
+		values.Set("size", "58mm")
 	}
 	if len(values["id"]) == 0 {
 		return ""
@@ -6922,12 +7003,25 @@ func productLabelPrintURL(productIDs []string, size string) string {
 	return "/productos/etiquetas?" + values.Encode()
 }
 
+func thermalPaperDimensions(size string) (normalized string, widthMM, dpi int, paperClass string) {
+	switch strings.TrimSpace(strings.ToLower(size)) {
+	case "80", "80mm", "80x50":
+		return "80mm", 80, 203, "wide"
+	case "57", "57mm", "57x30", "50x30":
+		return "57mm", 57, 203, "compact"
+	default:
+		return "58mm", 58, 203, "standard"
+	}
+}
+
 func labelSizeDimensions(size string) (normalized string, widthMM, heightMM int) {
 	switch strings.TrimSpace(strings.ToLower(size)) {
-	case "50x30":
-		return "50x30", 50, 30
+	case "80", "80mm", "80x50":
+		return "80mm", 80, 50
+	case "57", "57mm", "57x30", "50x30":
+		return "57mm", 57, 30
 	default:
-		return "60x40", 60, 40
+		return "58mm", 58, 40
 	}
 }
 
@@ -6961,7 +7055,11 @@ func productLabelItemsForUser(db *sql.DB, currentUser *User, productIDs []string
 	items := make([]productLabelItem, 0, len(productIDs))
 	barcodeWidth := 280
 	barcodeHeight := 72
-	if widthMM <= 50 {
+	switch {
+	case widthMM >= 80:
+		barcodeWidth = 360
+		barcodeHeight = 92
+	case widthMM <= 57:
 		barcodeWidth = 220
 		barcodeHeight = 54
 	}
@@ -8503,9 +8601,9 @@ func createTenantWithSeed(db *sql.DB, currentUser *User, usersCols map[string]bo
 	}
 
 	if _, err := tx.Exec(`
-		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, tenantID, name, sourceSettings.LogoPath, sourceSettings.PrimaryColor, sourceSettings.Currency, sourceSettings.DateFormat, now); err != nil {
+		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, label_paper_width, invoice_paper_width, ticket_paper_width, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, tenantID, name, sourceSettings.LogoPath, sourceSettings.PrimaryColor, sourceSettings.Currency, sourceSettings.DateFormat, sourceSettings.LabelPaperWidth, sourceSettings.InvoicePaperWidth, sourceSettings.TicketPaperWidth, now); err != nil {
 		return nil, err
 	}
 
@@ -8743,17 +8841,28 @@ func migrateBusinessSettingsForTenancy(db *sql.DB) error {
 			primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
 			currency TEXT NOT NULL DEFAULT 'COP',
 			date_format TEXT NOT NULL DEFAULT '2006-01-02',
+			label_paper_width TEXT NOT NULL DEFAULT '58mm',
+			invoice_paper_width TEXT NOT NULL DEFAULT '58mm',
+			ticket_paper_width TEXT NOT NULL DEFAULT '58mm',
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
 	`); err != nil {
 		return err
 	}
 
+	hasPrintCols := cols["label_paper_width"] && cols["invoice_paper_width"] && cols["ticket_paper_width"]
 	if cols["tenant_id"] {
+		selectPrintCols := "'58mm', '58mm', '58mm'"
+		if hasPrintCols {
+			selectPrintCols = `
+				COALESCE(NULLIF(label_paper_width, ''), '58mm'),
+				COALESCE(NULLIF(invoice_paper_width, ''), '58mm'),
+				COALESCE(NULLIF(ticket_paper_width, ''), '58mm')`
+		}
 		if _, err := tx.Exec(`
 			INSERT OR REPLACE INTO business_settings__tenant_new
-				(tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
-			SELECT COALESCE(NULLIF(tenant_id, 0), ?), business_name, logo_path, primary_color, currency, date_format, updated_at
+				(tenant_id, business_name, logo_path, primary_color, currency, date_format, label_paper_width, invoice_paper_width, ticket_paper_width, updated_at)
+			SELECT COALESCE(NULLIF(tenant_id, 0), ?), business_name, logo_path, primary_color, currency, date_format, `+selectPrintCols+`, updated_at
 			FROM business_settings
 			ORDER BY id ASC
 		`, defaultTenantID); err != nil {
@@ -8762,8 +8871,8 @@ func migrateBusinessSettingsForTenancy(db *sql.DB) error {
 	} else {
 		if _, err := tx.Exec(`
 			INSERT OR REPLACE INTO business_settings__tenant_new
-				(tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
-			SELECT ?, business_name, logo_path, primary_color, currency, date_format, updated_at
+				(tenant_id, business_name, logo_path, primary_color, currency, date_format, label_paper_width, invoice_paper_width, ticket_paper_width, updated_at)
+			SELECT ?, business_name, logo_path, primary_color, currency, date_format, '58mm', '58mm', '58mm', updated_at
 			FROM business_settings
 			ORDER BY id ASC
 		`, defaultTenantID); err != nil {
@@ -11371,6 +11480,9 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 		primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
 		currency TEXT NOT NULL DEFAULT 'COP',
 		date_format TEXT NOT NULL DEFAULT '2006-01-02',
+		label_paper_width TEXT NOT NULL DEFAULT '58mm',
+		invoice_paper_width TEXT NOT NULL DEFAULT '58mm',
+		ticket_paper_width TEXT NOT NULL DEFAULT '58mm',
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_business_settings_tenant_id ON business_settings (tenant_id);
@@ -11745,6 +11857,29 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	businessSettingsCols, err := tableColumns(db, "business_settings")
+	if err != nil {
+		return nil, err
+	}
+	printSettingColumns := []struct {
+		name    string
+		def     string
+		current string
+	}{
+		{name: "label_paper_width", def: "TEXT NOT NULL DEFAULT '58mm'", current: "58mm"},
+		{name: "invoice_paper_width", def: "TEXT NOT NULL DEFAULT '58mm'", current: "58mm"},
+		{name: "ticket_paper_width", def: "TEXT NOT NULL DEFAULT '58mm'", current: "58mm"},
+	}
+	for _, column := range printSettingColumns {
+		if !businessSettingsCols[column.name] {
+			if _, err := db.Exec("ALTER TABLE business_settings ADD COLUMN " + column.name + " " + column.def); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := db.Exec("UPDATE business_settings SET "+column.name+" = ? WHERE "+column.name+" IS NULL OR TRIM("+column.name+") = ''", column.current); err != nil {
+			return nil, err
+		}
+	}
 	if !usersCols["telegram_id"] {
 		if _, err := db.Exec("ALTER TABLE users ADD COLUMN telegram_id TEXT NOT NULL DEFAULT ''"); err != nil {
 			return nil, err
@@ -12069,6 +12204,9 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
 		currency TEXT NOT NULL DEFAULT 'COP',
 		date_format TEXT NOT NULL DEFAULT '2006-01-02',
+		label_paper_width TEXT NOT NULL DEFAULT '58mm',
+		invoice_paper_width TEXT NOT NULL DEFAULT '58mm',
+		ticket_paper_width TEXT NOT NULL DEFAULT '58mm',
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_business_settings_tenant_id ON business_settings (tenant_id);
@@ -12618,6 +12756,7 @@ func main() {
 
 	currencyOptions := []string{"COP", "USD", "EUR"}
 	dateFormatOptions := []string{"2006-01-02", "02/01/2006", "01/02/2006", "02-01-2006"}
+	printPaperOptions := []string{"80mm", "58mm", "57mm"}
 
 	type ventaFormData struct {
 		Title                  string
@@ -12733,6 +12872,7 @@ func main() {
 		EditingLineName      string
 		CurrencyOptions      []string
 		DateFormatOptions    []string
+		PrintPaperOptions    []string
 		CurrentUser          *User
 	}
 
@@ -13399,6 +13539,7 @@ func main() {
 			EditingLineName:      editingName,
 			CurrencyOptions:      currencyOptions,
 			DateFormatOptions:    dateFormatOptions,
+			PrintPaperOptions:    printPaperOptions,
 			CurrentUser:          currentUser,
 		}
 		renderTemplate(w, "business_settings.html", data, "Error al renderizar configuración")
@@ -13430,6 +13571,9 @@ func main() {
 		settings.PrimaryColor = normalizeHexColor(r.FormValue("primary_color"), settings.PrimaryColor)
 		settings.Currency = normalizeCurrency(r.FormValue("currency"))
 		settings.DateFormat = normalizeDateFormat(r.FormValue("date_format"))
+		settings.LabelPaperWidth = normalizePaperWidth(r.FormValue("label_paper_width"), settings.LabelPaperWidth)
+		settings.InvoicePaperWidth = normalizePaperWidth(r.FormValue("invoice_paper_width"), settings.InvoicePaperWidth)
+		settings.TicketPaperWidth = normalizePaperWidth(r.FormValue("ticket_paper_width"), settings.TicketPaperWidth)
 
 		if settings.BusinessName == "" {
 			redirectWithMessage(w, r, "/configuracion", "", "El nombre del negocio es obligatorio.")
@@ -13460,11 +13604,14 @@ func main() {
 			setCurrentBusinessSettings(savedSettings)
 		}
 		if err := logAuditEvent(db, userFromContext(r), "business_settings_updated", "business_settings", strconv.Itoa(savedSettings.ID), "manual", map[string]any{
-			"business_name": savedSettings.BusinessName,
-			"logo_path":     savedSettings.LogoPath,
-			"primary_color": savedSettings.PrimaryColor,
-			"currency":      savedSettings.Currency,
-			"date_format":   savedSettings.DateFormat,
+			"business_name":       savedSettings.BusinessName,
+			"logo_path":           savedSettings.LogoPath,
+			"primary_color":       savedSettings.PrimaryColor,
+			"currency":            savedSettings.Currency,
+			"date_format":         savedSettings.DateFormat,
+			"label_paper_width":   savedSettings.LabelPaperWidth,
+			"invoice_paper_width": savedSettings.InvoicePaperWidth,
+			"ticket_paper_width":  savedSettings.TicketPaperWidth,
 		}); err != nil {
 			log.Printf("audit business settings: %v", err)
 		}
@@ -14212,7 +14359,14 @@ func main() {
 				}
 			}
 		}
-		items, widthMM, heightMM, err := productLabelItemsForUser(db, currentUser, productIDs, r.URL.Query().Get("size"))
+		sizeParam := r.URL.Query().Get("size")
+		if strings.TrimSpace(sizeParam) == "" {
+			sizeParam = r.URL.Query().Get("paper")
+		}
+		if strings.TrimSpace(sizeParam) == "" {
+			sizeParam = settingsForUser(currentUser).LabelPaperWidth
+		}
+		items, widthMM, heightMM, err := productLabelItemsForUser(db, currentUser, productIDs, sizeParam)
 		if err != nil {
 			var reqErr requestError
 			if errors.As(err, &reqErr) {
@@ -14222,15 +14376,16 @@ func main() {
 			http.Error(w, "No se pudieron generar las etiquetas.", http.StatusInternalServerError)
 			return
 		}
-		size, _, _ := labelSizeDimensions(r.URL.Query().Get("size"))
+		size, _, _ := labelSizeDimensions(sizeParam)
+		_, _, dpi, paperClass := thermalPaperDimensions(sizeParam)
 		data := productLabelsPageData{
 			Title:       "Etiquetas de producto",
-			Subtitle:    "Etiquetas térmicas listas para impresión rápida.",
+			Subtitle:    "Etiquetas térmicas ajustadas para impresoras de 80, 58 y 57 mm.",
 			Size:        size,
 			WidthMM:     widthMM,
 			HeightMM:    heightMM,
-			DefaultURL:  productLabelPrintURL(productIDs, "60x40"),
-			CompactURL:  productLabelPrintURL(productIDs, "50x30"),
+			PaperDPI:    dpi,
+			PaperClass:  paperClass,
 			Items:       items,
 			CurrentUser: currentUser,
 			Settings:    settingsForUser(currentUser),
@@ -17304,6 +17459,15 @@ func main() {
 			http.Error(w, "No se pudo generar el ticket térmico.", http.StatusInternalServerError)
 			return
 		}
+		paperValue := strings.TrimSpace(r.URL.Query().Get("paper"))
+		if paperValue == "" {
+			paperValue = settingsForUser(currentUser).TicketPaperWidth
+		}
+		paperKey, paperWidthMM, paperDPI, paperClass := thermalPaperDimensions(paperValue)
+		data.PaperSize = paperKey
+		data.PaperWidthMM = paperWidthMM
+		data.PaperDPI = paperDPI
+		data.PaperClass = paperClass
 
 		buyerName := strings.TrimSpace(r.URL.Query().Get("buyer_name"))
 		buyerDocument := strings.TrimSpace(r.URL.Query().Get("buyer_document"))
@@ -17449,6 +17613,15 @@ func main() {
 			http.Error(w, "No se pudo cargar la factura.", http.StatusInternalServerError)
 			return
 		}
+		paperValue := strings.TrimSpace(r.URL.Query().Get("paper"))
+		if paperValue == "" {
+			paperValue = settingsForUser(currentUser).InvoicePaperWidth
+		}
+		paperKey, paperWidthMM, paperDPI, paperClass := thermalPaperDimensions(paperValue)
+		data.PaperSize = paperKey
+		data.PaperWidthMM = paperWidthMM
+		data.PaperDPI = paperDPI
+		data.PaperClass = paperClass
 		data.Title = "Factura operativa"
 		data.Subtitle = "Documento simple para operación y soporte."
 		renderTemplate(w, "invoice_document.html", data, "Error al renderizar la factura")

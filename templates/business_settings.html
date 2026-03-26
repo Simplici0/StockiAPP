@@ -606,6 +606,87 @@
                                         </div>
                                     </div>
 
+                                    <div class="settings-note stack">
+                                        <div class="settings-subsection-head">
+                                            <h3>Impresión</h3>
+                                            <p>
+                                                Define el ancho térmico por
+                                                defecto para etiquetas, facturas
+                                                y tickets. Las vistas de
+                                                impresión usarán estos valores
+                                                automáticamente.
+                                            </p>
+                                        </div>
+
+                                        <div class="stack">
+                                            <div>
+                                                <label for="label_paper_width"
+                                                    >Etiquetas</label
+                                                >
+                                                <select
+                                                    id="label_paper_width"
+                                                    name="label_paper_width"
+                                                >
+                                                    {{range .PrintPaperOptions}}
+                                                    <option
+                                                        value="{{.}}"
+                                                        {{if
+                                                        eq
+                                                        $.Settings.LabelPaperWidth
+                                                        .}}selected{{end}}
+                                                    >
+                                                        {{.}}
+                                                    </option>
+                                                    {{end}}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label for="invoice_paper_width"
+                                                    >Facturas</label
+                                                >
+                                                <select
+                                                    id="invoice_paper_width"
+                                                    name="invoice_paper_width"
+                                                >
+                                                    {{range .PrintPaperOptions}}
+                                                    <option
+                                                        value="{{.}}"
+                                                        {{if
+                                                        eq
+                                                        $.Settings.InvoicePaperWidth
+                                                        .}}selected{{end}}
+                                                    >
+                                                        {{.}}
+                                                    </option>
+                                                    {{end}}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label for="ticket_paper_width"
+                                                    >Tickets térmicos</label
+                                                >
+                                                <select
+                                                    id="ticket_paper_width"
+                                                    name="ticket_paper_width"
+                                                >
+                                                    {{range .PrintPaperOptions}}
+                                                    <option
+                                                        value="{{.}}"
+                                                        {{if
+                                                        eq
+                                                        $.Settings.TicketPaperWidth
+                                                        .}}selected{{end}}
+                                                    >
+                                                        {{.}}
+                                                    </option>
+                                                    {{end}}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="actions">
                                         <button class="primary" type="submit">
                                             Guardar configuración
