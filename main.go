@@ -213,6 +213,7 @@ type unitOption struct {
 }
 
 type productOption struct {
+	SKU               string
 	ID                string
 	Name              string
 	Line              string
@@ -310,11 +311,45 @@ type inventoryProduct struct {
 	HasOwner              bool
 }
 
+type productEditRecord struct {
+	SKU               string
+	ID                string
+	Name              string
+	Line              string
+	Location          string
+	CreditEnabled     int
+	DebtorName        string
+	InstallmentsTotal int
+	InstallmentsPaid  int
+	TotalValue        float64
+	InstallmentValue  float64
+	SalePrice         float64
+	RetomaEnabled     int
+	RetomaPrice       sql.NullFloat64
+	Notes             string
+	OwnerUserID       sql.NullInt64
+}
+
 type productInventoryCounts struct {
 	Available int
 	Reserved  int
 	Swapped   int
 	Damaged   int
+}
+
+func visibleProductID(id, sku string) string {
+	id = strings.TrimSpace(id)
+	if id != "" {
+		return id
+	}
+	return strings.TrimSpace(sku)
+}
+
+func (p productOption) refID() string {
+	if strings.TrimSpace(p.SKU) != "" {
+		return strings.TrimSpace(p.SKU)
+	}
+	return strings.TrimSpace(p.ID)
 }
 
 type BusinessSettings struct {
@@ -922,10 +957,11 @@ func sqlDatePrefixExpr(column string) string {
 	return fmt.Sprintf("substr(%s, 1, 10)", column)
 }
 
-func upsertProducto(exec sqlExecer, tenantID int, sku, nombre, linea, now string) error {
+func upsertProducto(exec sqlExecer, tenantID int, sku, productID, nombre, linea, now string) error {
 	// productos table is part of the existing DB schema and uses sku as the primary key.
 	// Other columns (prices, discount, notes) have defaults so manual creation can omit them.
 	_ = now // kept for backwards-compat in case we later add created_at.
+	productID = visibleProductID(productID, sku)
 	_, err := exec.Exec(`
 		INSERT INTO productos (sku, tenant_id, id, linea, nombre, fecha_ingreso)
 		VALUES (?, ?, ?, ?, ?, COALESCE((SELECT fecha_ingreso FROM productos WHERE sku = ? AND tenant_id = ?), CURRENT_TIMESTAMP::text))
@@ -934,7 +970,7 @@ func upsertProducto(exec sqlExecer, tenantID int, sku, nombre, linea, now string
 			id = excluded.id,
 			linea = excluded.linea,
 			nombre = excluded.nombre
-	`, sku, normalizeTenantID(tenantID), sku, linea, nombre, sku, normalizeTenantID(tenantID))
+	`, sku, normalizeTenantID(tenantID), productID, linea, nombre, sku, normalizeTenantID(tenantID))
 	return err
 }
 
@@ -974,7 +1010,7 @@ func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 			INSERT INTO productos (sku, tenant_id, id, nombre, linea, fecha_ingreso)
 			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 			ON CONFLICT(sku) DO NOTHING
-		`, p.ID, defaultTenantID, p.ID, p.Name, p.Line); err != nil {
+		`, p.ID, defaultTenantID, visibleProductID(p.ID, p.ID), p.Name, p.Line); err != nil {
 			return err
 		}
 	}
@@ -983,10 +1019,10 @@ func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 
 func loadProductosForTenant(db *sql.DB, tenantID int) ([]productOption, error) {
 	rows, err := db.Query(`
-		SELECT sku, nombre, linea, COALESCE(location, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
+		SELECT sku, COALESCE(NULLIF(id, ''), sku), nombre, linea, COALESCE(location, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
 		FROM productos
 		WHERE tenant_id = ?
-		ORDER BY sku
+		ORDER BY COALESCE(NULLIF(id, ''), sku), sku
 	`, normalizeTenantID(tenantID))
 	if err != nil {
 		return nil, err
@@ -1000,7 +1036,7 @@ func loadProductosForTenant(db *sql.DB, tenantID int) ([]productOption, error) {
 		var retomaEnabled int
 		var retomaPrice sql.NullFloat64
 		var ownerUserID sql.NullInt64
-		if err := rows.Scan(&p.ID, &p.Name, &p.Line, &p.Location, &creditEnabled, &p.DebtorName, &p.InstallmentsTotal, &p.InstallmentsPaid, &p.TotalValue, &p.InstallmentValue, &p.Notes, &p.FechaIngreso, &p.SalePrice, &retomaEnabled, &retomaPrice, &ownerUserID); err != nil {
+		if err := rows.Scan(&p.SKU, &p.ID, &p.Name, &p.Line, &p.Location, &creditEnabled, &p.DebtorName, &p.InstallmentsTotal, &p.InstallmentsPaid, &p.TotalValue, &p.InstallmentValue, &p.Notes, &p.FechaIngreso, &p.SalePrice, &retomaEnabled, &retomaPrice, &ownerUserID); err != nil {
 			return nil, err
 		}
 		p.CreditEnabled = creditEnabled == 1
@@ -1031,6 +1067,69 @@ func loadVisibleProductsForUser(db *sql.DB, user *User) ([]productOption, error)
 		return nil, err
 	}
 	return filterProductsForUser(products, user), nil
+}
+
+func resolveProductRefForTenant(db *sql.DB, tenantID int, productID string) (string, string, error) {
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return "", "", sql.ErrNoRows
+	}
+	var sku string
+	var visibleID string
+	err := db.QueryRow(`
+		SELECT sku, COALESCE(NULLIF(id, ''), sku)
+		FROM productos
+		WHERE tenant_id = ? AND (sku = ? OR id = ?)
+		LIMIT 1
+	`, normalizeTenantID(tenantID), productID, productID).Scan(&sku, &visibleID)
+	if err != nil {
+		return "", "", err
+	}
+	return sku, visibleID, nil
+}
+
+func generateNextTenantProductID(db *sql.DB, tenantID int) (string, error) {
+	rows, err := db.Query(`
+		SELECT COALESCE(NULLIF(id, ''), sku)
+		FROM productos
+		WHERE tenant_id = ? AND COALESCE(NULLIF(id, ''), sku) LIKE 'P-%'
+	`, normalizeTenantID(tenantID))
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	maxNum := 0
+	for rows.Next() {
+		var productID string
+		if err := rows.Scan(&productID); err != nil {
+			return "", err
+		}
+		if !strings.HasPrefix(productID, "P-") {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimPrefix(productID, "P-"))
+		if err != nil {
+			continue
+		}
+		if n > maxNum {
+			maxNum = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	for next := maxNum + 1; ; next++ {
+		candidate := fmt.Sprintf("P-%03d", next)
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE tenant_id = ? AND id = ?`, normalizeTenantID(tenantID), candidate).Scan(&count); err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return candidate, nil
+		}
+	}
 }
 
 func loadAssignableUsersForTenant(db *sql.DB, tenantID int) ([]assignableUser, error) {
@@ -1113,6 +1212,76 @@ func productAccessibleByID(db *sql.DB, user *User, productID string) (bool, erro
 		return false, nil
 	}
 	return int(ownerUserID.Int64) == user.ID, nil
+}
+
+func loadProductEditRecord(db *sql.DB, tenantID int, productID string) (productEditRecord, error) {
+	var record productEditRecord
+	err := db.QueryRow(`
+		SELECT sku, COALESCE(NULLIF(id, ''), sku), nombre, linea, COALESCE(location, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, COALESCE(anotaciones, ''), owner_user_id
+		FROM productos
+		WHERE tenant_id = ? AND (sku = ? OR id = ?)
+		LIMIT 1
+	`, normalizeTenantID(tenantID), productID, productID).Scan(
+		&record.SKU,
+		&record.ID,
+		&record.Name,
+		&record.Line,
+		&record.Location,
+		&record.CreditEnabled,
+		&record.DebtorName,
+		&record.InstallmentsTotal,
+		&record.InstallmentsPaid,
+		&record.TotalValue,
+		&record.InstallmentValue,
+		&record.SalePrice,
+		&record.RetomaEnabled,
+		&record.RetomaPrice,
+		&record.Notes,
+		&record.OwnerUserID,
+	)
+	return record, err
+}
+
+func renameProductIdentifier(tx *sql.Tx, tenantID int, previousSKU, newSKU string) error {
+	previousSKU = strings.TrimSpace(previousSKU)
+	newSKU = strings.TrimSpace(newSKU)
+	if previousSKU == "" || newSKU == "" {
+		return nil
+	}
+
+	var currentID string
+	if err := tx.QueryRow(`
+		SELECT COALESCE(NULLIF(id, ''), sku)
+		FROM productos
+		WHERE tenant_id = ? AND sku = ?
+		LIMIT 1
+	`, normalizeTenantID(tenantID), previousSKU).Scan(&currentID); err != nil {
+		return err
+	}
+	if currentID == newSKU {
+		return nil
+	}
+
+	var count int
+	if err := tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM productos
+		WHERE tenant_id = ? AND id = ? AND sku <> ?
+	`, normalizeTenantID(tenantID), newSKU, previousSKU).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return requestError{Status: http.StatusBadRequest, Message: "Ya existe otro producto con ese ID."}
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE productos
+		SET id = ?
+		WHERE tenant_id = ? AND sku = ?
+	`, newSKU, normalizeTenantID(tenantID), previousSKU); err != nil {
+		return err
+	}
+	return nil
 }
 
 func productVisibilityPredicate(alias string, user *User) (string, []any) {
@@ -2277,6 +2446,35 @@ func listCashLoansReport(db *sql.DB, currentUser *User, tenantID int, filters ca
 	return items, nil
 }
 
+func cashLoansInventoryURL(source *url.URL) string {
+	params := url.Values{}
+	params.Set("lineFilter", "Préstamo de dinero")
+
+	switch normalizeCreditStatusFilter(strings.TrimSpace(source.Query().Get("status"))) {
+	case string(creditStatusCompleted):
+		params.Set("statusFilter", "credit_completed")
+	case string(creditStatusSuspended):
+		params.Set("statusFilter", "credit_suspended")
+	case string(creditStatusCancelled):
+		params.Set("statusFilter", "credit_cancelled")
+	default:
+		params.Set("statusFilter", "credit_active")
+	}
+
+	searchValue := strings.TrimSpace(source.Query().Get("credit_sale_id"))
+	if searchValue == "" {
+		searchValue = strings.TrimSpace(source.Query().Get("customer"))
+	}
+	if searchValue == "" {
+		searchValue = strings.TrimSpace(source.Query().Get("username"))
+	}
+	if searchValue != "" {
+		params.Set("searchFilter", searchValue)
+	}
+
+	return "/inventario?" + params.Encode()
+}
+
 func loadProductLoanUnitIDs(db *sql.DB, tenantID int, loanIDs []int) (map[int][]string, error) {
 	result := make(map[int][]string, len(loanIDs))
 	if len(loanIDs) == 0 {
@@ -3321,8 +3519,9 @@ const (
 )
 
 func findProduct(products []productOption, id string) (productOption, bool) {
+	id = strings.TrimSpace(id)
 	for _, product := range products {
-		if product.ID == id {
+		if product.ID == id || product.refID() == id {
 			return product, true
 		}
 	}
@@ -3882,6 +4081,13 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 	if !allowed {
 		return productLoanOperationResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto."}
 	}
+	productSKU, visibleID, err := resolveProductRefForTenant(db, tenantIDFromUser(currentUser), input.ProductID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return productLoanOperationResult{}, requestError{Status: http.StatusNotFound, Message: "Producto no encontrado."}
+		}
+		return productLoanOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el producto."}
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -3893,7 +4099,7 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 	if err != nil {
 		return productLoanOperationResult{}, err
 	}
-	unitIDs, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), input.ProductID, input.Quantity, "Prestada")
+	unitIDs, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), productSKU, input.Quantity, "Prestada")
 	if err != nil {
 		if err == errInsufficientStock {
 			return productLoanOperationResult{}, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente para registrar el préstamo.", Fields: map[string]string{"quantity": "No hay stock disponible suficiente para registrar el préstamo."}}
@@ -3908,7 +4114,7 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 			borrower_document_type, borrower_document_number, borrower_address, borrower_city,
 			notes, status, loaned_at, due_at, created_by
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, tenantIDFromUser(currentUser), input.ProductID, nullableIntValue(customer.ID), input.Quantity, customer.Name, customer.Phone, customer.DocumentType, customer.DocumentNumber, customer.Address, customer.City, input.Notes, string(productLoanStatusActive), now, input.DueAt, nullableUserID(currentUser))
+	`, tenantIDFromUser(currentUser), productSKU, nullableIntValue(customer.ID), input.Quantity, customer.Name, customer.Phone, customer.DocumentType, customer.DocumentNumber, customer.Address, customer.City, input.Notes, string(productLoanStatusActive), now, input.DueAt, nullableUserID(currentUser))
 	if err != nil {
 		return productLoanOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el préstamo."}
 	}
@@ -3924,12 +4130,13 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 	if movementNote == "" {
 		movementNote = fmt.Sprintf("Prestado a %s", customer.Name)
 	}
-	if err := logMovimientos(tx, input.ProductID, unitIDs, "prestamo", movementNote, currentUser, now); err != nil {
+	if err := logMovimientos(tx, productSKU, unitIDs, "prestamo", movementNote, currentUser, now); err != nil {
 		return productLoanOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el movimiento del préstamo."}
 	}
 	auditPayload := map[string]any{
 		"product_loan_id":          productLoanID,
-		"product_id":               input.ProductID,
+		"product_id":               visibleID,
+		"product_sku":              productSKU,
 		"customer_id":              customer.ID,
 		"borrower_name":            customer.Name,
 		"borrower_document_type":   customer.DocumentType,
@@ -3946,10 +4153,11 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 		return productLoanOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría del préstamo."}
 	}
 	if err := logCustomerEvent(tx, currentUser, customer.ID, "product_loan_created", "product_loan", strconv.FormatInt(productLoanID, 10), 0, map[string]any{
-		"product_id": input.ProductID,
-		"quantity":   input.Quantity,
-		"due_at":     input.DueAt,
-		"unit_ids":   unitIDs,
+		"product_id":  visibleID,
+		"product_sku": productSKU,
+		"quantity":    input.Quantity,
+		"due_at":      input.DueAt,
+		"unit_ids":    unitIDs,
 	}); err != nil {
 		return productLoanOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la trazabilidad del cliente."}
 	}
@@ -3958,7 +4166,7 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 	}
 	return productLoanOperationResult{
 		ProductLoanID: int(productLoanID),
-		ProductID:     input.ProductID,
+		ProductID:     visibleID,
 		CustomerID:    customer.ID,
 		BorrowerName:  customer.Name,
 		Quantity:      input.Quantity,
@@ -5192,6 +5400,13 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	if !allowed {
 		return retomaOperationResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto."}
 	}
+	productSKU, visibleID, err := resolveProductRefForTenant(db, tenantID, input.ProductID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return retomaOperationResult{}, requestError{Status: http.StatusNotFound, Message: "Producto no encontrado."}
+		}
+		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el producto."}
+	}
 
 	var (
 		productName      string
@@ -5202,10 +5417,7 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 		SELECT nombre, COALESCE(retoma_enabled, 0), retoma_price
 		FROM productos
 		WHERE tenant_id = ? AND sku = ?
-	`, tenantID, input.ProductID).Scan(&productName, &retomaEnabled, &defaultRetomaRaw); err != nil {
-		if err == sql.ErrNoRows {
-			return retomaOperationResult{}, requestError{Status: http.StatusNotFound, Message: "Producto no encontrado."}
-		}
+	`, tenantID, productSKU).Scan(&productName, &retomaEnabled, &defaultRetomaRaw); err != nil {
 		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el producto."}
 	}
 	if retomaEnabled != 1 {
@@ -5226,7 +5438,7 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	retomaID, err := insertAndReturnID(tx, `
 		INSERT INTO retomas (tenant_id, producto_id, cantidad, valor_recibido, estado_recibido, publicado_stock, precio_publicado, notas, fecha)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, tenantID, input.ProductID, input.Quantity, input.ValueReceived, input.ReceivedState, boolToInt(input.PublishToStock), precioPublicado, input.Notes, now)
+	`, tenantID, productSKU, input.Quantity, input.ValueReceived, input.ReceivedState, boolToInt(input.PublishToStock), precioPublicado, input.Notes, now)
 	if err != nil {
 		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la retoma."}
 	}
@@ -5234,29 +5446,29 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	unitIDs := make([]string, 0, input.Quantity)
 	baseID := time.Now().UnixNano()
 	for i := 0; i < input.Quantity; i++ {
-		unitIDs = append(unitIDs, fmt.Sprintf("RETOMA-%s-%d-%d", input.ProductID, baseID, i+1))
+		unitIDs = append(unitIDs, fmt.Sprintf("RETOMA-%s-%d-%d", productSKU, baseID, i+1))
 	}
 	movementNote := fmt.Sprintf("Estado recibido: %s | Valor recibido: %s", input.ReceivedState, formatCurrency(input.ValueReceived))
 	if input.Notes != "" {
 		movementNote += " | " + input.Notes
 	}
-	if err := logMovimientos(tx, input.ProductID, unitIDs, "retoma", movementNote, currentUser, now); err != nil {
+	if err := logMovimientos(tx, productSKU, unitIDs, "retoma", movementNote, currentUser, now); err != nil {
 		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el movimiento de retoma."}
 	}
 
 	stockCreatedIDs := make([]string, 0, input.Quantity)
 	if input.PublishToStock {
 		if precioPublicado.Valid {
-			if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE tenant_id = ? AND sku = ?`, precioPublicado.Float64, tenantID, input.ProductID); err != nil {
+			if _, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE tenant_id = ? AND sku = ?`, precioPublicado.Float64, tenantID, productSKU); err != nil {
 				return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el precio final del producto."}
 			}
 		}
 		baseID = time.Now().UnixNano()
 		for i := 0; i < input.Quantity; i++ {
-			unitID := fmt.Sprintf("U-%s-RET-%d-%d", input.ProductID, baseID, i+1)
+			unitID := fmt.Sprintf("U-%s-RET-%d-%d", productSKU, baseID, i+1)
 			if _, err := tx.Exec(
 				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, tenantID, input.ProductID, "Disponible", now, nil,
+				unitID, tenantID, productSKU, "Disponible", now, nil,
 			); err != nil {
 				return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo publicar la retoma al stock."}
 			}
@@ -5269,14 +5481,15 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 		if input.Notes != "" {
 			stockNote += " | " + input.Notes
 		}
-		if err := logMovimientos(tx, input.ProductID, stockCreatedIDs, "retoma_stock", stockNote, currentUser, now); err != nil {
+		if err := logMovimientos(tx, productSKU, stockCreatedIDs, "retoma_stock", stockNote, currentUser, now); err != nil {
 			return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el ingreso a stock de la retoma."}
 		}
 	}
 
 	auditPayload := map[string]any{
 		"retoma_id":            retomaID,
-		"product_id":           input.ProductID,
+		"product_id":           visibleID,
+		"product_sku":          productSKU,
 		"product_name":         productName,
 		"quantity":             input.Quantity,
 		"value_received":       input.ValueReceived,
@@ -5294,7 +5507,7 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	if decoratePayload != nil {
 		auditPayload = decoratePayload(auditPayload)
 	}
-	if err := logAuditEvent(tx, currentUser, "retoma_registered", "retoma", input.ProductID, source, auditPayload); err != nil {
+	if err := logAuditEvent(tx, currentUser, "retoma_registered", "retoma", strconv.FormatInt(retomaID, 10), source, auditPayload); err != nil {
 		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría de la retoma."}
 	}
 
@@ -5313,7 +5526,7 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 	}
 	return retomaOperationResult{
 		RetomaID:         retomaID,
-		ProductID:        input.ProductID,
+		ProductID:        visibleID,
 		ProductName:      productName,
 		Quantity:         input.Quantity,
 		ValueReceived:    input.ValueReceived,
@@ -5370,12 +5583,16 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 	if !allowed {
 		return inventoryAdjustResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto."}
 	}
-
-	var currentSalePrice float64
-	if err := db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND sku = ?`, tenantID, input.ProductID).Scan(&currentSalePrice); err != nil {
+	productSKU, visibleID, err := resolveProductRefForTenant(db, tenantID, input.ProductID)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusNotFound, Message: "Producto no encontrado."}
 		}
+		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el producto."}
+	}
+
+	var currentSalePrice float64
+	if err := db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND sku = ?`, tenantID, productSKU).Scan(&currentSalePrice); err != nil {
 		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el producto."}
 	}
 	priceForValidation := currentSalePrice
@@ -5398,7 +5615,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		FROM unidades
 		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
 		ORDER BY creado_en DESC, id DESC
-	`, tenantID, input.ProductID)
+	`, tenantID, productSKU)
 	if err != nil {
 		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo consultar el stock actual."}
 	}
@@ -5428,10 +5645,10 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		createdIDs := make([]string, 0, delta)
 		baseID := time.Now().UnixNano()
 		for i := 0; i < delta; i++ {
-			unitID := fmt.Sprintf("U-%s-AJ-%d-%d", input.ProductID, baseID, i)
+			unitID := fmt.Sprintf("U-%s-AJ-%d-%d", productSKU, baseID, i)
 			if _, err := tx.Exec(
 				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, tenantID, input.ProductID, "Disponible", now, nil,
+				unitID, tenantID, productSKU, "Disponible", now, nil,
 			); err != nil {
 				return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo incrementar el stock."}
 			}
@@ -5441,7 +5658,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		if logNote == "" {
 			logNote = fmt.Sprintf("Ajuste manual de stock: %d -> %d", current, target)
 		}
-		if err := logMovimientos(tx, input.ProductID, createdIDs, "ajuste_stock_entrada", logNote, currentUser, now); err != nil {
+		if err := logMovimientos(tx, productSKU, createdIDs, "ajuste_stock_entrada", logNote, currentUser, now); err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el ajuste."}
 		}
 	} else if delta < 0 {
@@ -5456,7 +5673,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 			placeholders[i] = "?"
 			args = append(args, id)
 		}
-		args = append(args, input.ProductID)
+		args = append(args, productSKU)
 		query := fmt.Sprintf(
 			"DELETE FROM unidades WHERE tenant_id = ? AND id IN (%s) AND producto_id = ? AND estado IN ('Disponible', 'available')",
 			strings.Join(placeholders, ","),
@@ -5474,14 +5691,14 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		if logNote == "" {
 			logNote = fmt.Sprintf("Ajuste manual de stock: %d -> %d", current, target)
 		}
-		if err := logMovimientos(tx, input.ProductID, removeIDs, "ajuste_stock_salida", logNote, currentUser, now); err != nil {
+		if err := logMovimientos(tx, productSKU, removeIDs, "ajuste_stock_salida", logNote, currentUser, now); err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el ajuste."}
 		}
 	}
 
 	updatedFields := map[string]any{}
 	if input.SalePrice != nil {
-		res, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE tenant_id = ? AND sku = ?`, *input.SalePrice, tenantID, input.ProductID)
+		res, err := tx.Exec(`UPDATE productos SET precio_venta = ? WHERE tenant_id = ? AND sku = ?`, *input.SalePrice, tenantID, productSKU)
 		if err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el precio de venta."}
 		}
@@ -5492,7 +5709,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		updatedFields["sale_price"] = *input.SalePrice
 	}
 	if input.Name != nil {
-		res, err := tx.Exec(`UPDATE productos SET nombre = ? WHERE tenant_id = ? AND sku = ?`, *input.Name, tenantID, input.ProductID)
+		res, err := tx.Exec(`UPDATE productos SET nombre = ? WHERE tenant_id = ? AND sku = ?`, *input.Name, tenantID, productSKU)
 		if err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el nombre del producto."}
 		}
@@ -5507,7 +5724,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		if *input.RetomaEnabled && input.RetomaPrice != nil {
 			newRetomaPrice = sql.NullFloat64{Float64: *input.RetomaPrice, Valid: true}
 		}
-		res, err := tx.Exec(`UPDATE productos SET retoma_enabled = ?, retoma_price = ? WHERE tenant_id = ? AND sku = ?`, boolToInt(*input.RetomaEnabled), newRetomaPrice, tenantID, input.ProductID)
+		res, err := tx.Exec(`UPDATE productos SET retoma_enabled = ?, retoma_price = ? WHERE tenant_id = ? AND sku = ?`, boolToInt(*input.RetomaEnabled), newRetomaPrice, tenantID, productSKU)
 		if err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar la configuración de retoma."}
 		}
@@ -5525,7 +5742,8 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 
 	if delta != 0 {
 		auditPayload := map[string]any{
-			"product_id":        input.ProductID,
+			"product_id":        visibleID,
+			"product_sku":       productSKU,
 			"previous_quantity": current,
 			"target_quantity":   target,
 			"current_quantity":  target,
@@ -5535,16 +5753,17 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 		if decoratePayload != nil {
 			auditPayload = decoratePayload(auditPayload)
 		}
-		if err := logAuditEvent(tx, currentUser, "inventory_adjusted", "product", input.ProductID, source, auditPayload); err != nil {
+		if err := logAuditEvent(tx, currentUser, "inventory_adjusted", "product", productSKU, source, auditPayload); err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría del ajuste de inventario."}
 		}
 	}
 	if len(updatedFields) > 0 {
-		updatedFields["product_id"] = input.ProductID
+		updatedFields["product_id"] = visibleID
+		updatedFields["product_sku"] = productSKU
 		if decoratePayload != nil {
 			updatedFields = decoratePayload(updatedFields)
 		}
-		if err := logAuditEvent(tx, currentUser, "product_updated", "product", input.ProductID, source, updatedFields); err != nil {
+		if err := logAuditEvent(tx, currentUser, "product_updated", "product", productSKU, source, updatedFields); err != nil {
 			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría del producto."}
 		}
 	}
@@ -5590,7 +5809,7 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 	}
 
 	return inventoryAdjustResult{
-		ProductID:        input.ProductID,
+		ProductID:        visibleID,
 		PreviousQuantity: current,
 		CurrentQuantity:  target,
 		Delta:            delta,
@@ -5630,13 +5849,31 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 	if input.Customer == nil || input.Customer.ID <= 0 {
 		return creditSaleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Cliente inválido para el crédito."}
 	}
+	productSKU := ""
 	if input.Kind == creditSaleKindCash {
 		input.ProductID = ""
 		if input.ProductName == "" {
 			input.ProductName = "Préstamo de dinero"
 		}
-	} else if input.ProductName == "" {
-		input.ProductName = input.ProductID
+	} else {
+		if input.ProductID == "" {
+			return creditSaleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Producto inválido para el crédito."}
+		}
+		var resolvedName string
+		if err := tx.QueryRow(`
+			SELECT sku, COALESCE(NULLIF(id, ''), sku), COALESCE(nombre, '')
+			FROM productos
+			WHERE tenant_id = ? AND (sku = ? OR id = ?)
+			LIMIT 1
+		`, tenantID, input.ProductID, input.ProductID).Scan(&productSKU, &input.ProductID, &resolvedName); err != nil {
+			if err == sql.ErrNoRows {
+				return creditSaleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Producto inválido para el crédito."}
+			}
+			return creditSaleCreateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el producto del crédito."}
+		}
+		if input.ProductName == "" {
+			input.ProductName = resolvedName
+		}
 	}
 
 	debtTotal := creditDebtTotal(input.InstallmentsTotal, input.InstallmentValue)
@@ -5650,8 +5887,10 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		storedNotes += " | " + input.Notes
 	}
 	var productIDValue any = input.ProductID
-	if input.ProductID == "" {
+	if input.Kind == creditSaleKindCash || productSKU == "" {
 		productIDValue = nil
+	} else {
+		productIDValue = productSKU
 	}
 
 	creditSaleID, err := insertAndReturnID(tx, `
@@ -5666,6 +5905,7 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		"kind":               string(input.Kind),
 		"kind_label":         creditKindLabel(input.Kind),
 		"product_id":         input.ProductID,
+		"product_sku":        productSKU,
 		"product_name":       input.ProductName,
 		"quantity":           input.Quantity,
 		"installments_total": input.InstallmentsTotal,
@@ -5687,6 +5927,7 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		"kind":                     string(input.Kind),
 		"kind_label":               creditKindLabel(input.Kind),
 		"product_id":               input.ProductID,
+		"product_sku":              productSKU,
 		"product_name":             input.ProductName,
 		"debtor_name":              input.Customer.Name,
 		"debtor_document_type":     input.Customer.DocumentType,
@@ -6341,10 +6582,11 @@ func loadInventoryCountsForProducts(db *sql.DB, tenantID int, productIDs []strin
 	}
 
 	rows, err := db.Query(`
-		SELECT producto_id, estado, COUNT(*)
-		FROM unidades
-		WHERE tenant_id = ? AND producto_id IN (`+strings.Join(placeholders, ",")+`)
-		GROUP BY producto_id, estado
+		SELECT COALESCE(NULLIF(p.id, ''), p.sku), u.estado, COUNT(*)
+		FROM unidades u
+		JOIN productos p ON p.sku = u.producto_id AND p.tenant_id = u.tenant_id
+		WHERE u.tenant_id = ? AND COALESCE(NULLIF(p.id, ''), p.sku) IN (`+strings.Join(placeholders, ",")+`)
+		GROUP BY COALESCE(NULLIF(p.id, ''), p.sku), u.estado
 	`, append([]any{normalizeTenantID(tenantID)}, args...)...)
 	if err != nil {
 		return nil, err
@@ -6411,7 +6653,7 @@ func agentProductItem(product productOption, counts productInventoryCounts, incl
 func findVisibleProduct(products []productOption, productID string) (productOption, bool) {
 	productID = strings.TrimSpace(productID)
 	for _, product := range products {
-		if strings.EqualFold(product.ID, productID) {
+		if strings.EqualFold(product.ID, productID) || strings.EqualFold(product.refID(), productID) {
 			return product, true
 		}
 	}
@@ -6426,13 +6668,29 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty 
 	if qty <= 0 {
 		return nil, fmt.Errorf("cantidad inválida")
 	}
+	productSKU := ""
+	err := tx.QueryRow(`
+		SELECT sku
+		FROM productos
+		WHERE tenant_id = ? AND (sku = ? OR id = ?)
+		LIMIT 1
+	`, normalizeTenantID(tenantID), strings.TrimSpace(productID), strings.TrimSpace(productID)).Scan(&productSKU)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table: productos") {
+			productSKU = strings.TrimSpace(productID)
+		} else if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("producto no encontrado")
+		} else {
+			return nil, fmt.Errorf("resolver producto: %w", err)
+		}
+	}
 
 	rows, err := tx.Query(`
 		SELECT id
 		FROM unidades
 		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
 		ORDER BY creado_en, id
-		LIMIT ?`, normalizeTenantID(tenantID), productID, qty)
+		LIMIT ?`, normalizeTenantID(tenantID), productSKU, qty)
 	if err != nil {
 		return nil, fmt.Errorf("query unidades: %w", err)
 	}
@@ -6482,11 +6740,18 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty 
 }
 
 func availableUnitsByProduct(db *sql.DB, tenantID int, productID string) ([]unitOption, error) {
+	productSKU, _, err := resolveProductRefForTenant(db, tenantID, productID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return []unitOption{}, nil
+		}
+		return nil, err
+	}
 	rows, err := db.Query(`
 		SELECT id
 		FROM unidades
 		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
-		ORDER BY creado_en, id`, normalizeTenantID(tenantID), productID)
+		ORDER BY creado_en, id`, normalizeTenantID(tenantID), productSKU)
 	if err != nil {
 		return nil, err
 	}
@@ -6508,10 +6773,11 @@ func availableUnitsByProduct(db *sql.DB, tenantID int, productID string) ([]unit
 
 func availableCountsByProduct(db *sql.DB, tenantID int) (map[string]int, error) {
 	rows, err := db.Query(`
-		SELECT producto_id, COUNT(*)
-		FROM unidades
-		WHERE tenant_id = ? AND estado IN ('Disponible', 'available')
-		GROUP BY producto_id`, normalizeTenantID(tenantID))
+		SELECT COALESCE(NULLIF(p.id, ''), p.sku), COUNT(*)
+		FROM unidades u
+		JOIN productos p ON p.sku = u.producto_id AND p.tenant_id = u.tenant_id
+		WHERE u.tenant_id = ? AND u.estado IN ('Disponible', 'available')
+		GROUP BY COALESCE(NULLIF(p.id, ''), p.sku)`, normalizeTenantID(tenantID))
 	if err != nil {
 		return nil, err
 	}
@@ -7339,15 +7605,16 @@ func productLabelItemsForUser(db *sql.DB, currentUser *User, productIDs []string
 		}
 
 		var (
+			visibleID string
 			name      string
 			salePrice float64
 		)
 		err = db.QueryRow(`
-			SELECT COALESCE(nombre, sku), COALESCE(precio_venta, 0)
+			SELECT COALESCE(NULLIF(id, ''), sku), COALESCE(nombre, sku), COALESCE(precio_venta, 0)
 			FROM productos
-			WHERE tenant_id = ? AND sku = ?
+			WHERE tenant_id = ? AND (sku = ? OR id = ?)
 			LIMIT 1
-		`, tenantIDFromUser(currentUser), productID).Scan(&name, &salePrice)
+		`, tenantIDFromUser(currentUser), productID, productID).Scan(&visibleID, &name, &salePrice)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				continue
@@ -7355,12 +7622,12 @@ func productLabelItemsForUser(db *sql.DB, currentUser *User, productIDs []string
 			return nil, 0, 0, err
 		}
 
-		barcodeURI, err := barcodeDataURI(productID, barcodeWidth, barcodeHeight)
+		barcodeURI, err := barcodeDataURI(visibleID, barcodeWidth, barcodeHeight)
 		if err != nil {
 			return nil, 0, 0, err
 		}
 		items = append(items, productLabelItem{
-			ID:             productID,
+			ID:             visibleID,
 			Name:           name,
 			Price:          formatCurrency(salePrice),
 			BarcodeDataURI: template.URL(barcodeURI),
@@ -7397,8 +7664,8 @@ func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceipt
 	err := db.QueryRow(`
 		SELECT
 			v.fecha,
-			v.producto_id,
-			COALESCE(p.nombre, v.producto_id),
+			COALESCE(NULLIF(p.id, ''), p.sku, v.producto_id),
+			COALESCE(p.nombre, COALESCE(NULLIF(p.id, ''), p.sku, v.producto_id)),
 			v.cantidad,
 			v.precio_final,
 			COALESCE(v.metodo_pago, ''),
@@ -9383,9 +9650,10 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 			var (
 				productName      string
 				productSalePrice float64
+				productSKU       string
 			)
 			if payload.ProductID != "" {
-				if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND (sku = ? OR id = ?) LIMIT 1`, tenantIDFromUser(currentUser), payload.ProductID, payload.ProductID).Scan(&productName, &productSalePrice); err != nil {
+				if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0), sku FROM productos WHERE tenant_id = ? AND (sku = ? OR id = ?) LIMIT 1`, tenantIDFromUser(currentUser), payload.ProductID, payload.ProductID).Scan(&productName, &productSalePrice, &productSKU); err != nil {
 					if err == sql.ErrNoRows {
 						fields["product_id"] = "Selecciona un producto válido."
 					} else {
@@ -9453,7 +9721,7 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 			}
 			defer tx.Rollback()
 
-			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, quantity)
+			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), productSKU, quantity)
 			if err != nil {
 				if err == errInsufficientStock {
 					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
@@ -9464,11 +9732,11 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 			}
 
 			now := time.Now().Format(time.RFC3339)
-			if err := logMovimientos(tx, payload.ProductID, soldUnitIDs, "venta", payload.Notes, currentUser, now); err != nil {
+			if err := logMovimientos(tx, productSKU, soldUnitIDs, "venta", payload.Notes, currentUser, now); err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
 				return
 			}
-			saleID, err := insertAndReturnID(tx, `INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, tenantIDFromUser(currentUser), payload.ProductID, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
+			saleID, err := insertAndReturnID(tx, `INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, tenantIDFromUser(currentUser), productSKU, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
 				return
@@ -9476,6 +9744,7 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
 				"sale_id":     saleID,
 				"producto_id": payload.ProductID,
+				"product_sku": productSKU,
 				"producto":    productName,
 				"cantidad":    quantity,
 				"sale_price":  salePrice,
@@ -9941,6 +10210,10 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 		if !ok {
 			fields["product_id"] = "Selecciona un producto válido."
 		}
+		productSKU := ""
+		if ok {
+			productSKU = selectedProduct.refID()
+		}
 		if payload.PersonaCambio == "" {
 			fields["persona_del_cambio"] = "Ingresa la persona responsable del cambio."
 		}
@@ -9991,30 +10264,50 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 		}
 		now := time.Now().Format(time.RFC3339)
 		notaMovimiento := strings.TrimSpace(fmt.Sprintf("%s %s", payload.PersonaCambio, payload.Notes))
-		if err := logMovimientos(tx, payload.ProductID, salientesMarcadas, "cambio_salida", notaMovimiento, currentUser, now); err != nil {
+		if err := logMovimientos(tx, productSKU, salientesMarcadas, "cambio_salida", notaMovimiento, currentUser, now); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento del cambio.", nil)
 			return
 		}
 		incomingProductID := payload.IncomingExistingID
+		incomingProductSKU := ""
 		incomingQty := payload.IncomingExistingQty
 		if payload.IncomingMode == "new" {
 			incomingProductID = payload.IncomingNewSKU
 			incomingQty = payload.IncomingNewQty
+			incomingProductSKU, err = generateNextProductSKU(db)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo generar el SKU interno del producto entrante.", nil)
+				return
+			}
+			if err := upsertProducto(tx, tenantIDFromUser(currentUser), incomingProductSKU, incomingProductID, payload.IncomingNewName, payload.IncomingNewLine, now); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo crear el producto entrante.", nil)
+				return
+			}
+		} else {
+			incomingProduct, found := findProduct(productsSnapshot, payload.IncomingExistingID)
+			if !found {
+				writeAPIError(w, http.StatusBadRequest, "Producto entrante inválido.", map[string]string{"incoming_existing_id": "Selecciona un producto entrante válido."})
+				return
+			}
+			incomingProductID = incomingProduct.ID
+			incomingProductSKU = incomingProduct.refID()
 		}
 		for i := 0; i < incomingQty; i++ {
 			unitID := fmt.Sprintf("U-%d-%d", time.Now().UnixNano(), i+1)
-			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductID, "Disponible", now, nil); err != nil {
+			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductSKU, "Disponible", now, nil); err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar unidades entrantes.", nil)
 				return
 			}
 		}
 		if err := logAuditEvent(tx, currentUser, "change_registered", "change", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
-			"producto_saliente_id": payload.ProductID,
-			"producto_saliente":    selectedProduct.Name,
-			"producto_entrante_id": incomingProductID,
-			"cantidad_saliente":    payload.Quantity,
-			"cantidad_entrante":    incomingQty,
-			"modo_entrada":         payload.IncomingMode,
+			"producto_saliente_id":  payload.ProductID,
+			"producto_saliente_sku": productSKU,
+			"producto_saliente":     selectedProduct.Name,
+			"producto_entrante_id":  incomingProductID,
+			"producto_entrante_sku": incomingProductSKU,
+			"cantidad_saliente":     payload.Quantity,
+			"cantidad_entrante":     incomingQty,
+			"modo_entrada":          payload.IncomingMode,
 		})); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría del cambio.", nil)
 			return
@@ -10023,7 +10316,7 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 			writeAPIError(w, http.StatusInternalServerError, "Error al confirmar el cambio.", nil)
 			return
 		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "product_id": payload.ProductID, "incoming_product_id": incomingProductID, "quantity": payload.Quantity, "incoming_quantity": incomingQty, "message": "Cambio registrado correctamente."})
+		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "product_id": payload.ProductID, "product_sku": productSKU, "incoming_product_id": incomingProductID, "incoming_product_sku": incomingProductSKU, "quantity": payload.Quantity, "incoming_quantity": incomingQty, "message": "Cambio registrado correctamente."})
 	}
 }
 
@@ -10157,6 +10450,98 @@ func handleAPICreditInstallments(db *sql.DB) http.HandlerFunc {
 			"total_paid":         result.TotalPaid,
 			"current_debt":       result.CurrentDebt,
 			"message":            message,
+		})
+	}
+}
+
+func handleAPIProductRoutes(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		if currentUser == nil || !isAdminRole(currentUser.Role) {
+			writeAPIError(w, http.StatusForbidden, "Solo administrador puede editar productos vía API.", nil)
+			return
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, "/api/products/")
+		path = strings.Trim(path, "/")
+		if path == "" {
+			writeAPIError(w, http.StatusNotFound, "Producto no encontrado.", nil)
+			return
+		}
+		if strings.Contains(path, "/") {
+			writeAPIError(w, http.StatusNotFound, "Ruta de producto no encontrada.", nil)
+			return
+		}
+		if r.Method != http.MethodPatch && r.Method != http.MethodPut {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+
+		var payload struct {
+			ID    string `json:"id"`
+			SKU   string `json:"sku"`
+			NewID string `json:"new_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+			return
+		}
+		newID := strings.TrimSpace(firstNonEmptyString(payload.NewID, payload.ID, payload.SKU))
+		if newID == "" {
+			writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", map[string]string{"id": "El nuevo ID es obligatorio."})
+			return
+		}
+
+		previous, err := loadProductEditRecord(db, tenantIDFromUser(currentUser), path)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				writeAPIError(w, http.StatusNotFound, "Producto no encontrado.", nil)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el producto.", nil)
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo iniciar la transacción.", nil)
+			return
+		}
+		defer tx.Rollback()
+
+		if err := renameProductIdentifier(tx, tenantIDFromUser(currentUser), previous.SKU, newID); err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo actualizar el ID del producto.", nil)
+			return
+		}
+
+		if previous.ID != newID {
+			if err := logAuditEvent(tx, currentUser, "product_updated", "product", newID, "api", withAPIAuditMetadata(r, map[string]any{
+				"product_sku": previous.SKU,
+				"previous_id": previous.ID,
+				"new_id":      newID,
+				"name":        previous.Name,
+			})); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la auditoría del producto.", nil)
+				return
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo confirmar la edición del producto.", nil)
+			return
+		}
+
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":          true,
+			"previous_id": previous.ID,
+			"sku":         previous.SKU,
+			"id":          newID,
+			"message":     "ID de producto actualizado correctamente.",
 		})
 	}
 }
@@ -11312,7 +11697,10 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 	if _, err := db.Exec("UPDATE productos SET id = sku WHERE id IS NULL OR id = ''"); err != nil {
 		return err
 	}
-	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_id_unique ON productos(id)"); err != nil {
+	if _, err := db.Exec("DROP INDEX IF EXISTS idx_productos_id_unique"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_tenant_id_unique ON productos(tenant_id, id)"); err != nil {
 		return err
 	}
 	productosCols, err = tableColumns(db, "productos")
@@ -11698,6 +12086,7 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 	);
 	CREATE INDEX IF NOT EXISTS idx_productos_linea ON productos (linea);
 	CREATE INDEX IF NOT EXISTS idx_productos_tenant_id ON productos (tenant_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_tenant_id_unique ON productos (tenant_id, id);
 
 	CREATE TABLE IF NOT EXISTS ventas (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11979,7 +12368,10 @@ func initSQLiteDB(path string, paymentMethods []string) (*sql.DB, error) {
 	if _, err := db.Exec("UPDATE productos SET id = sku WHERE id IS NULL OR id = ''"); err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_id_unique ON productos(id)"); err != nil {
+	if _, err := db.Exec("DROP INDEX IF EXISTS idx_productos_id_unique"); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_tenant_id_unique ON productos(tenant_id, id)"); err != nil {
 		return nil, err
 	}
 
@@ -12444,6 +12836,7 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 	);
 	CREATE INDEX IF NOT EXISTS idx_productos_linea ON productos (linea);
 	CREATE INDEX IF NOT EXISTS idx_productos_tenant_id ON productos (tenant_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_tenant_id_unique ON productos (tenant_id, id);
 
 	CREATE TABLE IF NOT EXISTS ventas (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -12992,7 +13385,6 @@ func main() {
 		"templates/customers.html",
 		"templates/customer_detail.html",
 		"templates/credit_edits_report.html",
-		"templates/cash_loans_report.html",
 		"templates/product_loans_report.html",
 		"templates/product_loan_detail.html",
 		"templates/business_settings.html",
@@ -13693,46 +14085,7 @@ func main() {
 	}))
 
 	mux.HandleFunc("/prestamos/dinero", adminOnly(func(w http.ResponseWriter, r *http.Request) {
-		currentUser := userFromContext(r)
-		cashLoanFilters, creditSaleIDRaw := parseCashLoanReportFilters(r, 150)
-		items, err := listCashLoansReport(db, currentUser, tenantIDFromRequest(r), cashLoanFilters)
-		if err != nil {
-			http.Error(w, "Error al cargar préstamos de dinero", http.StatusInternalServerError)
-			return
-		}
-		summary := cashLoanReportSummary{}
-		for _, item := range items {
-			summary.Count++
-			summary.TotalValue += item.TotalValue
-			summary.TotalPaid += item.TotalPaid
-			summary.CurrentDebt += item.CurrentDebt
-			switch item.Status {
-			case string(creditStatusCompleted):
-				summary.CompletedCount++
-			case string(creditStatusSuspended):
-				summary.SuspendedCount++
-			case string(creditStatusCancelled):
-				summary.CancelledCount++
-			default:
-				summary.ActiveCount++
-			}
-		}
-		data := cashLoanReportPageData{
-			Title:        "Préstamos de dinero",
-			Subtitle:     "Reporte operativo de préstamos cash_loan del tenant activo.",
-			Flash:        r.URL.Query().Get("mensaje"),
-			Error:        r.URL.Query().Get("error"),
-			DateFrom:     strings.TrimSpace(r.URL.Query().Get("date_from")),
-			DateTo:       strings.TrimSpace(r.URL.Query().Get("date_to")),
-			Username:     strings.TrimSpace(r.URL.Query().Get("username")),
-			Status:       normalizeCreditStatusFilter(strings.TrimSpace(r.URL.Query().Get("status"))),
-			Customer:     strings.TrimSpace(r.URL.Query().Get("customer")),
-			CreditSaleID: creditSaleIDRaw,
-			Items:        items,
-			Summary:      summary,
-			CurrentUser:  currentUser,
-		}
-		renderTemplate(w, "cash_loans_report.html", data, "Error al renderizar reporte de préstamos de dinero")
+		http.Redirect(w, r, cashLoansInventoryURL(r.URL), http.StatusFound)
 	}))
 
 	mux.HandleFunc("/prestamos/producto", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -14700,7 +15053,7 @@ func main() {
 			http.Error(w, "No se pudieron cargar las líneas de negocio", http.StatusInternalServerError)
 			return
 		}
-		nextSKU, err := generateNextProductSKU(db)
+		nextSKU, err := generateNextTenantProductID(db, tenantIDFromRequest(r))
 		if err != nil {
 			http.Error(w, "No se pudo generar el ID", http.StatusInternalServerError)
 			return
@@ -14815,7 +15168,7 @@ func main() {
 		}
 
 		nombre := strings.TrimSpace(r.FormValue("nombre"))
-		customSKU := strings.TrimSpace(r.FormValue("id"))
+		customSKU := visibleProductID(strings.TrimSpace(r.FormValue("id")), strings.TrimSpace(r.FormValue("sku")))
 		if customSKU == "" {
 			customSKU = strings.TrimSpace(r.FormValue("sku"))
 		}
@@ -14849,7 +15202,7 @@ func main() {
 		}
 		if customSKU != "" {
 			var existingCount int
-			if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE sku = ?`, customSKU).Scan(&existingCount); err != nil {
+			if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE tenant_id = ? AND id = ?`, tenantIDFromRequest(r), customSKU).Scan(&existingCount); err != nil {
 				http.Error(w, "No se pudo validar el ID", http.StatusInternalServerError)
 				return
 			}
@@ -14954,7 +15307,7 @@ func main() {
 			nextSKU := customSKU
 			if nextSKU == "" {
 				var skuErr error
-				nextSKU, skuErr = generateNextProductSKU(db)
+				nextSKU, skuErr = generateNextTenantProductID(db, tenantIDFromRequest(r))
 				if skuErr != nil {
 					http.Error(w, "No se pudo generar el ID", http.StatusInternalServerError)
 					return
@@ -15001,14 +15354,19 @@ func main() {
 
 		sku := customSKU
 		if sku == "" {
-			sku, err = generateNextProductSKU(db)
+			sku, err = generateNextTenantProductID(db, tenantIDFromRequest(r))
 			if err != nil {
 				http.Error(w, "No se pudo generar el ID", http.StatusInternalServerError)
 				return
 			}
 		}
+		internalSKU, err := generateNextProductSKU(db)
+		if err != nil {
+			http.Error(w, "No se pudo generar el SKU interno", http.StatusInternalServerError)
+			return
+		}
 		now := time.Now().Format(time.RFC3339)
-		if err := upsertProducto(tx, tenantIDFromRequest(r), sku, nombre, linea, now); err != nil {
+		if err := upsertProducto(tx, tenantIDFromRequest(r), internalSKU, sku, nombre, linea, now); err != nil {
 			http.Error(w, "No se pudo guardar el producto", http.StatusInternalServerError)
 			return
 		}
@@ -15016,16 +15374,17 @@ func main() {
 			UPDATE productos
 			SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?, location = ?
 			WHERE sku = ?
-		`, float64(precioVenta), boolToInt(retomaEnabled), retomaPrice, boolToInt(isCreditProduct), debtorName, installmentsTotal, 0, float64(totalValue), float64(installmentValue), location, sku); err != nil {
+		`, float64(precioVenta), boolToInt(retomaEnabled), retomaPrice, boolToInt(isCreditProduct), debtorName, installmentsTotal, 0, float64(totalValue), float64(installmentValue), location, internalSKU); err != nil {
 			http.Error(w, "No se pudo guardar el precio del producto", http.StatusInternalServerError)
 			return
 		}
-		if _, err := tx.Exec(`UPDATE productos SET owner_user_id = ? WHERE sku = ?`, ownerUserID, sku); err != nil {
+		if _, err := tx.Exec(`UPDATE productos SET owner_user_id = ? WHERE sku = ?`, ownerUserID, internalSKU); err != nil {
 			http.Error(w, "No se pudo guardar la asignación del producto", http.StatusInternalServerError)
 			return
 		}
-		if err := logAuditEvent(tx, userFromContext(r), "product_created", "product", sku, "manual", map[string]any{
-			"sku":            sku,
+		if err := logAuditEvent(tx, userFromContext(r), "product_created", "product", internalSKU, "manual", map[string]any{
+			"sku":            internalSKU,
+			"id":             sku,
 			"name":           nombre,
 			"line":           linea,
 			"retoma_enabled": retomaEnabled,
@@ -15038,8 +15397,9 @@ func main() {
 			return
 		}
 		if isCreditProduct {
-			if err := logAuditEvent(tx, userFromContext(r), "credit_created", "product", sku, "manual", map[string]any{
+			if err := logAuditEvent(tx, userFromContext(r), "credit_created", "product", internalSKU, "manual", map[string]any{
 				"product_id":         sku,
+				"product_sku":        internalSKU,
 				"debtor_name":        debtorName,
 				"installments_total": installmentsTotal,
 				"installments_paid":  0,
@@ -15051,8 +15411,9 @@ func main() {
 			}
 		}
 		if ownerUserID.Valid {
-			if err := logAuditEvent(tx, userFromContext(r), "product_assigned", "product", sku, "manual", map[string]any{
-				"sku":           sku,
+			if err := logAuditEvent(tx, userFromContext(r), "product_assigned", "product", internalSKU, "manual", map[string]any{
+				"sku":           internalSKU,
+				"id":            sku,
 				"name":          nombre,
 				"owner_user_id": ownerUserID.Int64,
 			}); err != nil {
@@ -15064,14 +15425,14 @@ func main() {
 		baseID := time.Now().UnixNano()
 		tenantID := normalizeTenantID(tenantIDFromRequest(r))
 		for j := 0; j < cantidad; j++ {
-			unitID := fmt.Sprintf("U-%s-%d", sku, baseID+int64(j))
+			unitID := fmt.Sprintf("U-%s-%d", internalSKU, baseID+int64(j))
 			var cad any = nil
 			if aplicaCad && caducidad != "" {
 				cad = caducidad
 			}
 			if _, err := tx.Exec(
 				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, tenantID, sku, "Disponible", now, cad,
+				unitID, tenantID, internalSKU, "Disponible", now, cad,
 			); err != nil {
 				http.Error(w, "No se pudieron crear unidades", http.StatusInternalServerError)
 				return
@@ -15087,7 +15448,7 @@ func main() {
 		productsMu.Lock()
 		found := false
 		for idx := range products {
-			if products[idx].ID == sku {
+			if products[idx].SKU == internalSKU {
 				products[idx].Name = nombre
 				products[idx].Line = linea
 				products[idx].Location = location
@@ -15117,6 +15478,7 @@ func main() {
 		}
 		if !found {
 			createdProduct := productOption{
+				SKU:               internalSKU,
 				ID:                sku,
 				Name:              nombre,
 				Line:              linea,
@@ -15196,6 +15558,8 @@ func main() {
 			return
 		}
 		var payload struct {
+			ID             string `json:"id"`
+			SKU            string `json:"sku"`
 			Name           string `json:"name"`
 			Line           string `json:"line"`
 			Location       string `json:"location"`
@@ -15282,6 +15646,24 @@ func main() {
 			writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
 			return
 		}
+		productID := visibleProductID(payload.ID, payload.SKU)
+		if productID == "" {
+			productID, err = generateNextTenantProductID(db, tenantIDFromUser(currentUser))
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo generar el ID.", nil)
+				return
+			}
+		} else {
+			var existingCount int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE tenant_id = ? AND id = ?`, tenantIDFromUser(currentUser), productID).Scan(&existingCount); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar el ID.", nil)
+				return
+			}
+			if existingCount > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", map[string]string{"id": "Ya existe un producto con ese ID."})
+				return
+			}
+		}
 		tx, err := db.Begin()
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo iniciar la transacción.", nil)
@@ -15290,11 +15672,11 @@ func main() {
 		defer tx.Rollback()
 		sku, err := generateNextProductSKU(db)
 		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "No se pudo generar el ID.", nil)
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo generar el SKU interno.", nil)
 			return
 		}
 		now := time.Now().Format(time.RFC3339)
-		if err := upsertProducto(tx, tenantIDFromUser(currentUser), sku, payload.Name, payload.Line, now); err != nil {
+		if err := upsertProducto(tx, tenantIDFromUser(currentUser), sku, productID, payload.Name, payload.Line, now); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo guardar el producto.", nil)
 			return
 		}
@@ -15315,6 +15697,7 @@ func main() {
 		}
 		if err := logAuditEvent(tx, currentUser, "product_created", "product", sku, "api", withAPIAuditMetadata(r, map[string]any{
 			"sku":            sku,
+			"id":             productID,
 			"name":           payload.Name,
 			"line":           payload.Line,
 			"sale_price":     payload.SalePrice,
@@ -15330,6 +15713,7 @@ func main() {
 		if ownerUserID.Valid {
 			if err := logAuditEvent(tx, currentUser, "product_assigned", "product", sku, "api", withAPIAuditMetadata(r, map[string]any{
 				"sku":           sku,
+				"id":            productID,
 				"name":          payload.Name,
 				"owner_user_id": ownerUserID.Int64,
 			})); err != nil {
@@ -15341,8 +15725,9 @@ func main() {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo confirmar la transacción.", nil)
 			return
 		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "id": sku, "location": payload.Location, "message": "Producto creado correctamente."})
+		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "id": productID, "sku": sku, "location": payload.Location, "message": "Producto creado correctamente."})
 	})
+	mux.HandleFunc("/api/products/", handleAPIProductRoutes(db))
 
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -15626,12 +16011,13 @@ func main() {
 		inventoryProducts := make([]inventoryProduct, 0, len(productsSnapshot))
 		allowedProducts := make(map[string]productOption, len(productsSnapshot))
 		for _, product := range productsSnapshot {
+			allowedProducts[product.refID()] = product
 			allowedProducts[product.ID] = product
 			rows, err := db.Query(`
 					SELECT id, estado, creado_en, caducidad
 					FROM unidades
 					WHERE tenant_id = ? AND producto_id = ?
-					ORDER BY creado_en, id`, tenantIDFromUser(currentUser), product.ID)
+					ORDER BY creado_en, id`, tenantIDFromUser(currentUser), product.refID())
 			if err != nil {
 				http.Error(w, "Error al consultar unidades", http.StatusInternalServerError)
 				return
@@ -15865,6 +16251,7 @@ func main() {
 				EntryType:             "credit",
 				CreditSaleID:          creditID,
 				CustomerID:            customerID,
+				CreditKind:            string(creditSaleKindProduct),
 				BaseProductID:         productID,
 				ID:                    fmt.Sprintf("CR-%d", creditID),
 				Name:                  creditName,
@@ -15902,6 +16289,153 @@ func main() {
 		}
 		if err := creditRows.Err(); err != nil {
 			http.Error(w, "Error al procesar créditos", http.StatusInternalServerError)
+			return
+		}
+		cashLoanRows, err := db.Query(`
+			SELECT
+				cs.id,
+				COALESCE(cs.customer_id, 0),
+				COALESCE(c.name, cs.debtor_name, ''),
+				COALESCE(c.document_type, cs.debtor_document_type, ''),
+				COALESCE(c.document_number, cs.debtor_document_number, ''),
+				COALESCE(c.phone, cs.debtor_phone, ''),
+				COALESCE(c.address, ''),
+				COALESCE(c.city, ''),
+				COALESCE(c.notes, ''),
+				COALESCE(cs.installments_total, 0),
+				COALESCE(cs.installments_paid, 0),
+				COALESCE((
+					SELECT COUNT(*)
+					FROM credit_installments ci
+					WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id AND COALESCE(ci.payment_type, 'cuota') = 'cuota'
+				), COALESCE(cs.installments_paid, 0)),
+				COALESCE(cs.total_value, 0),
+				COALESCE(cs.interest_percent, 0),
+				COALESCE(cs.installment_value, 0),
+				COALESCE((
+					SELECT SUM(ci.amount_paid)
+					FROM credit_installments ci
+					WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+				), 0),
+				COALESCE((
+					SELECT ci.amount_paid
+					FROM credit_installments ci
+					WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+					ORDER BY ci.created_at DESC, ci.id DESC
+					LIMIT 1
+				), 0),
+				COALESCE((
+					SELECT ci.created_at
+					FROM credit_installments ci
+					WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+					ORDER BY ci.created_at DESC, ci.id DESC
+					LIMIT 1
+				), ''),
+				COALESCE((
+					SELECT COALESCE(ci.payment_type, 'cuota')
+					FROM credit_installments ci
+					WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
+					ORDER BY ci.created_at DESC, ci.id DESC
+					LIMIT 1
+				), ''),
+				COALESCE(cs.notes, ''),
+				COALESCE(cs.status, ''),
+				COALESCE(u.username, ''),
+				cs.created_at
+			FROM credit_sales cs
+			LEFT JOIN customers c ON c.id = cs.customer_id AND c.tenant_id = cs.tenant_id
+			LEFT JOIN users u ON u.id = cs.created_by AND u.tenant_id = cs.tenant_id
+			WHERE cs.tenant_id = ? AND COALESCE(cs.kind, ?) = ?
+			ORDER BY created_at DESC, id DESC
+		`, tenantIDFromUser(currentUser), string(creditSaleKindCash), string(creditSaleKindCash))
+		if err != nil {
+			http.Error(w, "Error al consultar préstamos de dinero", http.StatusInternalServerError)
+			return
+		}
+		defer cashLoanRows.Close()
+		for cashLoanRows.Next() {
+			var (
+				creditID              int
+				customerID            int
+				debtorName            string
+				debtorDocumentType    string
+				debtorDocumentNumber  string
+				debtorPhone           string
+				customerAddress       string
+				customerCity          string
+				customerNotes         string
+				installmentsTotal     int
+				installmentsPaid      int
+				paidInstallmentsCount int
+				totalValue            float64
+				interestPercent       float64
+				installmentValue      float64
+				totalPaid             float64
+				lastPaymentAmount     float64
+				lastPaymentAt         string
+				lastPaymentType       string
+				notes                 string
+				statusRaw             string
+				managedByName         string
+				createdAt             string
+			)
+			if err := cashLoanRows.Scan(&creditID, &customerID, &debtorName, &debtorDocumentType, &debtorDocumentNumber, &debtorPhone, &customerAddress, &customerCity, &customerNotes, &installmentsTotal, &installmentsPaid, &paidInstallmentsCount, &totalValue, &interestPercent, &installmentValue, &totalPaid, &lastPaymentAmount, &lastPaymentAt, &lastPaymentType, &notes, &statusRaw, &managedByName, &createdAt); err != nil {
+				http.Error(w, "Error al leer préstamos de dinero", http.StatusInternalServerError)
+				return
+			}
+			if paidInstallmentsCount < installmentsPaid {
+				paidInstallmentsCount = installmentsPaid
+			}
+			legacyTotalPaid := math.Round((float64(installmentsPaid)*installmentValue)*100) / 100
+			if totalPaid < legacyTotalPaid {
+				totalPaid = legacyTotalPaid
+			}
+			debtTotal := creditDebtTotal(installmentsTotal, installmentValue)
+			currentDebt := creditCurrentDebt(debtTotal, totalPaid)
+			creditStatusValue := effectiveCreditStatus(statusRaw, currentDebt, debtTotal)
+			inventoryProducts = append(inventoryProducts, inventoryProduct{
+				EntryType:             "credit",
+				CreditSaleID:          creditID,
+				CustomerID:            customerID,
+				CreditKind:            string(creditSaleKindCash),
+				BaseProductID:         "",
+				ID:                    fmt.Sprintf("PD-%d", creditID),
+				Name:                  "Préstamo de dinero",
+				Line:                  "Préstamo de dinero",
+				CreditEnabled:         true,
+				InterestPercent:       interestPercent,
+				DebtorName:            debtorName,
+				DebtorDocumentType:    debtorDocumentType,
+				DebtorDocumentNumber:  debtorDocumentNumber,
+				DebtorPhone:           debtorPhone,
+				CustomerAddress:       customerAddress,
+				CustomerCity:          customerCity,
+				CustomerNotes:         customerNotes,
+				ManagedByName:         managedByName,
+				InstallmentsTotal:     installmentsTotal,
+				InstallmentsPaid:      paidInstallmentsCount,
+				PaidInstallmentsCount: paidInstallmentsCount,
+				TotalValue:            totalValue,
+				DebtTotal:             debtTotal,
+				TotalPaid:             totalPaid,
+				CurrentDebt:           currentDebt,
+				InstallmentValue:      installmentValue,
+				LastPaymentAmount:     lastPaymentAmount,
+				LastPaymentAt:         lastPaymentAt,
+				LastPaymentType:       string(normalizeCreditPaymentType(lastPaymentType)),
+				Notes:                 notes,
+				EstadoLabel:           cashLoanStatusLabel(creditStatusValue),
+				EstadoClass:           creditStatusClass(creditStatusValue),
+				Disponible:            0,
+				Unidades:              []inventoryUnit{},
+				DisabledSale:          true,
+				FechaIngreso:          formatDateWithSettings(createdAt),
+				SalePrice:             0,
+				RetomaEnabled:         false,
+			})
+		}
+		if err := cashLoanRows.Err(); err != nil {
+			http.Error(w, "Error al procesar préstamos de dinero", http.StatusInternalServerError)
 			return
 		}
 		loanRows, err := db.Query(`
@@ -16125,29 +16659,8 @@ func main() {
 			return
 		}
 
-		var previous struct {
-			SKU               string
-			Name              string
-			Line              string
-			Location          string
-			CreditEnabled     int
-			DebtorName        string
-			InstallmentsTotal int
-			InstallmentsPaid  int
-			TotalValue        float64
-			InstallmentValue  float64
-			SalePrice         float64
-			RetomaEnabled     int
-			RetomaPrice       sql.NullFloat64
-			Notes             string
-			OwnerUserID       sql.NullInt64
-		}
-		if err := db.QueryRow(`
-			SELECT sku, nombre, linea, COALESCE(location, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, COALESCE(anotaciones, ''), owner_user_id
-			FROM productos
-			WHERE sku = ? OR id = ?
-			LIMIT 1
-		`, productID, productID).Scan(&previous.SKU, &previous.Name, &previous.Line, &previous.Location, &previous.CreditEnabled, &previous.DebtorName, &previous.InstallmentsTotal, &previous.InstallmentsPaid, &previous.TotalValue, &previous.InstallmentValue, &previous.SalePrice, &previous.RetomaEnabled, &previous.RetomaPrice, &previous.Notes, &previous.OwnerUserID); err != nil {
+		previous, err := loadProductEditRecord(db, tenantIDFromUser(currentUser), productID)
+		if err != nil {
 			if err == sql.ErrNoRows {
 				writeJSONError(http.StatusNotFound, "Producto no encontrado.")
 				return
@@ -16282,28 +16795,14 @@ func main() {
 		}
 		defer tx.Rollback()
 
-		if newSKU != previous.SKU {
-			var count int
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM productos WHERE sku = ? AND sku <> ?`, newSKU, previous.SKU).Scan(&count); err != nil {
-				writeJSONError(http.StatusInternalServerError, "No se pudo validar el ID.")
+		if err := renameProductIdentifier(tx, tenantIDFromUser(currentUser), previous.SKU, newSKU); err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeJSONError(reqErr.Status, reqErr.Message)
 				return
 			}
-			if count > 0 {
-				writeJSONError(http.StatusBadRequest, "Ya existe otro producto con ese ID.")
-				return
-			}
-			if _, err := tx.Exec(`UPDATE productos SET sku = ?, id = ? WHERE sku = ?`, newSKU, newSKU, previous.SKU); err != nil {
-				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el ID del producto.")
-				return
-			}
-			if _, err := tx.Exec(`UPDATE unidades SET producto_id = ? WHERE producto_id = ?`, newSKU, previous.SKU); err != nil {
-				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el inventario asociado al ID.")
-				return
-			}
-			if _, err := tx.Exec(`UPDATE credit_installments SET product_id = ? WHERE product_id = ?`, newSKU, previous.SKU); err != nil {
-				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el historial de cuotas asociado al ID.")
-				return
-			}
+			writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el ID del producto.")
+			return
 		}
 
 		if isAdminRole(currentUser.Role) {
@@ -16311,7 +16810,7 @@ func main() {
 				UPDATE productos
 				SET nombre = ?, linea = ?, location = ?, owner_user_id = ?, precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?
 				WHERE sku = ?
-			`, finalName, finalLine, finalLocation, finalOwner, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, boolToInt(finalCreditEnabled), finalDebtorName, finalInstallmentsTotal, finalInstallmentsPaid, finalTotalValue, finalInstallmentValue, newSKU); err != nil {
+			`, finalName, finalLine, finalLocation, finalOwner, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, boolToInt(finalCreditEnabled), finalDebtorName, finalInstallmentsTotal, finalInstallmentsPaid, finalTotalValue, finalInstallmentValue, previous.SKU); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el producto.")
 				return
 			}
@@ -16320,16 +16819,17 @@ func main() {
 				UPDATE productos
 				SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?, location = ?
 				WHERE sku = ?
-			`, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, finalLocation, newSKU); err != nil {
+			`, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, finalLocation, previous.SKU); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el producto.")
 				return
 			}
 		}
 
 		payload := map[string]any{}
-		if previous.SKU != newSKU {
-			payload["previous_sku"] = previous.SKU
-			payload["new_sku"] = newSKU
+		if previous.ID != newSKU {
+			payload["product_sku"] = previous.SKU
+			payload["previous_id"] = previous.ID
+			payload["new_id"] = newSKU
 		}
 		if previous.SalePrice != float64(parsedPrice) {
 			payload["previous_sale_price"] = previous.SalePrice
@@ -16402,7 +16902,7 @@ func main() {
 			}
 		}
 		if len(payload) > 0 {
-			if err := logAuditEvent(tx, currentUser, "product_updated", "product", newSKU, "web", payload); err != nil {
+			if err := logAuditEvent(tx, currentUser, "product_updated", "product", previous.SKU, "web", payload); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del producto.")
 				return
 			}
@@ -16410,13 +16910,14 @@ func main() {
 		if isAdminRole(currentUser.Role) && ((previous.CreditEnabled == 1) || finalCreditEnabled) {
 			creditPayload := map[string]any{
 				"product_id":         newSKU,
+				"product_sku":        previous.SKU,
 				"debtor_name":        finalDebtorName,
 				"installments_total": finalInstallmentsTotal,
 				"installments_paid":  finalInstallmentsPaid,
 				"total_value":        finalTotalValue,
 				"installment_value":  finalInstallmentValue,
 			}
-			if err := logAuditEvent(tx, currentUser, "credit_updated", "product", newSKU, "web", creditPayload); err != nil {
+			if err := logAuditEvent(tx, currentUser, "credit_updated", "product", previous.SKU, "web", creditPayload); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del crédito.")
 				return
 			}
@@ -16429,7 +16930,7 @@ func main() {
 
 		productsMu.Lock()
 		for idx := range products {
-			if products[idx].ID == previous.SKU {
+			if products[idx].SKU == previous.SKU {
 				products[idx].ID = newSKU
 				if isAdminRole(currentUser.Role) {
 					products[idx].Name = finalName
@@ -16467,6 +16968,7 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":       true,
 			"producto": newSKU,
+			"sku":      previous.SKU,
 			"mensaje":  "Producto actualizado correctamente.",
 		})
 	})
@@ -17018,17 +17520,17 @@ func main() {
 		}
 		defer tx.Rollback()
 
-		var exists int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM productos WHERE sku = ? OR id = ?`, productID, productID).Scan(&exists); err != nil {
-			writeJSONError(http.StatusInternalServerError, "No se pudo validar el producto.")
-			return
-		}
-		if exists == 0 {
+		productSKU, visibleID, err := resolveProductRefForTenant(db, tenantIDFromUser(currentUser), productID)
+		if err != nil {
+			if err != sql.ErrNoRows {
+				writeJSONError(http.StatusInternalServerError, "No se pudo validar el producto.")
+				return
+			}
 			writeJSONError(http.StatusBadRequest, "Producto inválido.")
 			return
 		}
 
-		if _, err := tx.Exec(`DELETE FROM unidades WHERE producto_id = ?`, productID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM unidades WHERE tenant_id = ? AND producto_id = ?`, tenantIDFromUser(currentUser), productSKU); err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudieron eliminar las unidades del producto.")
 			return
 		}
@@ -17054,22 +17556,22 @@ func main() {
 
 				switch {
 				case histCols["producto_id"]:
-					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_id = ?`, productID); err != nil {
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_id = ?`, productSKU); err != nil {
 						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
 						return
 					}
 				case histCols["product_id"]:
-					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE product_id = ?`, productID); err != nil {
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE product_id = ?`, productSKU); err != nil {
 						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
 						return
 					}
 				case histCols["producto_sku"]:
-					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_sku = ?`, productID); err != nil {
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE producto_sku = ?`, productSKU); err != nil {
 						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
 						return
 					}
 				case histCols["sku"]:
-					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE sku = ?`, productID); err != nil {
+					if _, err := tx.Exec(`DELETE FROM precio_venta_historial WHERE sku = ?`, productSKU); err != nil {
 						writeJSONError(http.StatusInternalServerError, "No se pudo limpiar el historial de precio del producto.")
 						return
 					}
@@ -17077,7 +17579,7 @@ func main() {
 			}
 		}
 
-		res, err := tx.Exec(`DELETE FROM productos WHERE sku = ? OR id = ?`, productID, productID)
+		res, err := tx.Exec(`DELETE FROM productos WHERE tenant_id = ? AND sku = ?`, tenantIDFromUser(currentUser), productSKU)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "foreign key") {
 				writeJSONError(http.StatusBadRequest, "No se pudo eliminar el producto porque tiene referencias activas.")
@@ -17111,7 +17613,8 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
-			"producto_id": productID,
+			"producto_id": visibleID,
+			"sku":         productSKU,
 			"mensaje":     "Producto eliminado correctamente.",
 		})
 	})
@@ -17510,7 +18013,7 @@ func main() {
 		items := make([]map[string]any, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
 			var available, reserved, swapped, damaged int
-			rows, err := db.Query(`SELECT estado, COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ? GROUP BY estado`, tenantIDFromRequest(r), product.ID)
+			rows, err := db.Query(`SELECT estado, COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ? GROUP BY estado`, tenantIDFromRequest(r), product.refID())
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
 				return
@@ -18239,6 +18742,7 @@ func main() {
 		if !ok && len(productsSnapshot) > 0 {
 			selectedProduct = productsSnapshot[0]
 		}
+		productSKU := selectedProduct.refID()
 		cantidad, err := strconv.Atoi(qtyValue)
 		if err != nil || cantidad <= 0 {
 			errors["cantidad"] = "La cantidad debe ser un número positivo."
@@ -18403,7 +18907,7 @@ func main() {
 			return
 		}
 
-		soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), productID, cantidad)
+		soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), productSKU, cantidad)
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback venta: %v", rollbackErr)
@@ -18472,7 +18976,7 @@ func main() {
 				notaMovimiento = creditSummary
 			}
 		}
-		if err := logMovimientos(tx, productID, soldUnitIDs, movementType, notaMovimiento, currentUser, now); err != nil {
+		if err := logMovimientos(tx, productSKU, soldUnitIDs, movementType, notaMovimiento, currentUser, now); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback venta log: %v", rollbackErr)
 			}
@@ -18489,7 +18993,7 @@ func main() {
 			creditSaleID, err := insertAndReturnID(tx,
 				`INSERT INTO credit_sales (tenant_id, customer_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-				tenantIDFromUser(currentUser), customerInput.CustomerID, string(creditSaleKindProduct), productID, cantidad, debtorName, debtorDocumentType, debtorDocumentNumber, debtorPhone, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, string(creditStatusActive), now, nullableUserID(currentUser),
+				tenantIDFromUser(currentUser), customerInput.CustomerID, string(creditSaleKindProduct), productSKU, cantidad, debtorName, debtorDocumentType, debtorDocumentNumber, debtorPhone, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, string(creditStatusActive), now, nullableUserID(currentUser),
 			)
 			if err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
@@ -18507,6 +19011,7 @@ func main() {
 					"kind":               string(creditSaleKindProduct),
 					"kind_label":         creditKindLabel(creditSaleKindProduct),
 					"product_id":         productID,
+					"product_sku":        productSKU,
 					"quantity":           cantidad,
 					"installments_total": creditInstallmentsTotal,
 					"installment_value":  creditInstallmentValue,
@@ -18532,6 +19037,7 @@ func main() {
 				"kind":                   string(creditSaleKindProduct),
 				"kind_label":             creditKindLabel(creditSaleKindProduct),
 				"product_id":             productID,
+				"product_sku":            productSKU,
 				"debtor_name":            debtorName,
 				"debtor_document_type":   debtorDocumentType,
 				"debtor_document_number": debtorDocumentNumber,
@@ -18559,7 +19065,7 @@ func main() {
 		} else if insertedSaleID, err := insertAndReturnID(tx,
 			`INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			tenantIDFromUser(currentUser), productID, cantidad, func() float64 {
+			tenantIDFromUser(currentUser), productSKU, cantidad, func() float64 {
 				precioFinal := precioParsed
 				if valorFinalOk && cantidad > 0 {
 					precioFinal = valorFinalParsed / float64(cantidad)
@@ -18586,6 +19092,7 @@ func main() {
 			}
 			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", productID, "manual", map[string]any{
 				"producto_id": productID,
+				"product_sku": productSKU,
 				"producto":    selectedProduct.Name,
 				"cantidad":    cantidad,
 				"metodo_pago": metodoPago,
@@ -18737,6 +19244,7 @@ func main() {
 			selectedProduct = productsSnapshot[0]
 			productID = selectedProduct.ID
 		}
+		productSKU := selectedProduct.refID()
 
 		if personaCambio == "" {
 			errors["persona_del_cambio"] = "Ingresa la persona responsable del cambio."
@@ -18870,7 +19378,7 @@ func main() {
 
 		now := time.Now().Format(time.RFC3339)
 		notaMovimiento := strings.TrimSpace(fmt.Sprintf("%s %s", personaCambio, notas))
-		if err := logMovimientos(tx, productID, salientesMarcadas, "cambio_salida", notaMovimiento, currentUser, now); err != nil {
+		if err := logMovimientos(tx, productSKU, salientesMarcadas, "cambio_salida", notaMovimiento, currentUser, now); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback cambio log: %v", rollbackErr)
 			}
@@ -18886,18 +19394,45 @@ func main() {
 		}
 
 		incomingProductID := incomingExistingID
+		incomingProductSKU := ""
 		incomingQty := incomingExistingQty
 		if incomingMode == "new" {
 			incomingProductID = incomingNewSKU
 			incomingQty = incomingNewQty
+			incomingProductSKU, err = generateNextProductSKU(db)
+			if err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					log.Printf("rollback cambio sku interno: %v", rollbackErr)
+				}
+				http.Error(w, "No se pudo generar el SKU interno del producto entrante", http.StatusInternalServerError)
+				return
+			}
+			if err := upsertProducto(tx, tenantIDFromUser(currentUser), incomingProductSKU, incomingProductID, incomingNewName, incomingNewLine, now); err != nil {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					log.Printf("rollback cambio crear producto entrante: %v", rollbackErr)
+				}
+				http.Error(w, "No se pudo crear el producto entrante", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			incomingProduct, ok := findProduct(productsSnapshot, incomingExistingID)
+			if !ok {
+				if rollbackErr := tx.Rollback(); rollbackErr != nil {
+					log.Printf("rollback cambio producto entrante: %v", rollbackErr)
+				}
+				http.Error(w, "No se pudo resolver el producto entrante", http.StatusBadRequest)
+				return
+			}
+			incomingProductID = incomingProduct.ID
+			incomingProductSKU = incomingProduct.refID()
 		}
 
 		for i := 0; i < incomingQty; i++ {
 			unitID := fmt.Sprintf("U-%d-%d", time.Now().UnixNano(), i+1)
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, producto_id, estado, creado_en, caducidad)
-				VALUES (?, ?, ?, ?, ?)`,
-				unitID, incomingProductID, "Disponible", now, nil,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad)
+				VALUES (?, ?, ?, ?, ?, ?)`,
+				unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductSKU, "Disponible", now, nil,
 			); err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					log.Printf("rollback cambio insert: %v", rollbackErr)
@@ -18907,12 +19442,14 @@ func main() {
 			}
 		}
 		if err := logAuditEvent(tx, currentUser, "change_registered", "change", productID, "manual", map[string]any{
-			"producto_saliente_id": productID,
-			"producto_saliente":    selectedProduct.Name,
-			"producto_entrante_id": incomingProductID,
-			"cantidad_saliente":    outgoingQty,
-			"cantidad_entrante":    incomingQty,
-			"modo_entrada":         incomingMode,
+			"producto_saliente_id":  productID,
+			"producto_saliente_sku": productSKU,
+			"producto_saliente":     selectedProduct.Name,
+			"producto_entrante_id":  incomingProductID,
+			"producto_entrante_sku": incomingProductSKU,
+			"cantidad_saliente":     outgoingQty,
+			"cantidad_entrante":     incomingQty,
+			"modo_entrada":          incomingMode,
 		}); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback change audit: %v", rollbackErr)
@@ -19245,8 +19782,25 @@ func main() {
 				continue
 			}
 
+			internalSKU, _, err := resolveProductRefForTenant(db, tenantID, productID)
+			if err != nil {
+				if err != sql.ErrNoRows {
+					_, _ = tx.Exec("ROLLBACK TO csv_row")
+					_, _ = tx.Exec("RELEASE csv_row")
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: fmt.Sprintf("Error al resolver el producto: %v", err)})
+					continue
+				}
+				internalSKU, err = generateNextProductSKU(db)
+				if err != nil {
+					_, _ = tx.Exec("ROLLBACK TO csv_row")
+					_, _ = tx.Exec("RELEASE csv_row")
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: fmt.Sprintf("Error al generar SKU interno: %v", err)})
+					continue
+				}
+			}
+
 			// Persist catalog.
-			if err := upsertProducto(tx, tenantID, productID, nombre, linea, now); err != nil {
+			if err := upsertProducto(tx, tenantID, internalSKU, productID, nombre, linea, now); err != nil {
 				_, _ = tx.Exec("ROLLBACK TO csv_row")
 				_, _ = tx.Exec("RELEASE csv_row")
 				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: fmt.Sprintf("Error al guardar producto: %v", err)})
@@ -19256,7 +19810,7 @@ func main() {
 				UPDATE productos
 				SET precio_venta = ?, anotaciones = ?, location = ?, owner_user_id = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = 0, total_value = ?, installment_value = ?
 				WHERE tenant_id = ? AND sku = ?
-			`, precioVenta, anotaciones, location, ownerUserID, boolToInt(retomaEnabled), retomaPrice, boolToInt(creditEnabled), debtorName, installmentsTotal, totalValue, installmentValue, tenantID, productID); err != nil {
+			`, precioVenta, anotaciones, location, ownerUserID, boolToInt(retomaEnabled), retomaPrice, boolToInt(creditEnabled), debtorName, installmentsTotal, totalValue, installmentValue, tenantID, internalSKU); err != nil {
 				_, _ = tx.Exec("ROLLBACK TO csv_row")
 				_, _ = tx.Exec("RELEASE csv_row")
 				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, SKU: productID, Error: fmt.Sprintf("Error al guardar los datos del producto: %v", err)})
@@ -19267,7 +19821,7 @@ func main() {
 			productsMu.Lock()
 			found := false
 			for idx := range products {
-				if products[idx].ID == productID {
+				if products[idx].SKU == internalSKU {
 					products[idx].Name = nombre
 					products[idx].Line = linea
 					products[idx].Location = location
@@ -19298,6 +19852,7 @@ func main() {
 			}
 			if !found {
 				products = append(products, productOption{
+					SKU:               internalSKU,
 					ID:                productID,
 					Name:              nombre,
 					Line:              linea,
@@ -19332,14 +19887,14 @@ func main() {
 			baseID := time.Now().UnixNano()
 			rowFailed := false
 			for j := 0; j < cantidad; j++ {
-				unitID := fmt.Sprintf("U-%s-%d", productID, baseID+int64(j))
+				unitID := fmt.Sprintf("U-%s-%d", internalSKU, baseID+int64(j))
 				var caducidad any = nil
 				if aplicaCad && fechaCaducidad != "" {
 					caducidad = fechaCaducidad
 				}
 				if _, err := tx.Exec(
 					`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-					unitID, tenantID, productID, "Disponible", now, caducidad,
+					unitID, tenantID, internalSKU, "Disponible", now, caducidad,
 				); err != nil {
 					_, _ = tx.Exec("ROLLBACK TO csv_row")
 					_, _ = tx.Exec("RELEASE csv_row")

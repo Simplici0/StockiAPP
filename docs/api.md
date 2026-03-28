@@ -276,6 +276,10 @@ Crea un producto y sus unidades iniciales.
 
 Solo admin.
 
+Notas:
+- `id` es el identificador visible del producto y queda scoped por tenant
+- el backend genera además un `sku` interno global para referencias operativas
+
 Payload:
 
 ```json
@@ -300,6 +304,55 @@ Reglas:
 - `owner_user_id` es opcional
 - `retoma_enabled=true` exige `retoma_price` válido
 - `aplica_caducidad=true` exige `fecha_caducidad` en `YYYY-MM-DD`
+
+### `PUT /api/products/{id}` o `PATCH /api/products/{id}`
+
+Actualiza el `id` visible de un producto existente.
+
+Solo admin.
+
+Payload:
+
+```json
+{
+  "id": "P-900"
+}
+```
+
+También acepta `new_id` o `sku` como alias de compatibilidad, pero el campo recomendado es `id`.
+
+Reglas:
+- la ruta normalmente recibe el `id` visible actual
+- por compatibilidad, la ruta también resuelve el producto si recibe el `sku` interno actual
+- el nuevo `id` es obligatorio
+- no puede colisionar con otro producto del mismo tenant
+- el cambio no renombra referencias operativas históricas
+- el `sku` interno del producto se mantiene estable
+- si mandas `sku` en el payload, se interpreta como alias del nuevo `id` visible, no como cambio del `sku` interno
+
+Ejemplo:
+
+```bash
+curl -X PATCH "https://login.stockiapp.co/api/products/P-001" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "P-900"
+  }'
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "previous_id": "P-001",
+  "sku": "P-127",
+  "id": "P-900",
+  "message": "ID de producto actualizado correctamente."
+}
+```
 
 ### `GET /api/inventory`
 

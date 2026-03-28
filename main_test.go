@@ -240,6 +240,7 @@ func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handle
 	mux.HandleFunc("/api/invoices/", handleAPIInvoiceRoutes(db))
 	mux.HandleFunc("/api/users", handleAPIUsers(db, usersCols))
 	mux.HandleFunc("/api/users/", handleAPIUserRoutes(db, usersCols))
+	mux.HandleFunc("/api/products/", handleAPIProductRoutes(db))
 	mux.HandleFunc("/api/agent/customers/search", handleAPIAgentCustomerSearch(db))
 	mux.HandleFunc("/api/agent/invoices", handleAPIAgentInvoices(db))
 	mux.HandleFunc("/api/credits", handleAPICredits(db))
@@ -347,6 +348,116 @@ func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 	}
 	if persistedTenantID != provisioned.Tenant.ID {
 		t.Fatalf("unexpected persisted tenant_id: %d", persistedTenantID)
+	}
+}
+
+func TestAPIUpdateProductIDUsesTenantScopedVisibleIdentifier(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled, fecha_ingreso)
+		VALUES
+			('P-OLD', ?, 'P-OLD', 'Producto renombrable', 'Farmacia', 15000, 0, ?),
+			('P-KEEP', ?, 'P-KEEP', 'Producto ocupado', 'Farmacia', 9000, 0, ?),
+			('P-OTHER-SKU', 1, 'P-NEW', 'Producto otro tenant', 'Farmacia', 7000, 0, ?);
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
+		VALUES ('U-OLD-1', ?, 'P-OLD', 'Disponible', ?);
+		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha)
+		VALUES (?, 'P-OLD', 1, 15000, 'Efectivo', '', '', '', ?);
+		INSERT INTO retomas (tenant_id, producto_id, cantidad, valor_recibido, estado_recibido, publicado_stock, precio_publicado, notas, fecha)
+		VALUES (?, 'P-OLD', 1, 5000, 'Bueno', 0, NULL, '', ?);
+		INSERT INTO movimientos (tenant_id, producto_id, unidad_id, tipo, nota, usuario, fecha)
+		VALUES (?, 'P-OLD', 'U-OLD-1', 'venta', '', 'api', ?);
+		INSERT INTO credit_sales (tenant_id, customer_id, kind, product_id, quantity, debtor_name, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
+		VALUES (?, 0, 'product_credit', 'P-OLD', 1, 'Cliente API', 2, 0, 30000, 0, 15000, '', 'active', ?, 0);
+		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
+		VALUES (?, 1, 'P-OLD', 1, 15000, 'cuota', ?, 0);
+		INSERT INTO product_loans (tenant_id, product_id, customer_id, quantity, borrower_name, borrower_phone, borrower_document_type, borrower_document_number, borrower_address, borrower_city, notes, status, loaned_at, due_at, created_by, closed_by, close_notes)
+		VALUES (?, 'P-OLD', NULL, 1, 'Cliente prestamo', '', '', '', '', 'Bogota', '', 'active', ?, '', 0, NULL, '');
+		INSERT INTO invoice_items (tenant_id, invoice_id, product_id, description, quantity, unit_price, total)
+		VALUES (?, 1, 'P-OLD', 'Producto renombrable', 1, 15000, 15000);
+		INSERT INTO audit_events (tenant_id, event_type, entity_type, entity_id, user_id, source, payload_json, created_at)
+		VALUES (?, 'product_created', 'product', 'P-OLD', 0, 'api', '{}', ?);
+	`, tenant.ID, now, tenant.ID, now, now, tenant.ID, now, tenant.ID, now, tenant.ID, now, tenant.ID, now, tenant.ID, now, tenant.ID, now, tenant.ID, now, tenant.ID, now); err != nil {
+		t.Fatalf("seed product references: %v", err)
+	}
+
+	collisionResp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", token, map[string]any{
+		"id": "P-KEEP",
+	})
+	if collisionResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on duplicate id, got %d body=%s", collisionResp.Code, collisionResp.Body.String())
+	}
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", token, map[string]any{
+		"id": "P-NEW",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAPIResponse(t, resp)
+	if body["id"] != "P-NEW" || body["previous_id"] != "P-OLD" || body["sku"] != "P-OLD" {
+		t.Fatalf("unexpected response body: %+v", body)
+	}
+
+	var tenantProductCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE tenant_id = ? AND sku = 'P-OLD' AND id = 'P-NEW'`, tenant.ID).Scan(&tenantProductCount); err != nil {
+		t.Fatalf("query tenant product updated id: %v", err)
+	}
+	if tenantProductCount != 1 {
+		t.Fatalf("expected tenant product to keep sku and update visible id, got %d", tenantProductCount)
+	}
+
+	checks := []struct {
+		name  string
+		query string
+	}{
+		{name: "unidades", query: `SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ?`},
+		{name: "ventas", query: `SELECT COUNT(*) FROM ventas WHERE tenant_id = ? AND producto_id = ?`},
+		{name: "retomas", query: `SELECT COUNT(*) FROM retomas WHERE tenant_id = ? AND producto_id = ?`},
+		{name: "movimientos", query: `SELECT COUNT(*) FROM movimientos WHERE tenant_id = ? AND producto_id = ?`},
+		{name: "credit_sales", query: `SELECT COUNT(*) FROM credit_sales WHERE tenant_id = ? AND product_id = ?`},
+		{name: "credit_installments", query: `SELECT COUNT(*) FROM credit_installments WHERE tenant_id = ? AND product_id = ?`},
+		{name: "product_loans", query: `SELECT COUNT(*) FROM product_loans WHERE tenant_id = ? AND product_id = ?`},
+		{name: "invoice_items", query: `SELECT COUNT(*) FROM invoice_items WHERE tenant_id = ? AND product_id = ?`},
+	}
+	for _, check := range checks {
+		var oldCount int
+		if err := db.QueryRow(check.query, tenant.ID, "P-OLD").Scan(&oldCount); err != nil {
+			t.Fatalf("query %s internal sku: %v", check.name, err)
+		}
+		if oldCount == 0 {
+			t.Fatalf("expected internal references to remain on original sku for %s", check.name)
+		}
+	}
+
+	var staleVisibleIDCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE tenant_id = ? AND id = 'P-OLD'`, tenant.ID).Scan(&staleVisibleIDCount); err != nil {
+		t.Fatalf("query stale visible id: %v", err)
+	}
+	if staleVisibleIDCount != 0 {
+		t.Fatalf("expected old visible id to be replaced, got %d", staleVisibleIDCount)
+	}
+
+	var migratedAuditCount, staleAuditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE tenant_id = ? AND event_type = 'product_updated' AND entity_type = 'product' AND entity_id = ?`, tenant.ID, "P-NEW").Scan(&migratedAuditCount); err != nil {
+		t.Fatalf("count product updated audit events: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE tenant_id = ? AND event_type = 'product_created' AND entity_type = 'product' AND entity_id = ?`, tenant.ID, "P-OLD").Scan(&staleAuditCount); err != nil {
+		t.Fatalf("count original product audit events: %v", err)
+	}
+	if migratedAuditCount != 1 || staleAuditCount != 1 {
+		t.Fatalf("unexpected audit state updated=%d original=%d", migratedAuditCount, staleAuditCount)
+	}
+
+	var otherTenantCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM productos WHERE tenant_id = 1 AND sku = 'P-OTHER-SKU' AND id = 'P-NEW'`).Scan(&otherTenantCount); err != nil {
+		t.Fatalf("query other tenant product: %v", err)
+	}
+	if otherTenantCount != 1 {
+		t.Fatalf("expected same visible id to remain valid in another tenant, got %d", otherTenantCount)
 	}
 }
 

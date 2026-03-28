@@ -47,7 +47,7 @@
                 letter-spacing: 0.01em;
             }
 
-            /* Nuevo crédito: filled suave, acción principal */
+            /* Acción principal del modal de crédito */
             .filters-actions button.secondary {
                 background: var(--secondary-soft);
                 border-color: rgba(13, 43, 85, 0.14);
@@ -205,7 +205,7 @@
                 display: flex;
                 flex-wrap: wrap;
                 gap: 8px;
-                margin-top: 10px;
+                margin-top: 0;
                 padding: 0;
                 background: transparent;
                 border: 0;
@@ -246,23 +246,16 @@
                 letter-spacing: 0.04em;
             }
 
-            .credit-details {
-                display: inline-grid;
-                gap: 0;
-                margin-top: 8px;
-            }
-
-            .credit-details summary {
-                list-style: none;
+            .credit-details-toggle {
                 display: inline-flex;
                 align-items: center;
                 gap: 7px;
+                margin-top: 8px;
+                padding: 0;
+                background: transparent;
+                border: 0;
                 cursor: pointer;
                 user-select: none;
-            }
-
-            .credit-details summary::-webkit-details-marker {
-                display: none;
             }
 
             .credit-caret {
@@ -276,7 +269,7 @@
                 margin-top: -2px;
             }
 
-            .credit-details[open] .credit-caret {
+            .credit-details-toggle[aria-expanded="true"] .credit-caret {
                 transform: rotate(225deg);
                 margin-top: 2px;
             }
@@ -1152,7 +1145,7 @@
                         type="button"
                         class="secondary credit-launch"
                     >
-                        Nuevo crédito
+                        Nuevo crédito / préstamo
                     </button>
                     {{end}}
                 </div>
@@ -2474,7 +2467,9 @@
                 >
                     <div class="modal-header">
                         <div>
-                            <h3 id="loan-title">Nuevo crédito</h3>
+                            <h3 id="loan-title">
+                                Registrar crédito / préstamo
+                            </h3>
                             <div id="loan-subtitle" class="modal-subtitle">
                                 Elige si vas a registrar un crédito con producto
                                 o un préstamo de dinero.
@@ -3436,6 +3431,17 @@
               updateSummary(filtered);
             };
 
+            const toggleUnitsRow = (productId, trigger = null) => {
+              const panelRow = document.getElementById(`units-row-${productId}`);
+              if (!panelRow) return;
+              const isOpen = !panelRow.hidden;
+              panelRow.hidden = isOpen;
+              panelRow.style.display = isOpen ? "none" : "table-row";
+              if (trigger) {
+                trigger.setAttribute("aria-expanded", isOpen ? "false" : "true");
+              }
+            };
+
             const renderTable = (items) => {
               if (!productTable) {
                 console.warn("Tabla de productos no disponible: falta #productTable.");
@@ -3456,39 +3462,15 @@
                     <div class="fifo-note">${isCredit ? `Crédito ${product.id} · Producto ${product.baseProductId || "-"}` : isPhysicalLoan ? `Préstamo ${product.id} · Producto ${product.baseProductId || "-"}` : `ID ${product.id} · ${product.available} disponibles`}</div>
                     ${product.entryType === "product" && product.location ? `<div class="fifo-note">Locación · ${product.location}</div>` : ``}
                     ${isCredit
-                      ? `<details class="credit-details">
-                          <summary>
-                            <span class="credit-badge">Crédito</span>
-                            <span class="credit-caret" aria-hidden="true"></span>
-                          </summary>
-                          <div class="credit-meta">
-                            <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
-                            <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
-                            <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
-                            <span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.paidInstallmentsCount || product.installmentsPaid || 0}/${product.installmentsTotal}</span></span>
-                            <span class="credit-meta-item"><strong>Total pagado:</strong><span>${formatCOP(product.totalPaid || 0)}</span></span>
-                            <span class="credit-meta-item"><strong>Deuda actual:</strong><span>${formatCOP(product.currentDebt || 0)}</span></span>
-                            <span class="credit-meta-item"><strong>Último pago:</strong><span>${product.lastPaymentAmount > 0 ? `${paymentTypeLabel(product.lastPaymentType)} · ${formatCOP(product.lastPaymentAmount)}` : "Sin registro"}</span></span>
-                            <span class="credit-meta-item"><strong>Último movimiento:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span>
-                          </div>
-                        </details>`
+                      ? `<button type="button" class="credit-details-toggle" data-credit-toggle="${product.id}" aria-expanded="false">
+                          <span class="credit-badge">${product.creditKind === "cash_loan" ? "Préstamo" : "Crédito"}</span>
+                          <span class="credit-caret" aria-hidden="true"></span>
+                        </button>`
                       : isPhysicalLoan
-                        ? `<details class="credit-details">
-                            <summary>
-                              <span class="credit-badge">Préstamo físico</span>
-                              <span class="credit-caret" aria-hidden="true"></span>
-                            </summary>
-                            <div class="credit-meta">
-                              <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
-                              <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
-                              <span class="credit-meta-item"><strong>Teléfono:</strong><span>${product.debtorPhone || "Sin registro"}</span></span>
-                              <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
-                              <span class="credit-meta-item"><strong>Gestionado por:</strong><span>${product.managedByName || "Sin registro"}</span></span>
-                              <span class="credit-meta-item"><strong>Prestado desde:</strong><span>${product.ingreso || "Sin registro"}</span></span>
-                              <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${formatOptionalDate(product.dueAt)}</span></span>
-                              <span class="credit-meta-item"><strong>Observaciones:</strong><span>${product.notes || "Sin notas"}</span></span>
-                            </div>
-                          </details>`
+                        ? `<button type="button" class="credit-details-toggle" data-credit-toggle="${product.id}" aria-expanded="false">
+                            <span class="credit-badge">Préstamo físico</span>
+                            <span class="credit-caret" aria-hidden="true"></span>
+                          </button>`
                       : ``}
                   </td>
                   <td>${normalizeLine(product.line)}</td>
@@ -3589,22 +3571,47 @@
                 productTable.appendChild(row);
 
                 const unitsRow = document.createElement("tr");
+                unitsRow.className = "units-row";
+                unitsRow.id = `units-row-${product.id}`;
+                unitsRow.hidden = true;
                 if (isCredit) {
                   unitsRow.innerHTML = `
-                    <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
-                      <div class="fifo-note">Este registro corresponde a una venta a crédito ya generada.</div>
+                    <td colspan="7" class="units-panel">
+                      <div class="units-header">
+                        <h4>${product.creditKind === "cash_loan" ? "Detalle del préstamo de dinero" : "Detalle del crédito"}</h4>
+                        <span class="fifo-note">${product.creditKind === "cash_loan" ? "Seguimiento operativo del cash_loan" : "Seguimiento operativo del crédito activo"}</span>
+                      </div>
+                      <div class="credit-meta">
+                        <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
+                        <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.paidInstallmentsCount || product.installmentsPaid || 0}/${product.installmentsTotal}</span></span>
+                        <span class="credit-meta-item"><strong>Total pagado:</strong><span>${formatCOP(product.totalPaid || 0)}</span></span>
+                        <span class="credit-meta-item"><strong>Deuda actual:</strong><span>${formatCOP(product.currentDebt || 0)}</span></span>
+                        <span class="credit-meta-item"><strong>Último pago:</strong><span>${product.lastPaymentAmount > 0 ? `${paymentTypeLabel(product.lastPaymentType)} · ${formatCOP(product.lastPaymentAmount)}` : "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Último movimiento:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span>
+                      </div>
                     </td>
-                  </tr>
                   `;
                   productTable.appendChild(unitsRow);
                   return;
                 }
                 if (isPhysicalLoan) {
                   unitsRow.innerHTML = `
-                    <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
+                    <td colspan="7" class="units-panel">
                       <div class="units-header">
                         <h4>Unidades prestadas</h4>
                         <span class="fifo-note">Seguimiento operativo del préstamo</span>
+                      </div>
+                      <div class="credit-meta" style="margin-bottom: 12px;">
+                        <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
+                        <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Teléfono:</strong><span>${product.debtorPhone || "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Gestionado por:</strong><span>${product.managedByName || "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Prestado desde:</strong><span>${product.ingreso || "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${formatOptionalDate(product.dueAt)}</span></span>
+                        <span class="credit-meta-item"><strong>Observaciones:</strong><span>${product.notes || "Sin notas"}</span></span>
                       </div>
                       <table class="units-table" aria-label="Unidades prestadas">
                         <thead>
@@ -3627,17 +3634,16 @@
                                 <td>${product.managedByName || "-"}</td>
                               </tr>
                             `)
-                            .join("")}
+                          .join("")}
                         </tbody>
                       </table>
                     </td>
-                  </tr>
                   `;
                   productTable.appendChild(unitsRow);
                   return;
                 }
                 unitsRow.innerHTML = `
-                  <td colspan="7" class="units-panel" id="units-${product.id}" style="display: none;">
+                  <td colspan="7" class="units-panel">
                     <div class="units-header">
                       <h4>Unidades</h4>
                       <span class="fifo-note">Selección FIFO</span>
@@ -3667,13 +3673,12 @@
                                 <td><span class="unit-tag">${fifoOrder}</span></td>
                               </tr>
                             `;
-                          })
+                        })
                           .join("")}
                       </tbody>
-                    </table>
-                  </td>
-                </tr>
-                `;
+                      </table>
+                    </td>
+                  `;
 
                 productTable.appendChild(unitsRow);
               });
@@ -7367,13 +7372,20 @@
                     }
                 }
 
+                const creditToggle = event.target.closest(
+                    "[data-credit-toggle]",
+                );
+                if (creditToggle) {
+                    toggleUnitsRow(
+                        creditToggle.dataset.creditToggle,
+                        creditToggle,
+                    );
+                    return;
+                }
+
                 const productTrigger = event.target.closest(".product-name");
                 if (!productTrigger) return;
-                const productId = productTrigger.dataset.product;
-                const panel = document.getElementById(`units-${productId}`);
-                if (!panel) return;
-                panel.style.display =
-                    panel.style.display === "none" ? "table-cell" : "none";
+                toggleUnitsRow(productTrigger.dataset.product);
             });
 
             document.addEventListener("keydown", (event) => {
