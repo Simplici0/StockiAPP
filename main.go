@@ -2043,6 +2043,94 @@ func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[stri
 	return items, nil
 }
 
+func listCreditInstallmentsForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	q = strings.TrimSpace(strings.ToLower(q))
+	fromStr = strings.TrimSpace(fromStr)
+	toStr = strings.TrimSpace(toStr)
+
+	accessSQL, accessArgs := creditVisibilityPredicate("cs", user)
+	query := `
+		SELECT
+			ci.id,
+			cs.id,
+			COALESCE(c.name, cs.debtor_name, ''),
+			CASE
+				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
+				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
+			END,
+			COALESCE(ci.amount_paid, 0),
+			COALESCE(ci.payment_type, 'cuota'),
+			COALESCE(ci.created_at, '')
+		FROM credit_installments ci
+		JOIN credit_sales cs ON cs.id = ci.credit_sale_id AND cs.tenant_id = ci.tenant_id
+		LEFT JOIN productos p ON p.sku = cs.product_id AND p.tenant_id = cs.tenant_id
+		LEFT JOIN customers c ON c.id = cs.customer_id AND c.tenant_id = cs.tenant_id
+		WHERE ` + accessSQL
+	args := append([]any{string(creditSaleKindProduct), string(creditSaleKindCash)}, accessArgs...)
+	if fromStr != "" {
+		query += ` AND ` + sqlDatePrefixExpr("ci.created_at") + ` >= ?`
+		args = append(args, fromStr)
+	}
+	if toStr != "" {
+		query += ` AND ` + sqlDatePrefixExpr("ci.created_at") + ` <= ?`
+		args = append(args, toStr)
+	}
+	if q != "" {
+		query += ` AND (
+			LOWER(COALESCE(c.name, cs.debtor_name, '')) LIKE ?
+			OR LOWER(CASE
+				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
+				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
+			END) LIKE ?
+		)`
+		qLike := "%" + q + "%"
+		args = append(args, qLike, string(creditSaleKindProduct), string(creditSaleKindCash), qLike)
+	}
+	query += ` ORDER BY ci.created_at DESC, ci.id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]map[string]any, 0, limit)
+	for rows.Next() {
+		var (
+			id           int
+			creditSaleID int
+			customerName string
+			productName  string
+			amountPaid   float64
+			paymentType  string
+			createdAt    string
+		)
+		if err := rows.Scan(&id, &creditSaleID, &customerName, &productName, &amountPaid, &paymentType, &createdAt); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{
+			"id":             id,
+			"credit_sale_id": creditSaleID,
+			"customer_name":  customerName,
+			"product_name":   productName,
+			"amount_paid":    amountPaid,
+			"payment_type":   string(normalizeCreditPaymentType(paymentType)),
+			"created_at":     formatDateWithSettings(createdAt),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func creditDetailForUser(db *sql.DB, user *User, creditSaleID int) (map[string]any, error) {
 	if creditSaleID <= 0 {
 		return nil, sql.ErrNoRows
@@ -10965,64 +11053,90 @@ func handleAPIRetomas(db *sql.DB, syncProductPrice func(string, float64)) http.H
 
 func handleAPICreditInstallments(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
-			return
-		}
 		currentUser := userFromContext(r)
-		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
-		if err != nil {
-			writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
-			return
-		}
-		if !movementEnabled(movementEnabledMap, "credito") {
-			writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
-			return
-		}
-		var payload struct {
-			CreditSaleID int      `json:"credit_sale_id"`
-			AmountPaid   *float64 `json:"amount_paid"`
-			PaymentType  string   `json:"payment_type"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-			return
-		}
-		if payload.CreditSaleID <= 0 {
-			writeAPIError(w, http.StatusBadRequest, "Crédito inválido.", map[string]string{"credit_sale_id": "Crédito inválido."})
-			return
-		}
-		result, err := addCreditInstallment(db, payload.CreditSaleID, payload.AmountPaid, payload.PaymentType, currentUser, "api", func(item map[string]any) map[string]any {
-			return withAPIAuditMetadata(r, item)
-		})
-		if err != nil {
-			var reqErr requestError
-			if errors.As(err, &reqErr) {
-				writeAPIError(w, reqErr.Status, reqErr.Message, nil)
+		switch r.Method {
+		case http.MethodGet:
+			q := strings.TrimSpace(r.URL.Query().Get("q"))
+			fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
+			toStr := strings.TrimSpace(r.URL.Query().Get("to"))
+			fields := map[string]string{}
+			if fromStr != "" {
+				if _, err := time.Parse("2006-01-02", fromStr); err != nil {
+					fields["from"] = "Fecha inválida. Usa formato YYYY-MM-DD."
+				}
+			}
+			if toStr != "" {
+				if _, err := time.Parse("2006-01-02", toStr); err != nil {
+					fields["to"] = "Fecha inválida. Usa formato YYYY-MM-DD."
+				}
+			}
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
 				return
 			}
-			writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la cuota.", nil)
-			return
+			items, err := listCreditInstallmentsForUser(db, currentUser, q, fromStr, toStr, 500)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los pagos del crédito.", nil)
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+		case http.MethodPost:
+			_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "Error al cargar tipos de movimiento.", nil)
+				return
+			}
+			if !movementEnabled(movementEnabledMap, "credito") {
+				writeAPIError(w, http.StatusForbidden, "El flujo de crédito está deshabilitado en Configuración.", nil)
+				return
+			}
+			var payload struct {
+				CreditSaleID int      `json:"credit_sale_id"`
+				AmountPaid   *float64 `json:"amount_paid"`
+				PaymentType  string   `json:"payment_type"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+				return
+			}
+			if payload.CreditSaleID <= 0 {
+				writeAPIError(w, http.StatusBadRequest, "Crédito inválido.", map[string]string{"credit_sale_id": "Crédito inválido."})
+				return
+			}
+			result, err := addCreditInstallment(db, payload.CreditSaleID, payload.AmountPaid, payload.PaymentType, currentUser, "api", func(item map[string]any) map[string]any {
+				return withAPIAuditMetadata(r, item)
+			})
+			if err != nil {
+				var reqErr requestError
+				if errors.As(err, &reqErr) {
+					writeAPIError(w, reqErr.Status, reqErr.Message, nil)
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la cuota.", nil)
+				return
+			}
+			message := fmt.Sprintf("Cuota %d registrada correctamente.", result.InstallmentNumber)
+			if result.PaymentType == creditPaymentTypeAbono {
+				message = "Abono registrado correctamente."
+			}
+			writeAPIJSON(w, http.StatusCreated, map[string]any{
+				"ok":                 true,
+				"credit_sale_id":     result.CreditSaleID,
+				"kind":               string(result.Kind),
+				"kind_label":         creditKindLabel(result.Kind),
+				"product_id":         result.ProductID,
+				"product_name":       result.ProductName,
+				"amount_paid":        result.AmountPaid,
+				"installment_number": result.InstallmentNumber,
+				"payment_type":       string(result.PaymentType),
+				"paid_installments":  result.InstallmentsPaid,
+				"total_paid":         result.TotalPaid,
+				"current_debt":       result.CurrentDebt,
+				"message":            message,
+			})
+		default:
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 		}
-		message := fmt.Sprintf("Cuota %d registrada correctamente.", result.InstallmentNumber)
-		if result.PaymentType == creditPaymentTypeAbono {
-			message = "Abono registrado correctamente."
-		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{
-			"ok":                 true,
-			"credit_sale_id":     result.CreditSaleID,
-			"kind":               string(result.Kind),
-			"kind_label":         creditKindLabel(result.Kind),
-			"product_id":         result.ProductID,
-			"product_name":       result.ProductName,
-			"amount_paid":        result.AmountPaid,
-			"installment_number": result.InstallmentNumber,
-			"payment_type":       string(result.PaymentType),
-			"paid_installments":  result.InstallmentsPaid,
-			"total_paid":         result.TotalPaid,
-			"current_debt":       result.CurrentDebt,
-			"message":            message,
-		})
 	}
 }
 

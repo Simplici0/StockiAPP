@@ -295,6 +295,7 @@ Notas:
 - `id` es el identificador visible del producto y queda scoped por tenant
 - el backend genera además un `sku` interno global para referencias operativas
 - `sku` en el payload se conserva solo como alias legado del `id` visible
+- para integraciones nuevas, usa `id` y no envíes `sku`
 - si envías `id` y `sku` con valores distintos, la API responde `400`
 
 Payload:
@@ -337,7 +338,7 @@ Payload:
 }
 ```
 
-También acepta `new_id` o `sku` como alias de compatibilidad, pero el campo recomendado es `id`.
+También acepta `new_id` o `sku` como alias de compatibilidad transicional, pero el campo recomendado para integraciones nuevas es `id`.
 
 Reglas:
 - la ruta recibe el `id` visible actual del producto
@@ -1462,6 +1463,26 @@ Respuesta:
 }
 ```
 
+Respuesta ejemplo para `cash_loan`:
+
+```json
+{
+  "ok": true,
+  "credit_sale_id": 10,
+  "customer_id": 4,
+  "kind": "cash_loan",
+  "kind_label": "Préstamo",
+  "product_id": "",
+  "product_name": "Préstamo de dinero",
+  "quantity": 1,
+  "installment_value": 100000,
+  "debt_total": 600000,
+  "total_paid": 0,
+  "current_debt": 600000,
+  "message": "Préstamo registrado correctamente."
+}
+```
+
 ### `PUT /api/credits/{id}` o `PATCH /api/credits/{id}`
 
 Edita un crédito existente reutilizando la misma lógica compartida que usa la app.
@@ -1696,6 +1717,47 @@ Respuesta:
       "current_debt_after": 150000,
       "current_debt_delta": 60000,
       "installments_due_now": 5
+    }
+  ]
+}
+```
+
+### `GET /api/credits/installments`
+
+Devuelve pagos individuales (`cuotas` y `abonos`) para reportes de recaudación.
+
+Reglas:
+- tenant-scoped por sesión o Bearer token
+- respeta la misma visibilidad de créditos y ownership que `GET /api/credits`
+- `from` usa formato `YYYY-MM-DD` como límite inferior sobre `credit_installments.created_at`
+- `to` usa formato `YYYY-MM-DD` como límite superior sobre `credit_installments.created_at`
+- `q` busca por nombre del cliente o nombre del producto
+- para créditos de producto, la persistencia interna sigue usando `credit_installments.product_id` y `credit_sales.product_id` con `sku`
+- la salida humana devuelve solo datos compactos para recaudo; no expone `sku`
+- para `cash_loan`, `product_name` se devuelve como `Préstamo de dinero`
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" \
+  "https://login.stockiapp.co/api/credits/installments?from=2026-03-01&to=2026-03-31&q=juan"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "items": [
+    {
+      "id": 1,
+      "credit_sale_id": 10,
+      "customer_name": "Juan Perez",
+      "product_name": "iPhone 12",
+      "amount_paid": 25000,
+      "payment_type": "cuota",
+      "created_at": "2026-03-29"
     }
   ]
 }
@@ -1972,7 +2034,7 @@ Nota:
 - se conserva por compatibilidad
 - `id` visible es el selector recomendado
 - si usas `sku`, debe ser el `sku` interno real; ya no se resuelve como alias implícito del `id` visible
-- para nuevas integraciones, usa preferiblemente los endpoints modernos de `products` o `agent`
+- para nuevas integraciones, usa preferiblemente `id` visible y los endpoints modernos de `products` o `agent`
 
 ## Códigos HTTP Usados
 

@@ -574,6 +574,73 @@ func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handle
 	mux.HandleFunc("/api/users", handleAPIUsers(db, usersCols))
 	mux.HandleFunc("/api/users/", handleAPIUserRoutes(db, usersCols))
 	mux.HandleFunc("/api/products/", handleAPIProductRoutes(db))
+	mux.HandleFunc("/api/productos/precio", func(w http.ResponseWriter, r *http.Request) {
+		productID := strings.TrimSpace(r.URL.Query().Get("id"))
+		productSKU := strings.TrimSpace(r.URL.Query().Get("sku"))
+		if productID == "" && productSKU == "" {
+			writeAPIError(w, http.StatusBadRequest, "Falta id.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		tenantID := tenantIDFromRequest(r)
+
+		resolvedID := ""
+		resolvedSKU := ""
+		switch {
+		case productID != "":
+			var err error
+			resolvedSKU, resolvedID, err = resolveProductRefForTenant(db, tenantID, productID)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					writeAPIError(w, http.StatusNotFound, "Producto no encontrado.", nil)
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo resolver el producto.", nil)
+				return
+			}
+			allowed, accessErr := productAccessibleByID(db, currentUser, resolvedID)
+			if accessErr != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+				return
+			}
+			if !allowed {
+				writeAPIError(w, http.StatusForbidden, "No tienes acceso a este producto.", nil)
+				return
+			}
+		default:
+			var err error
+			resolvedSKU = productSKU
+			resolvedID, err = resolveVisibleProductIDBySKUForTenant(db, tenantID, resolvedSKU)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					writeAPIError(w, http.StatusNotFound, "Producto no encontrado.", nil)
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo resolver el producto.", nil)
+				return
+			}
+			allowed, accessErr := productAccessibleBySKU(db, currentUser, resolvedSKU)
+			if accessErr != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
+				return
+			}
+			if !allowed {
+				writeAPIError(w, http.StatusForbidden, "No tienes acceso a este producto.", nil)
+				return
+			}
+		}
+
+		var salePrice float64
+		if err := db.QueryRow(`SELECT COALESCE(precio_venta, 0) FROM productos WHERE tenant_id = ? AND sku = ?`, tenantID, resolvedSKU).Scan(&salePrice); err != nil {
+			if err == sql.ErrNoRows {
+				salePrice = 0
+			} else {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el precio.", nil)
+				return
+			}
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "id": resolvedID, "sku": resolvedSKU, "precio_venta": salePrice})
+	})
 	mux.HandleFunc("/api/agent/customers/search", handleAPIAgentCustomerSearch(db))
 	mux.HandleFunc("/api/agent/invoices", handleAPIAgentInvoices(db))
 	mux.HandleFunc("/api/credits", handleAPICredits(db))
@@ -791,6 +858,43 @@ func TestAPIUpdateProductIDUsesTenantScopedVisibleIdentifier(t *testing.T) {
 	}
 	if otherTenantCount != 1 {
 		t.Fatalf("expected same visible id to remain valid in another tenant, got %d", otherTenantCount)
+	}
+}
+
+func TestAPIProductPriceEndpointSupportsVisibleIDAndExplicitLegacySKU(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
+		VALUES
+			('SKU-PRICE-001', ?, 'P-PRICE-001', 'Producto Precio', 'Farmacia', 12345, 0),
+			('SKU-PRICE-OTHER', 1, 'P-PRICE-OTHER', 'Producto Otro Tenant', 'Farmacia', 9999, 0)
+	`, tenant.ID); err != nil {
+		t.Fatalf("seed price products: %v", err)
+	}
+
+	byIDResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/productos/precio?id=P-PRICE-001", token, nil)
+	if byIDResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for visible id lookup, got %d body=%s", byIDResp.Code, byIDResp.Body.String())
+	}
+	byIDBody := decodeAPIResponse(t, byIDResp)
+	if byIDBody["id"] != "P-PRICE-001" || byIDBody["sku"] != "SKU-PRICE-001" {
+		t.Fatalf("unexpected visible id price payload: %+v", byIDBody)
+	}
+
+	bySKUResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/productos/precio?sku=SKU-PRICE-001", token, nil)
+	if bySKUResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for explicit legacy sku lookup, got %d body=%s", bySKUResp.Code, bySKUResp.Body.String())
+	}
+	bySKUBody := decodeAPIResponse(t, bySKUResp)
+	if bySKUBody["id"] != "P-PRICE-001" || bySKUBody["sku"] != "SKU-PRICE-001" || bySKUBody["precio_venta"] != 12345.0 {
+		t.Fatalf("unexpected legacy sku price payload: %+v", bySKUBody)
+	}
+
+	crossTenantResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/productos/precio?id=P-PRICE-OTHER", token, nil)
+	if crossTenantResp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-tenant visible id lookup, got %d body=%s", crossTenantResp.Code, crossTenantResp.Body.String())
 	}
 }
 
@@ -3036,6 +3140,107 @@ func TestAPICreditInstallmentsEndpointRespectsTenantScopeByAPIKey(t *testing.T) 
 	}
 }
 
+func TestAPICreditInstallmentsEndpointSupportsFiltersAndTenantScope(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "T2-REPORT-IPHONE", "iPhone 12", 2500000, 0)
+	seedTenantProductWithUnits(t, db, defaultTenantID, "T1-REPORT-HIDDEN", "Producto Oculto", 19000, 0)
+
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
+		VALUES
+			(?, 'product_credit', 'T2-REPORT-IPHONE', 1, 'Juan Perez', 'CC', '1001', '3001001001', 6, 1, 300000, 0, 50000, 'credito iphone', 'active', '2026-03-01T10:00:00Z', 1),
+			(?, 'cash_loan', NULL, 1, 'Ana Ruiz', 'CC', '1002', '3001001002', 4, 0, 120000, 0, 30000, 'prestamo libre', 'active', '2026-03-05T10:00:00Z', 1),
+			(?, 'product_credit', 'T1-REPORT-HIDDEN', 1, 'Cliente Otro Tenant', 'CC', '2001', '3002002001', 3, 0, 57000, 0, 19000, 'credito otro tenant', 'active', '2026-03-08T10:00:00Z', 1)
+	`, tenant.ID, tenant.ID, defaultTenantID); err != nil {
+		t.Fatalf("insert credit sales: %v", err)
+	}
+
+	var tenantCreditID, tenantCashLoanID, crossCreditID int
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = ? AND debtor_document_number = '1001'`, tenant.ID).Scan(&tenantCreditID); err != nil {
+		t.Fatalf("query tenant credit id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = ? AND debtor_document_number = '1002'`, tenant.ID).Scan(&tenantCashLoanID); err != nil {
+		t.Fatalf("query tenant cash loan id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM credit_sales WHERE tenant_id = ? AND debtor_document_number = '2001'`, defaultTenantID).Scan(&crossCreditID); err != nil {
+		t.Fatalf("query cross credit id: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
+		VALUES
+			(?, ?, 'T2-REPORT-IPHONE', 1, 25000, 'cuota', '2026-03-29T15:00:00Z', 1),
+			(?, ?, NULL, 0, 10000, 'abono', '2026-03-12T11:00:00Z', 1),
+			(?, ?, 'T1-REPORT-HIDDEN', 1, 19000, 'cuota', '2026-03-29T09:00:00Z', 1)
+	`, tenant.ID, tenantCreditID, tenant.ID, tenantCashLoanID, defaultTenantID, crossCreditID); err != nil {
+		t.Fatalf("insert credit installments: %v", err)
+	}
+
+	allResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/installments", token, nil)
+	if allResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", allResp.Code, allResp.Body.String())
+	}
+	allBody := decodeAPIResponse(t, allResp)
+	if int(allBody["count"].(float64)) != 2 {
+		t.Fatalf("expected 2 tenant installments, got %+v", allBody)
+	}
+	allItems, ok := allBody["items"].([]any)
+	if !ok || len(allItems) != 2 {
+		t.Fatalf("unexpected items payload: %+v", allBody)
+	}
+	for _, raw := range allItems {
+		item := raw.(map[string]any)
+		if int(item["credit_sale_id"].(float64)) == crossCreditID {
+			t.Fatalf("cross-tenant installment leaked: %+v", item)
+		}
+	}
+
+	dateResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/installments?from=2026-03-20&to=2026-03-31", token, nil)
+	if dateResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for date filter, got %d body=%s", dateResp.Code, dateResp.Body.String())
+	}
+	dateBody := decodeAPIResponse(t, dateResp)
+	if int(dateBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 installment in date range, got %+v", dateBody)
+	}
+	dateItems := dateBody["items"].([]any)
+	dateItem := dateItems[0].(map[string]any)
+	if int(dateItem["credit_sale_id"].(float64)) != tenantCreditID {
+		t.Fatalf("unexpected installment for date range: %+v", dateItem)
+	}
+	if dateItem["product_name"] != "iPhone 12" {
+		t.Fatalf("unexpected product_name in date range: %+v", dateItem)
+	}
+
+	customerResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/installments?q=juan", token, nil)
+	if customerResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for customer search, got %d body=%s", customerResp.Code, customerResp.Body.String())
+	}
+	customerBody := decodeAPIResponse(t, customerResp)
+	if int(customerBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 installment for customer search, got %+v", customerBody)
+	}
+	customerItem := customerBody["items"].([]any)[0].(map[string]any)
+	if customerItem["customer_name"] != "Juan Perez" {
+		t.Fatalf("unexpected customer search item: %+v", customerItem)
+	}
+
+	productResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/installments?q=iphone", token, nil)
+	if productResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for product search, got %d body=%s", productResp.Code, productResp.Body.String())
+	}
+	productBody := decodeAPIResponse(t, productResp)
+	if int(productBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 installment for product search, got %+v", productBody)
+	}
+	productItem := productBody["items"].([]any)[0].(map[string]any)
+	if productItem["product_name"] != "iPhone 12" || productItem["payment_type"] != "cuota" {
+		t.Fatalf("unexpected product search item: %+v", productItem)
+	}
+}
+
 func TestAPICreditsCanUpdateProductCreditAndPersistDerivedState(t *testing.T) {
 	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
@@ -3587,6 +3792,104 @@ func TestListCreditsForUserIncludesCashLoanKind(t *testing.T) {
 	}
 	if item["product"] != "Préstamo de dinero" {
 		t.Fatalf("unexpected product label: %+v", item)
+	}
+}
+
+func TestListCreditInstallmentsForUserRespectsOwnership(t *testing.T) {
+	db, _, tenant, _ := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	if _, err := createManagedUser(db, tenantAdmin, tenant.ID, usersCols, managedUserInput{
+		Username: "tenant2.opsinstall",
+		Name:     "Operador Install",
+		Email:    "opsinstall@example.com",
+		Password: "ClaveSegura123!",
+		Role:     roleEmployee,
+		IsActive: true,
+	}, "manual", nil); err != nil {
+		t.Fatalf("create ops user: %v", err)
+	}
+	if _, err := createManagedUser(db, tenantAdmin, tenant.ID, usersCols, managedUserInput{
+		Username: "tenant2.otherinstall",
+		Name:     "Otro Operador",
+		Email:    "otherinstall@example.com",
+		Password: "ClaveSegura123!",
+		Role:     roleEmployee,
+		IsActive: true,
+	}, "manual", nil); err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+	opsUser := mustLoadTestUser(t, db, "tenant2.opsinstall")
+	otherUser := mustLoadTestUser(t, db, "tenant2.otherinstall")
+
+	now := "2026-03-29T10:00:00Z"
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled, owner_user_id)
+		VALUES
+			('PUBLIC-INS-001', ?, 'PUBLIC-INS-001', 'Producto Publico', 'Linea Test', 10000, 0, NULL),
+			('OWNED-OPS-001', ?, 'OWNED-OPS-001', 'Producto Operador', 'Linea Test', 12000, 0, ?),
+			('OWNED-OTHER-001', ?, 'OWNED-OTHER-001', 'Producto Privado', 'Linea Test', 14000, 0, ?)
+	`, tenant.ID, tenant.ID, opsUser.ID, tenant.ID, otherUser.ID); err != nil {
+		t.Fatalf("insert products with owners: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sales (tenant_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
+		VALUES
+			(?, 'product_credit', 'PUBLIC-INS-001', 1, 'Cliente Publico', 'CC', '7101', '3007101', 3, 0, 30000, 0, 10000, '', 'active', ?, ?),
+			(?, 'product_credit', 'OWNED-OPS-001', 1, 'Cliente Operador', 'CC', '7102', '3007102', 3, 0, 36000, 0, 12000, '', 'active', ?, ?),
+			(?, 'product_credit', 'OWNED-OTHER-001', 1, 'Cliente Privado', 'CC', '7103', '3007103', 3, 0, 42000, 0, 14000, '', 'active', ?, ?)
+	`, tenant.ID, now, tenantAdmin.ID, tenant.ID, now, tenantAdmin.ID, tenant.ID, now, tenantAdmin.ID); err != nil {
+		t.Fatalf("insert credit sales with owners: %v", err)
+	}
+
+	rows, err := db.Query(`SELECT id, product_id FROM credit_sales WHERE tenant_id = ? ORDER BY id ASC`, tenant.ID)
+	if err != nil {
+		t.Fatalf("query credit sales: %v", err)
+	}
+	defer rows.Close()
+	creditIDs := map[string]int{}
+	for rows.Next() {
+		var creditID int
+		var productID string
+		if err := rows.Scan(&creditID, &productID); err != nil {
+			t.Fatalf("scan credit sale: %v", err)
+		}
+		creditIDs[productID] = creditID
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate credit sales: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
+		VALUES
+			(?, ?, 'PUBLIC-INS-001', 1, 10000, 'cuota', ?, ?),
+			(?, ?, 'OWNED-OPS-001', 1, 12000, 'cuota', ?, ?),
+			(?, ?, 'OWNED-OTHER-001', 1, 14000, 'cuota', ?, ?)
+	`, tenant.ID, creditIDs["PUBLIC-INS-001"], now, tenantAdmin.ID, tenant.ID, creditIDs["OWNED-OPS-001"], now, tenantAdmin.ID, tenant.ID, creditIDs["OWNED-OTHER-001"], now, tenantAdmin.ID); err != nil {
+		t.Fatalf("insert installments with owners: %v", err)
+	}
+
+	items, err := listCreditInstallmentsForUser(db, opsUser, "", "", "", 20)
+	if err != nil {
+		t.Fatalf("listCreditInstallmentsForUser: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 visible installments for owned/public credits, got %+v", items)
+	}
+	productNames := map[string]bool{}
+	for _, item := range items {
+		productNames[item["product_name"].(string)] = true
+	}
+	if !productNames["Producto Publico"] || !productNames["Producto Operador"] {
+		t.Fatalf("missing visible products in installments: %+v", items)
+	}
+	if productNames["Producto Privado"] {
+		t.Fatalf("unexpected private product installment visible: %+v", items)
 	}
 }
 
