@@ -15,6 +15,7 @@ Use this skill when the task is about:
 - validating whether a migration is safe against existing data
 - checking tenant integrity in operational tables
 - inspecting `credit_sales`, `credit_installments`, `audit_events`, `customers`, `customer_events`, `product_loans`, `invoice*`, `productos`, `unidades`
+- inspecting receipt metadata stored in `ventas` and customer links stored in `retomas`
 - comparing actual Postgres state against the canonical schema in `main.go`
 
 Do not use this skill to bypass the app API for n8n or agent integrations. In StockiAPP, external integrations must use the API, not direct database access.
@@ -30,7 +31,9 @@ Read these first when the task touches schema or tenancy:
   - `loadDatabaseConfig`
   - `normalizeSchemaSQLForEngine`
   - `tenantIDFromRequest`
+  - `tenantIDFromRequestStrict`
   - `tenantIDFromUser`
+  - `tenantIDFromUserStrict`
   - `productVisibilityPredicate`
   - `creditVisibilityPredicate`
   - `ensureCustomerCRMBase`
@@ -49,6 +52,8 @@ Canonical backend concepts that must stay stable:
 - `owner_user_id`
 
 Visible labels may vary by business. Do not rename internal concepts because of UI wording.
+
+If the database schema, indexes, tenant rules, or canonical table structure change, update this skill in the same change set so it stays aligned with the repo.
 
 ## Safety Rules
 
@@ -82,6 +87,7 @@ StockiAPP is multi-tenant. Database inspection must respect that.
 
 - Operational tables usually carry `tenant_id`; verify it before reasoning about data.
 - When inspecting app-visible rows, filter by `tenant_id` first.
+- Runtime auth and visibility should fail closed when tenant context is missing. Treat `tenant_id <= 0` in `users`, `sessions`, or `api_keys` as broken legacy data to repair, not as a valid runtime fallback.
 - Never recommend API contracts that require manual `tenant_id` in payloads, query params, or ad hoc headers.
 - Ownership is evaluated inside the resolved tenant. `productos.owner_user_id` is sensitive.
 - Product visibility is not only tenant-based:
@@ -99,6 +105,26 @@ LEFT JOIN credit_installments ci ON ci.tenant_id = cs.tenant_id AND ci.credit_sa
 
 Do not assume `product_id` is always present in credits; `cash_loan` flows allow `product_id` to be null.
 
+## Product Identity Rules
+
+StockiAPP uses two product identifiers with different roles:
+
+- `productos.id`: visible product ID, tenant-scoped, used in routes and API payloads
+- `productos.sku`: internal stable identifier, used for operational persistence and historical references
+
+When inspecting history tables, expect internal `sku` values in persistence columns such as:
+
+- `ventas.producto_id`
+- `ventas.receipt_buyer_*` stores the latest generated sale receipt identity snapshot for re-open/print flows
+- `retomas.producto_id`
+- `retomas.customer_id` links a retoma to `customers.id` when customer data was captured
+- `movimientos.producto_id`
+- `unidades.producto_id`
+- `credit_sales.product_id` for product credits
+- `product_loans.product_id`
+
+Do not recommend `sku = ? OR id = ?` lookups for runtime behavior. If legacy repair is needed, isolate it to migration or bootstrap paths and document it explicitly.
+
 ## Recommended Workflow
 
 1. Confirm Postgres context.
@@ -107,6 +133,8 @@ Do not assume `product_id` is always present in credits; `cash_loan` flows allow
 4. Compare with `main.go` and any migration helper already present.
 5. Run tenant-integrity checks before proposing changes.
 6. Summarize findings with risks, not just raw query output.
+
+If the task touches seeds or legacy backfills, verify that any reconstruction of missing visible IDs happens only in repair/bootstrap code and never by treating `sku` as the normal visible ID.
 
 Use local environment values from `.env.local` or exported vars. StockiAPP does not auto-load `.env`.
 

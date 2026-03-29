@@ -95,6 +95,21 @@ Respuesta de error típica:
 
 `fields` aparece cuando hay validación por campo.
 
+## Identidad De Producto
+
+StockiAPP usa dos identificadores distintos:
+
+- `id`: identificador visible del producto, scoped por tenant, usado en rutas y payloads API
+- `sku`: identificador interno estable, usado para persistencia operativa e histórica
+
+Reglas del contrato:
+
+- para entrada humana y API usa `id`
+- la API remapea en salida los históricos persistidos por `sku` para devolver `product_id` visible cuando el producto sigue resolviendo dentro del tenant
+- columnas históricas como `ventas.producto_id`, `retomas.producto_id`, `credit_sales.product_id` o `product_loans.product_id` siguen persistiendo `sku` interno
+- el `sku` solo se expone cuando el contrato lo hace explícito, por ejemplo en respuestas de administración de producto o en el endpoint legado `GET /api/productos/precio?sku=...`
+- si una fila histórica no puede remapearse porque el catálogo ya no resuelve ese producto, la salida conserva el valor persistido como fallback legado visible
+
 ## Salud
 
 ### `GET /api/health`
@@ -279,6 +294,8 @@ Solo admin.
 Notas:
 - `id` es el identificador visible del producto y queda scoped por tenant
 - el backend genera además un `sku` interno global para referencias operativas
+- `sku` en el payload se conserva solo como alias legado del `id` visible
+- si envías `id` y `sku` con valores distintos, la API responde `400`
 
 Payload:
 
@@ -299,6 +316,7 @@ Payload:
 
 Reglas:
 - `name` y `line` son obligatorios
+- `id` es opcional; si no lo envías, el backend genera un `id` visible tenant-scoped
 - `location` es opcional
 - `quantity` debe ser mayor a `0`
 - `owner_user_id` es opcional
@@ -322,13 +340,13 @@ Payload:
 También acepta `new_id` o `sku` como alias de compatibilidad, pero el campo recomendado es `id`.
 
 Reglas:
-- la ruta normalmente recibe el `id` visible actual
-- por compatibilidad, la ruta también resuelve el producto si recibe el `sku` interno actual
+- la ruta recibe el `id` visible actual del producto
 - el nuevo `id` es obligatorio
-- no puede colisionar con otro producto del mismo tenant
+- no puede colisionar con otro `id` visible ni con un `sku` interno ya existente dentro del tenant
 - el cambio no renombra referencias operativas históricas
 - el `sku` interno del producto se mantiene estable
 - si mandas `sku` en el payload, se interpreta como alias del nuevo `id` visible, no como cambio del `sku` interno
+- si mandas `id` y `sku` con valores distintos en el payload, la API responde `400`
 
 Ejemplo:
 
@@ -348,7 +366,7 @@ Respuesta:
 {
   "ok": true,
   "previous_id": "P-001",
-  "sku": "P-127",
+  "sku": "SKU-000127",
   "id": "P-900",
   "message": "ID de producto actualizado correctamente."
 }
@@ -440,6 +458,8 @@ Respuesta:
       "fecha": "2026-03-22",
       "product_id": "P-001",
       "product_name": "Crema corporal",
+      "customer_id": 4,
+      "customer_name": "Cliente Retoma",
       "quantity": 1,
       "value_received": 12000,
       "received_state": "Usado",
@@ -467,9 +487,19 @@ Payload:
   "received_state": "Usado",
   "publish_to_stock": true,
   "final_sale_price": 25000,
-  "notes": "Retoma desde n8n"
+  "notes": "Retoma desde n8n",
+  "customer_name": "Cliente Retoma",
+  "customer_phone": "3001234567",
+  "customer_document_type": "CC",
+  "customer_document_number": "99887766",
+  "customer_city": "Bogota"
 }
 ```
+
+Notas:
+- los campos de cliente son opcionales para compatibilidad
+- si envías `customer_id`, la retoma se vincula a ese cliente dentro del tenant
+- si envías identidad de cliente sin `customer_id`, la API crea o reutiliza el cliente por `document_type + document_number`
 
 Respuesta:
 
@@ -479,6 +509,7 @@ Respuesta:
   "retoma_id": 10,
   "product_id": "P-001",
   "product_name": "Crema corporal",
+  "customer_id": 4,
   "quantity": 1,
   "value_received": 12000,
   "received_state": "Usado",
@@ -501,6 +532,7 @@ Lista ventas filtrables por `q`, `from` y `to`.
 Reglas:
 - `from` y `to` usan formato `YYYY-MM-DD`
 - el filtro respeta visibilidad por tenant y ownership
+- `product_id` se devuelve como `id` visible aunque `ventas.producto_id` persista `sku` interno
 
 Ejemplo:
 
@@ -565,9 +597,19 @@ Respuesta:
   "product_name": "Crema corporal",
   "quantity": 2,
   "sale_price": 25000,
+  "receipt_url": "/venta/comprobante?sale_id=100",
+  "receipt_download_url": "/venta/comprobante?sale_id=100&download=1",
+  "thermal_ticket_url": "/venta/ticket?sale_id=100",
+  "invoice_create_url": "/facturas/nueva?sale_id=100",
   "message": "Venta registrada correctamente."
 }
 ```
+
+Notas de comprobante:
+- `receipt_url` abre la vista estándar del comprobante
+- `thermal_ticket_url` abre la versión térmica
+- la primera vez que falten `buyer_name` o `buyer_document`, la vista los pide antes de renderizar
+- una vez generados, el último nombre, documento, formato y usuario quedan persistidos en `ventas` para reabrir o reimprimir sin volver a capturarlos
 
 ## Facturas Operativas
 
@@ -622,7 +664,8 @@ Respuesta:
       "status": "issued",
       "status_label": "Factura emitida",
       "created_at": "2026-03-25 16:10",
-      "view_url": "/facturas/12"
+      "view_url": "/facturas/12",
+      "thermal_ticket_url": "/facturas/12?paper=58mm"
     }
   ]
 }
@@ -638,6 +681,9 @@ Reglas:
 - para facturas basadas en venta debes enviar cliente
 - para facturas basadas en crédito puedes omitir cliente si el crédito ya tiene cliente asociado
 - si la factura ya existe para esa referencia, la API responde `200` con `created = false`
+- `view_url` abre la factura operativa por defecto
+- `thermal_ticket_url` devuelve la misma factura con ancho de papel listo para impresión térmica
+- `invoice.items[*].product_id` conserva el `id` visible usado al generar la factura, aunque el origen operativo persista `sku` interno
 
 Factura sobre venta:
 
@@ -702,6 +748,7 @@ Respuesta:
     "status_label": "Factura emitida",
     "created_at": "2026-03-25 16:10",
     "view_url": "/facturas/12",
+    "thermal_ticket_url": "/facturas/12?paper=58mm",
     "items": [
       {
         "product_id": "P-001",
@@ -801,6 +848,9 @@ Modo `new`:
   "incoming_new_qty": 1
 }
 ```
+
+Nota:
+- `incoming_new_sku` conserva nombre legado, pero el valor esperado es el `id` visible del producto nuevo; el backend genera su `sku` interno por separado
 
 Respuesta:
 
@@ -928,6 +978,10 @@ Incluye:
 - datos base del cliente
 - resumen financiero agregado
 - créditos recientes asociados
+
+Notas:
+- `recent_credits[*].product_id` se devuelve como `id` visible cuando el producto todavía existe en el tenant
+- los bloques comerciales embebidos de cliente no exponen `sku` interno salvo fallback legado si el catálogo ya no puede remapear el histórico
 
 Ejemplo:
 
@@ -1204,6 +1258,7 @@ Reglas financieras actuales:
 - `debt_total = installments_total * installment_value`
 - `total_paid` suma cuotas y abonos
 - `current_debt = debt_total - total_paid`
+- `product_id` se devuelve como `id` visible; la persistencia interna del crédito sigue usando `credit_sales.product_id` con `sku`
 
 Respuesta por item:
 
@@ -1797,6 +1852,10 @@ Notas:
 
 Consulta rápida de precio de venta, locación y valor de retoma por producto.
 
+Notas:
+- `id` debe ser el identificador visible del producto
+- no acepta `sku` interno como selector implícito
+
 ### `GET /api/agent/inventory?q=`
 
 Consulta rápida de disponibilidad con formato compacto para automatización.
@@ -1900,7 +1959,7 @@ Endpoint legado para consultar el precio de venta de un producto.
 
 Acepta:
 - `?id=P-001`
-- `?sku=P-001`
+- `?sku=SKU-000001` solo como compatibilidad explícita
 
 Ejemplo:
 
@@ -1911,6 +1970,8 @@ curl -H "Authorization: Bearer TU_TOKEN" \
 
 Nota:
 - se conserva por compatibilidad
+- `id` visible es el selector recomendado
+- si usas `sku`, debe ser el `sku` interno real; ya no se resuelve como alias implícito del `id` visible
 - para nuevas integraciones, usa preferiblemente los endpoints modernos de `products` o `agent`
 
 ## Códigos HTTP Usados

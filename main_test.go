@@ -41,6 +41,326 @@ func TestLoadDatabaseConfigPostgres(t *testing.T) {
 	}
 }
 
+func TestRequestedVisibleProductIDRejectsConflictingLegacyAlias(t *testing.T) {
+	_, err := requestedVisibleProductID("P-001", "P-002")
+	if err == nil {
+		t.Fatalf("expected conflict error")
+	}
+	var reqErr requestError
+	if !errors.As(err, &reqErr) {
+		t.Fatalf("expected requestError, got %v", err)
+	}
+	if reqErr.Status != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %+v", reqErr)
+	}
+}
+
+func TestFindProductMatchesVisibleIDOnly(t *testing.T) {
+	products := []productOption{{SKU: "SKU-000001", ID: "P-001", Name: "Producto"}}
+	if _, ok := findProduct(products, "P-001"); !ok {
+		t.Fatalf("expected visible id lookup to match")
+	}
+	if _, ok := findProduct(products, "SKU-000001"); ok {
+		t.Fatalf("findProduct should not match internal sku")
+	}
+	if _, ok := findVisibleProduct(products, "SKU-000001"); ok {
+		t.Fatalf("findVisibleProduct should not match internal sku")
+	}
+}
+
+func TestGenerateNextTenantProductIDAvoidsTenantSKUCollision(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			id TEXT
+		);
+		INSERT INTO productos (sku, tenant_id, id) VALUES
+			('P-001', 2, 'P-000'),
+			('SKU-000010', 2, 'P-010'),
+			('SKU-OTHER', 1, 'P-001');
+	`); err != nil {
+		t.Fatalf("seed productos: %v", err)
+	}
+
+	got, err := generateNextTenantProductID(db, 2)
+	if err != nil {
+		t.Fatalf("generateNextTenantProductID: %v", err)
+	}
+	if got != "P-011" {
+		t.Fatalf("expected collision-safe tenant id P-011, got %s", got)
+	}
+}
+
+func TestBackfillMissingProductVisibleIDsUsesTenantScopedIDs(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			id TEXT
+		);
+		INSERT INTO productos (sku, tenant_id, id) VALUES
+			('P-001', 1, NULL),
+			('SKU-000200', 2, ''),
+			('SKU-EXISTING', 2, 'P-001');
+	`); err != nil {
+		t.Fatalf("seed productos: %v", err)
+	}
+
+	if err := backfillMissingProductVisibleIDs(db); err != nil {
+		t.Fatalf("backfillMissingProductVisibleIDs: %v", err)
+	}
+
+	var tenantOneID, tenantTwoID string
+	if err := db.QueryRow(`SELECT id FROM productos WHERE tenant_id = 1 AND sku = 'P-001'`).Scan(&tenantOneID); err != nil {
+		t.Fatalf("query tenant 1 id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM productos WHERE tenant_id = 2 AND sku = 'SKU-000200'`).Scan(&tenantTwoID); err != nil {
+		t.Fatalf("query tenant 2 id: %v", err)
+	}
+	if tenantOneID == "" || tenantTwoID == "" {
+		t.Fatalf("expected non-empty visible ids after backfill: tenant1=%q tenant2=%q", tenantOneID, tenantTwoID)
+	}
+	if tenantOneID == "P-001" {
+		t.Fatalf("tenant 1 visible id should not reuse the internal sku namespace, got %q", tenantOneID)
+	}
+	if tenantTwoID != "P-002" {
+		t.Fatalf("expected tenant 2 backfill to skip existing P-001 and use P-002, got %q", tenantTwoID)
+	}
+}
+
+func TestLoadProductIdentityByVisibleIDDoesNotAcceptSKUAlias(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			id TEXT NOT NULL,
+			owner_user_id INTEGER
+		);
+		INSERT INTO productos (sku, tenant_id, id, owner_user_id) VALUES
+			('SKU-000001', 1, 'P-001', NULL);
+	`); err != nil {
+		t.Fatalf("seed productos: %v", err)
+	}
+
+	if _, err := loadProductIdentityByVisibleID(db, 1, "SKU-000001"); err != sql.ErrNoRows {
+		t.Fatalf("expected visible-id lookup by sku to fail closed, got %v", err)
+	}
+	record, err := loadProductIdentityByVisibleID(db, 1, "P-001")
+	if err != nil {
+		t.Fatalf("loadProductIdentityByVisibleID visible id: %v", err)
+	}
+	if record.SKU != "SKU-000001" || record.VisibleID != "P-001" {
+		t.Fatalf("unexpected record: %+v", record)
+	}
+}
+
+func TestTenantIDFromUserStrictRequiresTenantContext(t *testing.T) {
+	if _, err := tenantIDFromUserStrict(nil); !errors.Is(err, errMissingTenantContext) {
+		t.Fatalf("expected errMissingTenantContext for nil user, got %v", err)
+	}
+	if _, err := tenantIDFromUserStrict(&User{ID: 10, Username: "tenantless", TenantID: 0}); !errors.Is(err, errMissingTenantContext) {
+		t.Fatalf("expected errMissingTenantContext for tenantless user, got %v", err)
+	}
+}
+
+func TestProductVisibilityPredicateWithoutTenantContextFailsClosed(t *testing.T) {
+	sqlText, args := productVisibilityPredicate("p", nil)
+	if sqlText != "1 = 0" {
+		t.Fatalf("expected deny-all predicate, got %q", sqlText)
+	}
+	if len(args) != 0 {
+		t.Fatalf("expected no predicate args, got %v", args)
+	}
+
+	sqlText, args = creditVisibilityPredicate("cs", nil)
+	if sqlText != "1 = 0" {
+		t.Fatalf("expected deny-all credit predicate, got %q", sqlText)
+	}
+	if len(args) != 0 {
+		t.Fatalf("expected no credit predicate args, got %v", args)
+	}
+}
+
+func TestLoadVisibleProductsForUserRequiresTenantContext(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			id TEXT NOT NULL,
+			linea TEXT NOT NULL DEFAULT '',
+			nombre TEXT NOT NULL DEFAULT '',
+			fecha_ingreso TEXT NOT NULL DEFAULT '',
+			location TEXT NOT NULL DEFAULT '',
+			precio_venta REAL NOT NULL DEFAULT 0,
+			retoma_enabled INTEGER NOT NULL DEFAULT 0,
+			retoma_price REAL,
+			anotaciones TEXT NOT NULL DEFAULT '',
+			credit_enabled INTEGER NOT NULL DEFAULT 0,
+			debtor_name TEXT NOT NULL DEFAULT '',
+			installments_total INTEGER NOT NULL DEFAULT 0,
+			installments_paid INTEGER NOT NULL DEFAULT 0,
+			total_value REAL NOT NULL DEFAULT 0,
+			installment_value REAL NOT NULL DEFAULT 0,
+			owner_user_id INTEGER
+		);
+	`); err != nil {
+		t.Fatalf("create productos: %v", err)
+	}
+
+	if _, err := loadVisibleProductsForUser(db, nil); !errors.Is(err, errMissingTenantContext) {
+		t.Fatalf("expected errMissingTenantContext, got %v", err)
+	}
+}
+
+func TestGenerateNextProductSKUSeesUncommittedRowsInTransaction(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			id TEXT NOT NULL
+		);
+	`); err != nil {
+		t.Fatalf("create productos: %v", err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`INSERT INTO productos (sku, tenant_id, id) VALUES ('SKU-000001', 1, 'P-001')`); err != nil {
+		t.Fatalf("insert pending product: %v", err)
+	}
+
+	nextSKU, err := generateNextProductSKU(tx)
+	if err != nil {
+		t.Fatalf("generateNextProductSKU: %v", err)
+	}
+	if nextSKU != "SKU-000002" {
+		t.Fatalf("expected SKU-000002, got %s", nextSKU)
+	}
+}
+
+func TestUpsertProductoRejectsConflictingInternalSKU(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			id TEXT NOT NULL,
+			linea TEXT NOT NULL DEFAULT '',
+			nombre TEXT NOT NULL DEFAULT '',
+			fecha_ingreso TEXT NOT NULL DEFAULT ''
+		);
+		CREATE UNIQUE INDEX idx_productos_tenant_id_unique ON productos(tenant_id, id);
+	`); err != nil {
+		t.Fatalf("create productos: %v", err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if err := upsertProducto(db, 1, "SKU-000001", "P-001", "Producto Uno", "Linea", now); err != nil {
+		t.Fatalf("first upsertProducto: %v", err)
+	}
+	if err := upsertProducto(db, 1, "SKU-000001", "P-002", "Producto Dos", "Linea", now); !errors.Is(err, errProductSKUConflict) {
+		t.Fatalf("expected errProductSKUConflict, got %v", err)
+	}
+}
+
+func TestProductCSVColumnIndexRequiresVisibleIDColumn(t *testing.T) {
+	index, err := productCSVColumnIndex([]string{"sku", "linea", "nombre", "cantidad", "precio_venta"})
+	if err == nil {
+		t.Fatalf("expected error for legacy-only sku header, got index=%v", index)
+	}
+	reqErr, ok := requestErrorDetails(err)
+	if !ok {
+		t.Fatalf("expected requestError, got %v", err)
+	}
+	if reqErr.Status != http.StatusBadRequest || reqErr.Message != "Falta la columna requerida id." {
+		t.Fatalf("unexpected request error: %+v", reqErr)
+	}
+}
+
+func TestEnsureBusinessLinesForTenantCreatesMissingLinesPerTenant(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE business_lines (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			active INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT ''
+		);
+		CREATE UNIQUE INDEX idx_business_lines_tenant_name ON business_lines (tenant_id, name);
+	`); err != nil {
+		t.Fatalf("create business_lines: %v", err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if err := ensureBusinessLinesForTenant(db, 1, nil, []string{"Farmacia", "Farmacia", "Dermocosmetica"}, now, "csv_import"); err != nil {
+		t.Fatalf("ensureBusinessLinesForTenant tenant 1: %v", err)
+	}
+	if err := ensureBusinessLinesForTenant(db, 2, nil, []string{"Farmacia"}, now, "csv_import"); err != nil {
+		t.Fatalf("ensureBusinessLinesForTenant tenant 2: %v", err)
+	}
+
+	var tenantOneCount, tenantTwoCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM business_lines WHERE tenant_id = 1`).Scan(&tenantOneCount); err != nil {
+		t.Fatalf("count tenant 1 lines: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM business_lines WHERE tenant_id = 2`).Scan(&tenantTwoCount); err != nil {
+		t.Fatalf("count tenant 2 lines: %v", err)
+	}
+	if tenantOneCount != 2 {
+		t.Fatalf("expected 2 unique lines for tenant 1, got %d", tenantOneCount)
+	}
+	if tenantTwoCount != 1 {
+		t.Fatalf("expected 1 line for tenant 2, got %d", tenantTwoCount)
+	}
+}
+
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -48,6 +368,11 @@ func setupTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("open db: %v", err)
 	}
 	_, err = db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL DEFAULT 1,
+			id TEXT NOT NULL
+		);
 		CREATE TABLE unidades (
 			id TEXT PRIMARY KEY,
 			tenant_id INTEGER NOT NULL DEFAULT 1,
@@ -70,10 +395,14 @@ func TestSelectAndMarkUnitsSoldFIFO(t *testing.T) {
 		time.Date(2024, 1, 2, 10, 0, 0, 0, time.UTC).Format(time.RFC3339),
 		time.Date(2024, 1, 3, 10, 0, 0, 0, time.UTC).Format(time.RFC3339),
 	}
-	_, err := db.Exec(`INSERT INTO unidades (id, producto_id, estado, creado_en) VALUES
-		('U-001', 'P-001', 'Disponible', ?),
-		('U-002', 'P-001', 'Disponible', ?),
-		('U-003', 'P-001', 'Vendida', ?)
+	_, err := db.Exec(`INSERT INTO productos (sku, tenant_id, id) VALUES ('SKU-000001', 1, 'P-001')`)
+	if err != nil {
+		t.Fatalf("insert producto: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO unidades (id, producto_id, estado, creado_en) VALUES
+		('U-001', 'SKU-000001', 'Disponible', ?),
+		('U-002', 'SKU-000001', 'Disponible', ?),
+		('U-003', 'SKU-000001', 'Vendida', ?)
 	`, created[0], created[1], created[2])
 	if err != nil {
 		t.Fatalf("insert unidades: %v", err)
@@ -96,7 +425,7 @@ func TestSelectAndMarkUnitsSoldFIFO(t *testing.T) {
 		t.Fatalf("fifo ids inesperados: %v", ids)
 	}
 
-	rows, err := db.Query(`SELECT id, estado FROM unidades WHERE producto_id = 'P-001' ORDER BY id`)
+	rows, err := db.Query(`SELECT id, estado FROM unidades WHERE producto_id = 'SKU-000001' ORDER BY id`)
 	if err != nil {
 		t.Fatalf("query unidades: %v", err)
 	}
@@ -124,8 +453,11 @@ func TestSelectAndMarkUnitsSoldInsufficient(t *testing.T) {
 	defer db.Close()
 
 	created := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO productos (sku, tenant_id, id) VALUES ('SKU-000002', 1, 'P-002')`); err != nil {
+		t.Fatalf("insert producto: %v", err)
+	}
 	_, err := db.Exec(`INSERT INTO unidades (id, producto_id, estado, creado_en) VALUES
-		('U-010', 'P-002', 'Disponible', ?)
+		('U-010', 'SKU-000002', 'Disponible', ?)
 	`, created)
 	if err != nil {
 		t.Fatalf("insert unidades: %v", err)
@@ -175,6 +507,7 @@ func setupOperationsTestDB(t *testing.T) *sql.DB {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			tenant_id INTEGER NOT NULL DEFAULT 1,
 			producto_id TEXT NOT NULL,
+			customer_id INTEGER,
 			cantidad INTEGER NOT NULL,
 			valor_recibido REAL NOT NULL,
 			estado_recibido TEXT NOT NULL,
@@ -701,6 +1034,27 @@ func TestEnsureLegacyOperationalColumnsMigratesUsersTable(t *testing.T) {
 	}
 }
 
+func seedTenantProductIdentityWithUnits(t *testing.T, db *sql.DB, tenantID int, visibleID, internalSKU, name string, salePrice float64, units int) {
+	t.Helper()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, precio_venta, retoma_enabled)
+		VALUES (?, ?, ?, 'Linea Test', ?, ?, 0)
+	`, internalSKU, tenantID, visibleID, name, salePrice); err != nil {
+		t.Fatalf("insert product %s/%s: %v", visibleID, internalSKU, err)
+	}
+	for i := 0; i < units; i++ {
+		unitID := internalSKU + "-U-" + strconv.Itoa(i+1)
+		if _, err := db.Exec(`
+			INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
+			VALUES (?, ?, ?, 'Disponible', ?)
+		`, unitID, tenantID, internalSKU, now); err != nil {
+			t.Fatalf("insert unit %s: %v", unitID, err)
+		}
+	}
+}
+
 func seedTenantProductWithUnits(t *testing.T, db *sql.DB, tenantID int, sku, name string, salePrice float64, units int) {
 	t.Helper()
 
@@ -740,6 +1094,80 @@ func seedTenantRetomaProductWithUnits(t *testing.T, db *sql.DB, tenantID int, sk
 		`, unitID, tenantID, sku, now); err != nil {
 			t.Fatalf("insert retoma unit %s: %v", unitID, err)
 		}
+	}
+}
+
+func TestSeedVentasAndUnidadesPersistInternalSKU(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "seed-persistence.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE productos (
+			sku TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			id TEXT NOT NULL,
+			nombre TEXT NOT NULL,
+			linea TEXT NOT NULL,
+			fecha_ingreso TEXT NOT NULL DEFAULT '',
+			owner_user_id INTEGER
+		);
+		CREATE UNIQUE INDEX idx_productos_tenant_id_unique ON productos(tenant_id, id);
+		CREATE TABLE ventas (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant_id INTEGER NOT NULL,
+			producto_id TEXT NOT NULL,
+			cantidad INTEGER NOT NULL,
+			precio_final REAL NOT NULL,
+			metodo_pago TEXT NOT NULL,
+			notas TEXT NOT NULL DEFAULT '',
+			fecha TEXT NOT NULL
+		);
+		CREATE TABLE unidades (
+			id TEXT PRIMARY KEY,
+			tenant_id INTEGER NOT NULL,
+			producto_id TEXT NOT NULL,
+			estado TEXT NOT NULL,
+			creado_en TEXT NOT NULL,
+			caducidad TEXT
+		);
+	`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, fecha_ingreso) VALUES
+			('SKU-000001', 1, 'P-001', 'Producto Uno', 'Linea Uno', ?),
+			('SKU-000002', 1, 'P-002', 'Producto Dos', 'Linea Dos', ?),
+			('SKU-000003', 1, 'P-003', 'Producto Tres', 'Linea Tres', ?)
+	`, now, now, now); err != nil {
+		t.Fatalf("insert products: %v", err)
+	}
+
+	if err := seedVentas(db, []string{"Efectivo", "Transferencia"}); err != nil {
+		t.Fatalf("seedVentas: %v", err)
+	}
+	if err := seedUnidades(db); err != nil {
+		t.Fatalf("seedUnidades: %v", err)
+	}
+
+	var ventasLegacyIDs int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ventas WHERE tenant_id = ? AND producto_id LIKE 'P-%'`, defaultTenantID).Scan(&ventasLegacyIDs); err != nil {
+		t.Fatalf("count ventas legacy ids: %v", err)
+	}
+	if ventasLegacyIDs != 0 {
+		t.Fatalf("expected ventas to persist internal sku only, got %d visible ids", ventasLegacyIDs)
+	}
+
+	var unidadesLegacyIDs int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id LIKE 'P-%'`, defaultTenantID).Scan(&unidadesLegacyIDs); err != nil {
+		t.Fatalf("count unidades legacy ids: %v", err)
+	}
+	if unidadesLegacyIDs != 0 {
+		t.Fatalf("expected unidades to persist internal sku only, got %d visible ids", unidadesLegacyIDs)
 	}
 }
 
@@ -810,7 +1238,7 @@ func TestRegisterRetomaPublishToStock(t *testing.T) {
 	}
 
 	finalSalePrice := 30000.0
-	result, err := registerRetoma(db, &User{ID: 1, Username: "admin", Role: "admin"}, retomaOperationInput{
+	result, err := registerRetoma(db, &User{ID: 1, Username: "admin", Role: "admin", TenantID: defaultTenantID}, retomaOperationInput{
 		ProductID:      "P-001",
 		Quantity:       2,
 		ValueReceived:  15000,
@@ -848,6 +1276,73 @@ func TestRegisterRetomaPublishToStock(t *testing.T) {
 	}
 	if auditCount != 1 {
 		t.Fatalf("expected 1 audit event, got %d", auditCount)
+	}
+}
+
+func TestRegisterRetomaCreatesCustomerAndCustomerEvents(t *testing.T) {
+	db, err := initDB(filepath.Join(t.TempDir(), "retoma-customer.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, precio_venta, retoma_enabled, retoma_price, fecha_ingreso)
+		VALUES ('SKU-RETOMA-001', ?, 'RETOMA-001', 'Linea Test', 'Producto Retoma', 25000, 1, 12000, ?)
+	`, defaultTenantID, now); err != nil {
+		t.Fatalf("insert retoma product: %v", err)
+	}
+
+	user := &User{ID: 1, Username: "admin", Role: "admin", TenantID: defaultTenantID}
+	input := retomaOperationInput{
+		ProductID:      "RETOMA-001",
+		Quantity:       1,
+		ValueReceived:  12000,
+		ReceivedState:  "Usado",
+		PublishToStock: false,
+		Notes:          "retoma con cliente",
+		Customer: customerInput{
+			Name:           "Cliente Retoma",
+			Phone:          "3001234567",
+			DocumentType:   "CC",
+			DocumentNumber: "99887766",
+			City:           "Bogota",
+		},
+	}
+	first, err := registerRetoma(db, user, input, "api", nil)
+	if err != nil {
+		t.Fatalf("first registerRetoma: %v", err)
+	}
+	second, err := registerRetoma(db, user, input, "api", nil)
+	if err != nil {
+		t.Fatalf("second registerRetoma: %v", err)
+	}
+	if first.CustomerID <= 0 || second.CustomerID <= 0 {
+		t.Fatalf("expected non-zero customer ids, got first=%d second=%d", first.CustomerID, second.CustomerID)
+	}
+	if first.CustomerID != second.CustomerID {
+		t.Fatalf("expected deduped customer id, got first=%d second=%d", first.CustomerID, second.CustomerID)
+	}
+
+	var customerCount, retomaCount, eventCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ? AND document_type = 'CC' AND document_number = '99887766'`, defaultTenantID).Scan(&customerCount); err != nil {
+		t.Fatalf("count customers: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM retomas WHERE tenant_id = ? AND customer_id = ?`, defaultTenantID, first.CustomerID).Scan(&retomaCount); err != nil {
+		t.Fatalf("count retomas by customer: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_events WHERE tenant_id = ? AND customer_id = ? AND event_type = 'retoma_registered'`, defaultTenantID, first.CustomerID).Scan(&eventCount); err != nil {
+		t.Fatalf("count customer events: %v", err)
+	}
+	if customerCount != 1 {
+		t.Fatalf("expected one customer record, got %d", customerCount)
+	}
+	if retomaCount != 2 {
+		t.Fatalf("expected two retomas linked to customer, got %d", retomaCount)
+	}
+	if eventCount != 2 {
+		t.Fatalf("expected two customer events, got %d", eventCount)
 	}
 }
 
@@ -912,6 +1407,49 @@ func TestInitDBBootstrapsDefaultTenant(t *testing.T) {
 	}
 	if adminRole != rolePlatformAdmin {
 		t.Fatalf("role admin inesperado: %q", adminRole)
+	}
+}
+
+func TestSaveSaleReceiptSnapshotPersistsBuyerData(t *testing.T) {
+	db, err := initDB(filepath.Join(t.TempDir(), "receipt-snapshot.db"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, precio_venta, fecha_ingreso)
+		VALUES ('SKU-REC-001', ?, 'REC-001', 'Linea Test', 'Producto Recibo', 18000, ?);
+		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha)
+		VALUES (?, 'SKU-REC-001', 1, 18000, 'Efectivo', 'web', 'tester', 'venta para comprobante', ?);
+	`, defaultTenantID, now, defaultTenantID, now); err != nil {
+		t.Fatalf("seed receipt data: %v", err)
+	}
+
+	user := &User{ID: 1, Username: "admin", Role: "admin", TenantID: defaultTenantID}
+	if err := saveSaleReceiptSnapshot(db, user, 1, "Ana Cliente", "123456789", "thermal"); err != nil {
+		t.Fatalf("saveSaleReceiptSnapshot: %v", err)
+	}
+
+	data, err := loadSaleReceiptData(db, user, 1)
+	if err != nil {
+		t.Fatalf("loadSaleReceiptData: %v", err)
+	}
+	if data.BuyerName != "Ana Cliente" || data.BuyerDocument != "123456789" {
+		t.Fatalf("unexpected persisted buyer data: %+v", data)
+	}
+
+	var storedName, storedDocument, storedFormat string
+	if err := db.QueryRow(`
+		SELECT receipt_buyer_name, receipt_buyer_document, receipt_last_format
+		FROM ventas
+		WHERE tenant_id = ? AND id = 1
+	`, defaultTenantID).Scan(&storedName, &storedDocument, &storedFormat); err != nil {
+		t.Fatalf("query receipt snapshot: %v", err)
+	}
+	if storedName != "Ana Cliente" || storedDocument != "123456789" || storedFormat != "thermal" {
+		t.Fatalf("unexpected stored snapshot: name=%q document=%q format=%q", storedName, storedDocument, storedFormat)
 	}
 }
 
@@ -1653,16 +2191,16 @@ func TestListSalesForUserIsTenantScoped(t *testing.T) {
 	if _, err := db.Exec(`
 		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
 		VALUES
-			('P-001', 1, 'P-001', 'Producto Uno', 'Linea Uno', 10000, 0),
-			('P-002', 2, 'P-002', 'Producto Dos', 'Linea Dos', 20000, 0)
+			('SKU-T1-101', 1, 'P-101', 'Producto Uno', 'Linea Uno', 10000, 0),
+			('SKU-T2-201', 2, 'P-201', 'Producto Dos', 'Linea Dos', 20000, 0)
 	`); err != nil {
 		t.Fatalf("insert products: %v", err)
 	}
 	if _, err := db.Exec(`
 		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha)
 		VALUES
-			(1, 'P-001', 1, 10000, 'Efectivo', 'Local', 'maria', 'venta t1', ?),
-			(2, 'P-002', 1, 20000, 'Transferencia', 'WhatsApp', 'carlos', 'venta t2', ?)
+			(1, 'SKU-T1-101', 1, 10000, 'Efectivo', 'Local', 'maria', 'venta t1', ?),
+			(2, 'SKU-T2-201', 1, 20000, 'Transferencia', 'WhatsApp', 'carlos', 'venta t2', ?)
 	`, now, now); err != nil {
 		t.Fatalf("insert sales: %v", err)
 	}
@@ -1671,8 +2209,15 @@ func TestListSalesForUserIsTenantScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listSalesForUser: %v", err)
 	}
-	if len(items) != 1 || items[0]["product_id"] != "P-002" {
+	if len(items) != 1 || items[0]["product_id"] != "P-201" {
 		t.Fatalf("unexpected tenant-scoped sales: %+v", items)
+	}
+	recentItems, err := listRecentSalesForUser(db, &User{Role: roleAdmin, TenantID: 2}, 20)
+	if err != nil {
+		t.Fatalf("listRecentSalesForUser: %v", err)
+	}
+	if len(recentItems) != 1 || recentItems[0]["producto_id"] != "P-201" {
+		t.Fatalf("unexpected recent sales payload: %+v", recentItems)
 	}
 }
 
@@ -1739,16 +2284,16 @@ func TestListCreditsForUserIsTenantScoped(t *testing.T) {
 	if _, err := db.Exec(`
 		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
 		VALUES
-			('C-001', 1, 'C-001', 'Credito Uno', 'Linea Uno', 10000, 0),
-			('C-002', 2, 'C-002', 'Credito Dos', 'Linea Dos', 20000, 0)
+			('SKU-C-001', 1, 'C-001', 'Credito Uno', 'Linea Uno', 10000, 0),
+			('SKU-C-002', 2, 'C-002', 'Credito Dos', 'Linea Dos', 20000, 0)
 	`); err != nil {
 		t.Fatalf("insert products: %v", err)
 	}
 	if _, err := db.Exec(`
 		INSERT INTO credit_sales (tenant_id, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, created_at, created_by)
 		VALUES
-			(1, 'C-001', 1, 'Ana Uno', 'CC', '111', '3001111111', 4, 1, 40000, 0, 10000, 'credito t1', ?, 1),
-			(2, 'C-002', 1, 'Ana Dos', 'CC', '222', '3002222222', 6, 2, 120000, 0, 20000, 'credito t2', ?, 1)
+			(1, 'SKU-C-001', 1, 'Ana Uno', 'CC', '111', '3001111111', 4, 1, 40000, 0, 10000, 'credito t1', ?, 1),
+			(2, 'SKU-C-002', 1, 'Ana Dos', 'CC', '222', '3002222222', 6, 2, 120000, 0, 20000, 'credito t2', ?, 1)
 	`, now, now); err != nil {
 		t.Fatalf("insert credits: %v", err)
 	}
@@ -1847,10 +2392,13 @@ func TestSelectAndMarkUnitsSoldRespectsTenantScope(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id) VALUES
+			('SKU-T1-001', 1, 'P-001'),
+			('SKU-T2-001', 2, 'P-001');
 		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
 		VALUES
-			('T1-U1', 1, 'P-001', 'Disponible', ?),
-			('T2-U1', 2, 'P-001', 'Disponible', ?)
+			('T1-U1', 1, 'SKU-T1-001', 'Disponible', ?),
+			('T2-U1', 2, 'SKU-T2-001', 'Disponible', ?)
 	`, now, now); err != nil {
 		t.Fatalf("insert units: %v", err)
 	}
@@ -1878,10 +2426,13 @@ func TestSelectAndMarkUnitsByStatusRespectsTenantScope(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id) VALUES
+			('SKU-T1-001', 1, 'P-001'),
+			('SKU-T2-001', 2, 'P-001');
 		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
 		VALUES
-			('T1-U1', 1, 'P-001', 'Disponible', ?),
-			('T2-U1', 2, 'P-001', 'Disponible', ?)
+			('T1-U1', 1, 'SKU-T1-001', 'Disponible', ?),
+			('T2-U1', 2, 'SKU-T2-001', 'Disponible', ?)
 	`, now, now); err != nil {
 		t.Fatalf("insert units: %v", err)
 	}
@@ -1970,6 +2521,56 @@ func TestAPISalesEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 	}
 	if crossSales != 0 {
 		t.Fatalf("expected no sales for cross-tenant product, got %d", crossSales)
+	}
+}
+
+func TestAPISalesEndpointPersistsInternalSKUFromVisibleProductID(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	visibleID := "P-T2-SALE-INT"
+	internalSKU := "SKU-T2-SALE-INT-001"
+	seedTenantProductIdentityWithUnits(t, db, tenant.ID, visibleID, internalSKU, "Producto Tenant Interno", 27000, 2)
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/sales", token, map[string]any{
+		"product_id":     visibleID,
+		"quantity":       1,
+		"payment_method": "Efectivo",
+		"sale_price":     27000,
+		"channel":        "n8n",
+		"sold_by":        "agent",
+		"notes":          "persistencia interna",
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAPIResponse(t, resp)
+	if body["product_id"] != visibleID {
+		t.Fatalf("unexpected sale response: %+v", body)
+	}
+
+	var storedSaleProductID string
+	if err := db.QueryRow(`SELECT producto_id FROM ventas WHERE tenant_id = ? ORDER BY id DESC LIMIT 1`, tenant.ID).Scan(&storedSaleProductID); err != nil {
+		t.Fatalf("query stored sale product id: %v", err)
+	}
+	if storedSaleProductID != internalSKU {
+		t.Fatalf("expected venta.producto_id=%s, got %s", internalSKU, storedSaleProductID)
+	}
+
+	var soldUnits int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ? AND estado = 'Vendida'`, tenant.ID, internalSKU).Scan(&soldUnits); err != nil {
+		t.Fatalf("count sold units: %v", err)
+	}
+	if soldUnits != 1 {
+		t.Fatalf("expected 1 sold unit for internal sku, got %d", soldUnits)
+	}
+
+	var visibleIDRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ventas WHERE tenant_id = ? AND producto_id = ?`, tenant.ID, visibleID).Scan(&visibleIDRows); err != nil {
+		t.Fatalf("count visible-id sales rows: %v", err)
+	}
+	if visibleIDRows != 0 {
+		t.Fatalf("expected no ventas persisted with visible id, got %d", visibleIDRows)
 	}
 }
 
@@ -2313,13 +2914,18 @@ func TestAPIRetomasEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 
 	finalSalePrice := 21000.0
 	valid := performAPIJSONRequest(t, handler, http.MethodPost, "/api/retomas", token, map[string]any{
-		"product_id":       "T2-RET-001",
-		"quantity":         2,
-		"value_received":   15000,
-		"received_state":   "Usado",
-		"publish_to_stock": true,
-		"final_sale_price": finalSalePrice,
-		"notes":            "retoma tenant 2",
+		"product_id":               "T2-RET-001",
+		"quantity":                 2,
+		"value_received":           15000,
+		"received_state":           "Usado",
+		"publish_to_stock":         true,
+		"final_sale_price":         finalSalePrice,
+		"notes":                    "retoma tenant 2",
+		"customer_name":            "Cliente Retoma Tenant Dos",
+		"customer_phone":           "3005550011",
+		"customer_document_type":   "CC",
+		"customer_document_number": "44556677",
+		"customer_city":            "Cali",
 	})
 	if valid.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", valid.Code, valid.Body.String())
@@ -2327,6 +2933,9 @@ func TestAPIRetomasEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 	validBody := decodeAPIResponse(t, valid)
 	if validBody["product_id"] != "T2-RET-001" {
 		t.Fatalf("unexpected retomas response: %+v", validBody)
+	}
+	if int(validBody["customer_id"].(float64)) <= 0 {
+		t.Fatalf("expected customer_id in retoma response, got %+v", validBody)
 	}
 
 	var tenantRetomas int
@@ -2343,6 +2952,13 @@ func TestAPIRetomasEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 	}
 	if publishedUnits != 2 {
 		t.Fatalf("expected 2 published retoma units, got %d", publishedUnits)
+	}
+	var tenantCustomers int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ? AND document_type = 'CC' AND document_number = '44556677'`, tenant.ID).Scan(&tenantCustomers); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if tenantCustomers != 1 {
+		t.Fatalf("expected 1 tenant customer created from retoma, got %d", tenantCustomers)
 	}
 
 	cross := performAPIJSONRequest(t, handler, http.MethodPost, "/api/retomas", token, map[string]any{
@@ -3209,7 +3825,19 @@ func TestAPICustomerDetailAndEventsRespectTenantScope(t *testing.T) {
 	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
 
-	seedTenantProductWithUnits(t, db, tenant.ID, "T2-CUSTOMER-001", "Producto Cliente", 25000, 1)
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, precio_venta, retoma_enabled)
+		VALUES (?, ?, ?, 'Linea Test', ?, ?, 0)
+	`, "SKU-T2-CUSTOMER-001", tenant.ID, "T2-CUSTOMER-001", "Producto Cliente", 25000); err != nil {
+		t.Fatalf("insert tenant customer product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
+		VALUES (?, ?, ?, 'Disponible', ?)
+	`, "SKU-T2-CUSTOMER-001-U-1", tenant.ID, "SKU-T2-CUSTOMER-001", now); err != nil {
+		t.Fatalf("insert tenant customer unit: %v", err)
+	}
 	seedTenantProductWithUnits(t, db, defaultTenantID, "T1-CUSTOMER-001", "Producto Base", 12000, 1)
 
 	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
@@ -3265,6 +3893,10 @@ func TestAPICustomerDetailAndEventsRespectTenantScope(t *testing.T) {
 	recentCredits := detailCustomer["recent_credits"].([]any)
 	if len(recentCredits) != 1 {
 		t.Fatalf("expected 1 recent credit, got %+v", detailCustomer)
+	}
+	recentCredit := recentCredits[0].(map[string]any)
+	if recentCredit["product_id"] != "T2-CUSTOMER-001" {
+		t.Fatalf("expected visible product id in customer detail, got %+v", recentCredit)
 	}
 
 	events := performAPIJSONRequest(t, handler, http.MethodGet, "/api/customers/"+strconv.Itoa(customerID)+"/events", token, nil)
@@ -3487,6 +4119,9 @@ func TestAPIInvoicesSupportSalesCreditsAndTenantScope(t *testing.T) {
 	if invoiceSale["source_type"] != "sale" {
 		t.Fatalf("unexpected sale invoice payload: %+v", invoiceSaleBody)
 	}
+	if strings.TrimSpace(invoiceSale["thermal_ticket_url"].(string)) == "" {
+		t.Fatalf("expected thermal_ticket_url in sale invoice payload, got %+v", invoiceSaleBody)
+	}
 	invoiceSaleID := int(invoiceSale["id"].(float64))
 
 	invoiceDetailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/invoices/"+strconv.Itoa(invoiceSaleID), token, nil)
@@ -3497,6 +4132,9 @@ func TestAPIInvoicesSupportSalesCreditsAndTenantScope(t *testing.T) {
 	invoiceDetail, _ := invoiceDetailBody["invoice"].(map[string]any)
 	if invoiceDetail["customer_document_number"] != "99887766" {
 		t.Fatalf("unexpected invoice detail: %+v", invoiceDetailBody)
+	}
+	if strings.TrimSpace(invoiceDetail["thermal_ticket_url"].(string)) == "" {
+		t.Fatalf("expected thermal_ticket_url in invoice detail, got %+v", invoiceDetailBody)
 	}
 
 	listResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/invoices?q=99887766", token, nil)
@@ -3586,7 +4224,7 @@ func TestAdjustInventoryProductUpdatesStockAndRetoma(t *testing.T) {
 	salePrice := 22000.0
 	retomaEnabled := true
 	retomaPrice := 12000.0
-	result, err := adjustInventoryProduct(db, &User{ID: 1, Username: "admin", Role: "admin"}, inventoryAdjustInput{
+	result, err := adjustInventoryProduct(db, &User{ID: 1, Username: "admin", Role: "admin", TenantID: defaultTenantID}, inventoryAdjustInput{
 		ProductID:      "P-002",
 		TargetQuantity: &target,
 		Notes:          "ajuste test",
@@ -3758,9 +4396,9 @@ func TestListProductLoansReportSupportsOverdueAndTenantScope(t *testing.T) {
 	if _, err := db.Exec(`
 		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled)
 		VALUES
-			('PLOAN-R1', 1, 'PLOAN-R1', 'Producto Vencido', 'Operaciones', 50000, 0),
-			('PLOAN-R2', 1, 'PLOAN-R2', 'Producto En Fecha', 'Operaciones', 60000, 0),
-			('PLOAN-RX', 2, 'PLOAN-RX', 'Producto Otro Tenant', 'Operaciones', 70000, 0);
+			('SKU-PLOAN-R1', 1, 'PLOAN-R1', 'Producto Vencido', 'Operaciones', 50000, 0),
+			('SKU-PLOAN-R2', 1, 'PLOAN-R2', 'Producto En Fecha', 'Operaciones', 60000, 0),
+			('SKU-PLOAN-RX', 2, 'PLOAN-RX', 'Producto Otro Tenant', 'Operaciones', 70000, 0);
 		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
 		VALUES
 			(1, 'Cliente Vencido', '3001110000', 'CC', '7001', '', 'Bogota', '', ?, ?),
@@ -3787,21 +4425,21 @@ func TestListProductLoansReportSupportsOverdueAndTenantScope(t *testing.T) {
 			borrower_document_type, borrower_document_number, borrower_address, borrower_city,
 			notes, status, loaned_at, due_at, created_by
 		) VALUES
-			(1, 'PLOAN-R1', ?, 1, 'Cliente Vencido', '3001110000', 'CC', '7001', '', 'Bogota', 'prestamo vencido', 'active', ?, '2026-03-01', 1),
-			(1, 'PLOAN-R2', ?, 1, 'Cliente Activo', '3001110001', 'CC', '7002', '', 'Medellin', 'prestamo activo', 'active', ?, '2099-03-01', 1),
-			(2, 'PLOAN-RX', ?, 1, 'Cliente Externo', '3001110002', 'CC', '7003', '', 'Cali', 'otro tenant', 'active', ?, '2026-03-01', 1)
+			(1, 'SKU-PLOAN-R1', ?, 1, 'Cliente Vencido', '3001110000', 'CC', '7001', '', 'Bogota', 'prestamo vencido', 'active', ?, '2026-03-01', 1),
+			(1, 'SKU-PLOAN-R2', ?, 1, 'Cliente Activo', '3001110001', 'CC', '7002', '', 'Medellin', 'prestamo activo', 'active', ?, '2099-03-01', 1),
+			(2, 'SKU-PLOAN-RX', ?, 1, 'Cliente Externo', '3001110002', 'CC', '7003', '', 'Cali', 'otro tenant', 'active', ?, '2026-03-01', 1)
 	`, customerExpiredID, now, customerActiveID, now, customerOtherTenantID, now); err != nil {
 		t.Fatalf("insert product loans: %v", err)
 	}
 
 	var loanExpiredID, loanActiveID, loanOtherTenantID int
-	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 1 AND product_id = 'PLOAN-R1'`).Scan(&loanExpiredID); err != nil {
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 1 AND product_id = 'SKU-PLOAN-R1'`).Scan(&loanExpiredID); err != nil {
 		t.Fatalf("loan expired id: %v", err)
 	}
-	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 1 AND product_id = 'PLOAN-R2'`).Scan(&loanActiveID); err != nil {
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 1 AND product_id = 'SKU-PLOAN-R2'`).Scan(&loanActiveID); err != nil {
 		t.Fatalf("loan active id: %v", err)
 	}
-	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 2 AND product_id = 'PLOAN-RX'`).Scan(&loanOtherTenantID); err != nil {
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 2 AND product_id = 'SKU-PLOAN-RX'`).Scan(&loanOtherTenantID); err != nil {
 		t.Fatalf("loan other tenant id: %v", err)
 	}
 

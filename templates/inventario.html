@@ -1918,6 +1918,139 @@
                                 </div>
                             </div>
 
+                            <div class="customer-lookup" data-customer-lookup>
+                                <input
+                                    id="retoma-customer-id"
+                                    name="customer_id"
+                                    type="hidden"
+                                    data-customer-id
+                                />
+                                <div class="customer-lookup-search">
+                                    <label for="retoma-customer-search"
+                                        >Buscar cliente existente
+                                        (opcional)</label
+                                    >
+                                    <input
+                                        id="retoma-customer-search"
+                                        type="search"
+                                        placeholder="Nombre, documento o teléfono"
+                                        autocomplete="off"
+                                        data-customer-search
+                                    />
+                                    <div
+                                        class="customer-lookup-helper"
+                                        data-customer-status
+                                    ></div>
+                                </div>
+                            </div>
+                            <div class="customer-lookup-helper">
+                                Si no eliges un cliente existente, la retoma crea
+                                o reutiliza el cliente con los datos capturados
+                                dentro de este tenant.
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="retoma-customer-name"
+                                        >Nombre del cliente</label
+                                    >
+                                    <input
+                                        id="retoma-customer-name"
+                                        name="customer_name"
+                                        type="text"
+                                        placeholder="Nombre completo"
+                                        data-customer-name
+                                    />
+                                </div>
+                                <div>
+                                    <label for="retoma-customer-phone"
+                                        >Teléfono</label
+                                    >
+                                    <input
+                                        id="retoma-customer-phone"
+                                        name="customer_phone"
+                                        type="text"
+                                        inputmode="tel"
+                                        placeholder="Ej. 3001234567"
+                                        data-customer-phone
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="retoma-customer-document-type"
+                                        >Tipo de documento</label
+                                    >
+                                    <select
+                                        id="retoma-customer-document-type"
+                                        name="customer_document_type"
+                                        data-customer-document-type
+                                    >
+                                        <option value="">Selecciona</option>
+                                        <option value="CC">CC</option>
+                                        <option value="C Extranjeria">
+                                            C. Extranjería
+                                        </option>
+                                        <option value="Pasaporte">
+                                            Pasaporte
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="retoma-customer-document-number"
+                                        >Documento</label
+                                    >
+                                    <input
+                                        id="retoma-customer-document-number"
+                                        name="customer_document_number"
+                                        type="text"
+                                        inputmode="numeric"
+                                        placeholder="Número de documento"
+                                        data-customer-document-number
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label for="retoma-customer-city"
+                                        >Ciudad</label
+                                    >
+                                    <input
+                                        id="retoma-customer-city"
+                                        name="customer_city"
+                                        type="text"
+                                        placeholder="Ciudad"
+                                        data-customer-city
+                                    />
+                                </div>
+                                <div>
+                                    <label for="retoma-customer-address"
+                                        >Dirección</label
+                                    >
+                                    <input
+                                        id="retoma-customer-address"
+                                        name="customer_address"
+                                        type="text"
+                                        placeholder="Dirección"
+                                        data-customer-address
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label for="retoma-customer-notes"
+                                    >Notas del cliente</label
+                                >
+                                <textarea
+                                    id="retoma-customer-notes"
+                                    name="customer_notes"
+                                    placeholder="Contexto del cliente si aplica"
+                                    data-customer-notes
+                                ></textarea>
+                            </div>
+
                             <div class="modal-row">
                                 <div>
                                     <label for="retoma-value"
@@ -4032,6 +4165,32 @@
             const retomaForm = document.getElementById("retoma-form");
             const retomaProduct = document.getElementById("retoma-product");
             const retomaQty = document.getElementById("retoma-qty");
+            const retomaCustomerId =
+                document.getElementById("retoma-customer-id");
+            const retomaCustomerSearch = document.getElementById(
+                "retoma-customer-search",
+            );
+            const retomaCustomerName = document.getElementById(
+                "retoma-customer-name",
+            );
+            const retomaCustomerPhone = document.getElementById(
+                "retoma-customer-phone",
+            );
+            const retomaCustomerDocumentType = document.getElementById(
+                "retoma-customer-document-type",
+            );
+            const retomaCustomerDocumentNumber = document.getElementById(
+                "retoma-customer-document-number",
+            );
+            const retomaCustomerCity = document.getElementById(
+                "retoma-customer-city",
+            );
+            const retomaCustomerAddress = document.getElementById(
+                "retoma-customer-address",
+            );
+            const retomaCustomerNotes = document.getElementById(
+                "retoma-customer-notes",
+            );
             const retomaValue = document.getElementById("retoma-value");
             const retomaStatus = document.getElementById("retoma-status");
             const retomaNotes = document.getElementById("retoma-notes");
@@ -5995,6 +6154,17 @@
                     retomaProduct.value = `${product.name} · ID ${productId}`;
                 if (retomaQty)
                     retomaQty.value = String(Math.max(1, defaultQty || 1));
+                if (retomaCustomerId) retomaCustomerId.value = "";
+                if (retomaCustomerSearch) retomaCustomerSearch.value = "";
+                if (retomaCustomerName) retomaCustomerName.value = "";
+                if (retomaCustomerPhone) retomaCustomerPhone.value = "";
+                if (retomaCustomerDocumentType)
+                    retomaCustomerDocumentType.value = "";
+                if (retomaCustomerDocumentNumber)
+                    retomaCustomerDocumentNumber.value = "";
+                if (retomaCustomerCity) retomaCustomerCity.value = "";
+                if (retomaCustomerAddress) retomaCustomerAddress.value = "";
+                if (retomaCustomerNotes) retomaCustomerNotes.value = "";
                 if (retomaValue) {
                     const initialRetoma = Number(product.retomaPrice || 0);
                     retomaValue.value =
@@ -6879,6 +7049,30 @@
                     ).trim();
                     const status = String(retomaStatus?.value || "").trim();
                     const notes = String(retomaNotes?.value || "").trim();
+                    const customerID = String(
+                        retomaCustomerId?.value || "",
+                    ).trim();
+                    const customerName = String(
+                        retomaCustomerName?.value || "",
+                    ).trim();
+                    const customerPhone = String(
+                        retomaCustomerPhone?.value || "",
+                    ).trim();
+                    const customerDocumentType = String(
+                        retomaCustomerDocumentType?.value || "",
+                    ).trim();
+                    const customerDocumentNumber = String(
+                        retomaCustomerDocumentNumber?.value || "",
+                    ).trim();
+                    const customerCity = String(
+                        retomaCustomerCity?.value || "",
+                    ).trim();
+                    const customerAddress = String(
+                        retomaCustomerAddress?.value || "",
+                    ).trim();
+                    const customerNotes = String(
+                        retomaCustomerNotes?.value || "",
+                    ).trim();
                     const parsedValue = parseCOP(valueText);
                     const parsedSalePrice = salePriceText
                         ? parseCOP(salePriceText)
@@ -6923,6 +7117,29 @@
                             estado_recibido: status,
                             nota: notes,
                         });
+                        if (customerID) body.set("customer_id", customerID);
+                        if (customerName)
+                            body.set("customer_name", customerName);
+                        if (customerPhone)
+                            body.set("customer_phone", customerPhone);
+                        if (customerDocumentType) {
+                            body.set(
+                                "customer_document_type",
+                                customerDocumentType,
+                            );
+                        }
+                        if (customerDocumentNumber) {
+                            body.set(
+                                "customer_document_number",
+                                customerDocumentNumber,
+                            );
+                        }
+                        if (customerCity)
+                            body.set("customer_city", customerCity);
+                        if (customerAddress)
+                            body.set("customer_address", customerAddress);
+                        if (customerNotes)
+                            body.set("customer_notes", customerNotes);
                         if (publishToStock) {
                             body.set("publicar_stock", "1");
                             if (

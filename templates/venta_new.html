@@ -147,10 +147,10 @@
 
     const fetchUnitPrice = async () => {
       if (!productSelect || !priceInput) return;
-      const sku = String(productSelect.value || "").trim();
-      if (!sku) return;
+      const productId = String(productSelect.value || "").trim();
+      if (!productId) return;
       try {
-        const resp = await fetch(`/api/productos/precio?${new URLSearchParams({ sku }).toString()}`, {
+        const resp = await fetch(`/api/productos/precio?${new URLSearchParams({ id: productId }).toString()}`, {
           headers: { "Accept": "application/json" }
         });
         const data = await resp.json().catch(() => ({}));

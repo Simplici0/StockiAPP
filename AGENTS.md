@@ -261,6 +261,16 @@ En tareas funcionales:
 - no cambiar branding global
 - no cambiar layouts compartidos salvo que la tarea lo pida explícitamente
 
+### 11.1 ADN Visual y UX (Sistema de Diseño)
+Para mantener una interfaz clara, operativa y no sobrecargada, toda nueva pieza visual debe seguir estas reglas:
+- **Simplicidad:** priorizar claridad sobre densidad; si un elemento no aporta a la operación, se elimina.
+- **Escala de espaciado 8px:** usar múltiplos de 8 (8, 16, 24, 32) en márgenes y paddings para consistencia.
+- **Paleta neutra:** fondo general gris muy claro (`#f9fafb`), contenedores en blanco, texto en tonos oscuros neutros.
+- **Color de acento único:** un solo color de acento (ej. indigo o esmeralda) reservado para CTAs principales.
+- **Touch targets:** diseño tablet-first con áreas interactivas mínimas de 44x44px.
+- **Esquinas suaves:** radios de `0.5rem` (~8px) en tarjetas y botones.
+- **Jerarquía visual:** un solo título claro por pantalla y uso de tarjetas para agrupar información relacionada.
+
 ---
 
 ## Reglas para API
