@@ -366,18 +366,85 @@
       filter: brightness(0.95);
     }
 
-    details {
+    .manage-btn {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s;
     }
 
-    details summary {
-      list-style: none;
+    .manage-btn:hover {
+      color: var(--text);
+    }
+
+    .manage-btn.active {
       color: var(--primary);
-      font-weight: 700;
     }
 
-    details summary::-webkit-details-marker {
-      display: none;
+    .user-expand td {
+      padding: 0 !important;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .user-expand-inner {
+      padding: 20px 20px 20px;
+      background: linear-gradient(180deg, #f9f7f5 0%, #ffffff 100%);
+      display: grid;
+      gap: 16px;
+    }
+
+    .expand-section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .expand-section-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .expand-fields {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+
+    .expand-fields .field {
+      display: grid;
+      gap: 5px;
+      flex: 1 1 160px;
+    }
+
+    .expand-fields .field-sm {
+      flex: 0 1 130px;
+    }
+
+    .expand-fields label {
+      margin-bottom: 0;
+    }
+
+    .expand-fields input,
+    .expand-fields select {
+      margin-bottom: 0;
+      min-width: 0;
+    }
+
+    .expand-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
     }
 
     .inline-form {
@@ -535,34 +602,42 @@
           </td>
           <td>{{.CreatedAt}}</td>
           <td>
-            <details>
-              <summary>Administrar</summary>
+            <button
+              class="manage-btn"
+              type="button"
+              data-toggle="user-expand-{{.ID}}"
+            >Administrar</button>
+          </td>
+        </tr>
+        <tr class="user-expand" id="user-expand-{{.ID}}" hidden>
+          <td colspan="6">
+            <div class="user-expand-inner">
               {{if and (eq .Role "platform_admin") (ne $.CurrentUser.Role "platform_admin")}}
-              <div class="inline-form">
-                <p>Solo un platform admin puede editar o eliminar este usuario.</p>
-              </div>
+              <p>Solo un platform admin puede editar o eliminar este usuario.</p>
               {{else}}
-              <div class="inline-form">
+
+              <div class="expand-section">
+                <div class="expand-section-title">Datos del usuario</div>
                 <form method="POST" action="/admin/users/update">
                   <input type="hidden" name="id" value="{{.ID}}" />
-                  <div class="row">
-                    <div>
+                  <div class="expand-fields">
+                    <div class="field">
                       <label>Usuario</label>
                       <input name="username" type="text" value="{{.Username}}" required />
                     </div>
-                    <div>
+                    <div class="field">
                       <label>Nombre</label>
                       <input name="name" type="text" value="{{.Name}}" />
                     </div>
-                    <div>
+                    <div class="field">
                       <label>Email</label>
                       <input name="email" type="email" value="{{.Email}}" />
                     </div>
-                    <div>
+                    <div class="field field-sm">
                       <label>Telegram ID</label>
                       <input name="telegram_id" type="text" inputmode="numeric" value="{{.TelegramID}}" />
                     </div>
-                    <div>
+                    <div class="field field-sm">
                       <label>Rol</label>
                       <select name="role" required>
                         <option value="empleado" {{if eq .Role "empleado"}}selected{{end}}>Empleado</option>
@@ -572,45 +647,44 @@
                         {{end}}
                       </select>
                     </div>
-                    <div>
+                    <div class="field field-sm">
                       <label>Activo</label>
                       <select name="is_active">
                         <option value="1" {{if .IsActive}}selected{{end}}>Sí</option>
                         <option value="" {{if not .IsActive}}selected{{end}}>No</option>
                       </select>
                     </div>
-                  </div>
-                  <div class="actions">
-                    <button class="primary" type="submit">Guardar cambios</button>
-                  </div>
-                </form>
-              </div>
-
-              <div class="inline-form">
-                <form method="POST" action="/admin/users/password">
-                  <input type="hidden" name="id" value="{{.ID}}" />
-                  <div class="row">
-                    <div>
-                      <label>Nueva contraseña</label>
-                      <input name="password" type="password" autocomplete="new-password" required />
+                    <div class="field field-sm" style="align-self:end">
+                      <button class="primary" type="submit">Guardar</button>
                     </div>
                   </div>
-                  <div class="actions">
-                    <button class="primary" type="submit">Cambiar contraseña</button>
+                </form>
+              </div>
+
+              <div class="expand-section">
+                <div class="expand-section-title">Nueva contraseña</div>
+                <form method="POST" action="/admin/users/password">
+                  <input type="hidden" name="id" value="{{.ID}}" />
+                  <div class="expand-fields">
+                    <div class="field">
+                      <label>Contraseña</label>
+                      <input name="password" type="password" autocomplete="new-password" required />
+                    </div>
+                    <div class="field field-sm" style="align-self:end">
+                      <button class="primary" type="submit">Cambiar</button>
+                    </div>
                   </div>
                 </form>
               </div>
 
-              <div class="inline-form">
+              <div class="expand-actions">
                 <form method="POST" action="/admin/users/delete" onsubmit="return confirm('¿Eliminar este usuario?');">
                   <input type="hidden" name="id" value="{{.ID}}" />
-                  <div class="actions">
-                    <button class="danger" type="submit">Eliminar</button>
-                  </div>
+                  <button class="danger" type="submit">Eliminar usuario</button>
                 </form>
               </div>
               {{end}}
-            </details>
+            </div>
           </td>
         </tr>
         {{end}}
@@ -620,7 +694,7 @@
   </main>
 
   <script>
-    // Lightweight UX: if name/email are left empty, prefill them from username.
+    // Prefill name/email from username on blur
     const username = document.getElementById("new-username");
     const name = document.getElementById("new-name");
     const email = document.getElementById("new-email");
@@ -631,6 +705,23 @@
       if (email && !email.value.trim()) email.value = `${u}@local`;
     };
     if (username) username.addEventListener("blur", sync);
+
+    // Toggle expansion rows
+    document.querySelectorAll("[data-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const targetId = btn.dataset.toggle;
+        const row = document.getElementById(targetId);
+        if (!row) return;
+        const isOpen = !row.hidden;
+        // Close all open rows
+        document.querySelectorAll(".user-expand").forEach((r) => { r.hidden = true; });
+        document.querySelectorAll(".manage-btn").forEach((b) => { b.classList.remove("active"); });
+        if (!isOpen) {
+          row.hidden = false;
+          btn.classList.add("active");
+        }
+      });
+    });
   </script>
 </body>
 </html>

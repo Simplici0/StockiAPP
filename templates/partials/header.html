@@ -10,6 +10,12 @@
       border-bottom: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 12px 28px rgba(8, 18, 40, 0.18);
       backdrop-filter: blur(14px);
+      transform: translateY(0);
+      transition: transform 0.22s ease;
+    }
+
+    .topbar.topbar-hidden {
+      transform: translateY(-100%);
     }
 
     .topbar-inner {
@@ -35,9 +41,9 @@
     }
 
     .topbar-logo {
-      width: 34px;
-      height: 34px;
-      border-radius: 11px;
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
       background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(235,242,249,0.96) 100%);
       display: flex;
       align-items: center;
@@ -49,7 +55,7 @@
     }
 
     .topbar-logo img {
-      height: 20px;
+      height: 26px;
       width: auto;
       display: block;
     }
@@ -256,56 +262,11 @@
       border-left: 1px solid rgba(255,255,255,0.08);
     }
 
-    .topbar-user-copy {
-      display: grid;
-      gap: 1px;
-      min-width: 0;
-    }
-
     .topbar-username {
       font-size: 12px;
-      font-weight: 700;
-      color: rgba(255,255,255,0.88);
+      font-weight: 600;
+      color: rgba(255,255,255,0.62);
       white-space: nowrap;
-    }
-
-    .topbar-role {
-      display: inline-flex;
-      align-items: center;
-      width: fit-content;
-      min-height: 20px;
-      padding: 0 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.18);
-      background: rgba(255,255,255,0.1);
-      font-size: 10.5px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: {{businessPrimaryColor .}};
-      white-space: nowrap;
-    }
-
-    .topbar-role.admin-muted {
-      color: rgba(255,255,255,0.46);
-    }
-
-    .topbar-role.platform {
-      color: #ffd9a2;
-      border-color: rgba(255, 217, 162, 0.34);
-      background: rgba(255, 217, 162, 0.14);
-    }
-
-    .topbar-role.tenant {
-      color: #b5d4ff;
-      border-color: rgba(181, 212, 255, 0.34);
-      background: rgba(181, 212, 255, 0.14);
-    }
-
-    .topbar-role.employee {
-      color: rgba(255,255,255,0.72);
-      border-color: rgba(255,255,255,0.2);
-      background: rgba(255,255,255,0.1);
     }
 
     .topbar-logout {
@@ -448,8 +409,8 @@
         </a>
 
         <nav class="topbar-nav" aria-label="Navegación principal">
-            <a href="/dashboard" class="topbar-link">Dashboard</a>
             <a href="/inventario" class="topbar-link">Inventario</a>
+            <a href="/dashboard" class="topbar-link">Dashboard</a>
             <a href="/clientes" class="topbar-link">Clientes</a>
         </nav>
 
@@ -488,7 +449,7 @@
             </details>
             <details class="topbar-menu">
                 <summary>
-                    Admin
+                    Gestión
                     <span class="topbar-menu-caret" aria-hidden="true">▾</span>
                 </summary>
                 <div class="topbar-menu-panel">
@@ -515,14 +476,7 @@
 
         {{if .CurrentUser}}
         <div class="topbar-user">
-            <div class="topbar-user-copy">
-                <span class="topbar-username">{{.CurrentUser.Username}}</span>
-                <span
-                    class="topbar-role {{if eq .CurrentUser.Role "platform_admin"}}platform{{else if eq .CurrentUser.Role "admin"}}tenant{{else}}employee{{end}}"
-                    >{{if eq .CurrentUser.Role "platform_admin"}}Platform
-                    admin{{else if eq .CurrentUser.Role "admin"}}Admin{{else}}Empleado{{end}}</span
-                >
-            </div>
+            <span class="topbar-username">{{.CurrentUser.Username}}</span>
             <form class="topbar-logout-form" method="POST" action="/logout">
                 <button class="topbar-logout" type="submit">Salir</button>
             </form>
@@ -595,6 +549,35 @@
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") closeMenus();
         });
+
+        // ── Hide on scroll ──
+        const topbar = document.querySelector(".topbar");
+        const DEAD_ZONE = 80;
+        let lastY = window.scrollY;
+        let ticking = false;
+
+        window.addEventListener("scroll", () => {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(() => {
+                const currentY = window.scrollY;
+                const delta = currentY - lastY;
+
+                if (currentY < DEAD_ZONE) {
+                    topbar.classList.remove("topbar-hidden");
+                } else if (delta > 0) {
+                    // Scroll down — close any open menu first, then hide
+                    closeMenus();
+                    topbar.classList.add("topbar-hidden");
+                } else if (delta < 0) {
+                    // Scroll up — show
+                    topbar.classList.remove("topbar-hidden");
+                }
+
+                lastY = currentY;
+                ticking = false;
+            });
+        }, { passive: true });
     })();
 </script>
 {{end}}

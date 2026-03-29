@@ -464,6 +464,38 @@
                 background: #eaf0f9;
             }
 
+            /* ── Modal etiqueta ── */
+            .modal-label {
+                width: min(480px, 100%);
+                grid-template-rows: auto 1fr auto;
+            }
+
+            .label-modal-preview {
+                display: flex;
+                flex-direction: column;
+                padding: 0;
+                overflow: hidden;
+            }
+
+            #label-iframe {
+                flex: 1;
+                min-height: 380px;
+                max-height: 540px;
+                width: 100%;
+                border: 0;
+                display: block;
+                background: #f0f4f8;
+            }
+
+            .label-modal-footer {
+                display: flex;
+                gap: 10px;
+                padding: 14px 20px;
+                border-top: 1px solid rgba(15, 40, 80, 0.08);
+                background: rgba(248, 250, 252, 0.9);
+                flex-shrink: 0;
+            }
+
             /* Modal */
             .modal-backdrop {
                 position: fixed;
@@ -2652,167 +2684,133 @@
                                             data-customer-status
                                         ></div>
                                     </div>
-                                </div>
 
-                                <section class="credit-kind-switch">
-                                    <div
-                                        class="credit-kind-track"
-                                        role="tablist"
-                                        aria-label="Tipo de crédito"
-                                    >
-                                        <button
-                                            id="credit-kind-product"
-                                            type="button"
-                                            class="credit-kind-option active"
-                                            data-credit-kind="product_credit"
-                                        >
-                                            <strong
-                                                >Crédito con producto</strong
-                                            >
-                                            <span
-                                                >Descuenta stock y mantiene el
-                                                flujo actual.</span
-                                            >
-                                        </button>
-                                        <button
-                                            id="credit-kind-cash"
-                                            type="button"
-                                            class="credit-kind-option"
-                                            data-credit-kind="cash_loan"
-                                        >
-                                            <strong>Préstamo de dinero</strong>
-                                            <span
-                                                >No toca inventario ni productos
-                                                físicos.</span
-                                            >
-                                        </button>
-                                    </div>
                                     <div id="credit-kind-context" hidden></div>
-                                </section>
 
-                                <section
-                                    id="loan-product-fields"
-                                    class="modal-grid"
-                                >
-                                    <div class="modal-row">
-                                        <div>
-                                            <label for="loan-product-id"
-                                                >Producto</label
-                                            >
-                                            <select
-                                                id="loan-product-id"
-                                                name="product_id"
-                                            ></select>
-                                        </div>
-                                        <div>
-                                            <label for="loan-qty"
-                                                >Cantidad</label
-                                            >
-                                            <input
-                                                id="loan-qty"
-                                                name="quantity"
-                                                type="number"
-                                                min="1"
-                                                step="1"
-                                                value="1"
-                                            />
-                                            <div
-                                                id="loan-product-stock"
-                                                class="credit-product-stock"
-                                            >
-                                                Disponible: -
+                                    <section
+                                        id="loan-product-fields"
+                                        class="modal-grid"
+                                    >
+                                        <div class="modal-row">
+                                            <div>
+                                                <label for="loan-product-id"
+                                                    >Producto</label
+                                                >
+                                                <select
+                                                    id="loan-product-id"
+                                                    name="product_id"
+                                                ></select>
+                                            </div>
+                                            <div>
+                                                <label for="loan-qty"
+                                                    >Cantidad</label
+                                                >
+                                                <input
+                                                    id="loan-qty"
+                                                    name="quantity"
+                                                    type="number"
+                                                    min="1"
+                                                    step="1"
+                                                    value="1"
+                                                />
+                                                <div
+                                                    id="loan-product-stock"
+                                                    class="credit-product-stock"
+                                                >
+                                                    Disponible: -
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                </section>
+                                    </section>
 
-                                <div class="modal-row">
-                                    <div>
-                                        <label for="loan-customer-name"
-                                            >Nombre del cliente</label
-                                        >
-                                        <input
-                                            id="loan-customer-name"
-                                            name="customer_name"
-                                            type="text"
-                                            placeholder="Nombre del cliente"
-                                            data-customer-name
-                                        />
+                                    <div class="modal-row">
+                                        <div>
+                                            <label for="loan-customer-name"
+                                                >Nombre del cliente</label
+                                            >
+                                            <input
+                                                id="loan-customer-name"
+                                                name="customer_name"
+                                                type="text"
+                                                placeholder="Nombre del cliente"
+                                                data-customer-name
+                                            />
+                                        </div>
+                                        <div>
+                                            <label for="loan-customer-phone"
+                                                >Teléfono</label
+                                            >
+                                            <input
+                                                id="loan-customer-phone"
+                                                name="customer_phone"
+                                                type="text"
+                                                inputmode="tel"
+                                                placeholder="Ej. 3001234567"
+                                                data-customer-phone
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label for="loan-customer-phone"
-                                            >Teléfono</label
-                                        >
-                                        <input
-                                            id="loan-customer-phone"
-                                            name="customer_phone"
-                                            type="text"
-                                            inputmode="tel"
-                                            placeholder="Ej. 3001234567"
-                                            data-customer-phone
-                                        />
-                                    </div>
-                                </div>
 
-                                <div class="modal-row">
-                                    <div>
-                                        <label for="loan-document-type"
-                                            >Tipo de documento</label
-                                        >
-                                        <select
-                                            id="loan-document-type"
-                                            name="customer_document_type"
-                                            data-customer-document-type
-                                        >
-                                            <option value="">Selecciona</option>
-                                            <option value="CC">CC</option>
-                                            <option value="C Extranjeria">
-                                                C Extranjeria
-                                            </option>
-                                            <option value="Pasaporte">
-                                                Pasaporte
-                                            </option>
-                                        </select>
+                                    <div class="modal-row">
+                                        <div>
+                                            <label for="loan-document-type"
+                                                >Tipo de documento</label
+                                            >
+                                            <select
+                                                id="loan-document-type"
+                                                name="customer_document_type"
+                                                data-customer-document-type
+                                            >
+                                                <option value="">Selecciona</option>
+                                                <option value="CC">CC</option>
+                                                <option value="C Extranjeria">
+                                                    C Extranjeria
+                                                </option>
+                                                <option value="Pasaporte">
+                                                    Pasaporte
+                                                </option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="loan-document-number"
+                                                >Número de documento</label
+                                            >
+                                            <input
+                                                id="loan-document-number"
+                                                name="customer_document_number"
+                                                type="text"
+                                                inputmode="numeric"
+                                                placeholder="Ej. 1234567890"
+                                                data-customer-document-number
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label for="loan-document-number"
-                                            >Número de documento</label
-                                        >
-                                        <input
-                                            id="loan-document-number"
-                                            name="customer_document_number"
-                                            type="text"
-                                            inputmode="numeric"
-                                            placeholder="Ej. 1234567890"
-                                            data-customer-document-number
-                                        />
-                                    </div>
-                                </div>
 
-                                <div class="modal-row">
-                                    <div>
-                                        <label for="loan-customer-city"
-                                            >Ciudad</label
-                                        >
-                                        <input
-                                            id="loan-customer-city"
-                                            name="customer_city"
-                                            type="text"
-                                            placeholder="Ciudad del cliente"
-                                            data-customer-city
-                                        />
-                                    </div>
-                                    <div>
-                                        <label for="loan-customer-address"
-                                            >Dirección (opcional)</label
-                                        >
-                                        <input
-                                            id="loan-customer-address"
-                                            name="customer_address"
-                                            type="text"
-                                            placeholder="Dirección del cliente"
-                                            data-customer-address
-                                        />
+                                    <div class="modal-row">
+                                        <div>
+                                            <label for="loan-customer-city"
+                                                >Ciudad</label
+                                            >
+                                            <input
+                                                id="loan-customer-city"
+                                                name="customer_city"
+                                                type="text"
+                                                placeholder="Ciudad del cliente"
+                                                data-customer-city
+                                            />
+                                        </div>
+                                        <div>
+                                            <label for="loan-customer-address"
+                                                >Dirección (opcional)</label
+                                            >
+                                            <input
+                                                id="loan-customer-address"
+                                                name="customer_address"
+                                                type="text"
+                                                placeholder="Dirección del cliente"
+                                                data-customer-address
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
@@ -3307,6 +3305,54 @@
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            </div>
+
+            <div id="label-modal" class="modal-backdrop" aria-hidden="true">
+                <div class="modal modal-label">
+                    <div class="modal-header">
+                        <div>
+                            <h3>Imprimir etiqueta</h3>
+                            <div
+                                id="label-modal-subtitle"
+                                class="modal-subtitle"
+                            ></div>
+                        </div>
+                        <button
+                            type="button"
+                            class="modal-close"
+                            data-modal-close
+                            aria-label="Cerrar"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div class="modal-body label-modal-preview">
+                        <div id="label-modal-loading" class="modal-loading">
+                            Cargando vista previa…
+                        </div>
+                        <iframe
+                            id="label-iframe"
+                            title="Vista previa de etiqueta"
+                            hidden
+                        ></iframe>
+                    </div>
+                    <div class="label-modal-footer">
+                        <button
+                            id="label-print-btn"
+                            class="primary"
+                            type="button"
+                        >
+                            Imprimir etiqueta
+                        </button>
+                        <button
+                            class="secondary"
+                            type="button"
+                            data-modal-close
+                        >
+                            Cerrar
+                        </button>
                     </div>
                 </div>
             </div>
@@ -3831,6 +3877,12 @@
 
         <script src="/static/customer_lookup.js"></script>
         <script>
+            const labelModal = document.getElementById("label-modal");
+            const labelIframe = document.getElementById("label-iframe");
+            const labelModalSubtitle = document.getElementById("label-modal-subtitle");
+            const labelModalLoading = document.getElementById("label-modal-loading");
+            const labelPrintBtn = document.getElementById("label-print-btn");
+
             const historyModal = document.getElementById("history-modal");
             const historySubtitle = document.getElementById("history-subtitle");
             const historyLoading = document.getElementById("history-loading");
@@ -4405,6 +4457,11 @@
                 }
                 if (backdrop === creditEditModal) {
                     creditEditContext = null;
+                }
+                if (backdrop === labelModal && labelIframe) {
+                    labelIframe.src = "";
+                    labelIframe.hidden = true;
+                    if (labelModalLoading) labelModalLoading.hidden = false;
                 }
                 if (!document.querySelector(".modal-backdrop.open")) {
                     document.body.style.overflow = "";
@@ -5450,7 +5507,7 @@
             };
 
             const syncLoanKindUI = () => {
-                const kind = loanContext?.kind || "product_credit";
+                const kind = loanContext?.kind || "cash_loan";
                 loanKindButtons.forEach((button) => {
                     button.classList.toggle(
                         "active",
@@ -5509,7 +5566,7 @@
 
             const resetLoanModalState = () => {
                 setLoanError("");
-                loanContext = { kind: "product_credit" };
+                loanContext = { kind: "cash_loan" };
                 renderLoanProductOptions();
                 if (loanQty) loanQty.value = "1";
                 if (loanCustomerId) loanCustomerId.value = "";
@@ -5545,7 +5602,7 @@
                 setLoanStage("form");
             };
 
-            const openLoanModal = (kind = "product_credit") => {
+            const openLoanModal = (kind = "cash_loan") => {
                 resetLoanModalState();
                 loanContext.kind = kind;
                 syncLoanKindUI();
@@ -5696,7 +5753,14 @@
             if (loanOpen) {
                 loanOpen.addEventListener("click", () => {
                     closeOpenMenuPanels();
-                    openLoanModal("product_credit");
+                    openLoanModal("cash_loan");
+                });
+            }
+            if (labelPrintBtn) {
+                labelPrintBtn.addEventListener("click", () => {
+                    if (labelIframe?.contentWindow) {
+                        labelIframe.contentWindow.print();
+                    }
                 });
             }
             if (creditManageOpen) {
@@ -5708,9 +5772,9 @@
             }
             loanKindButtons.forEach((button) => {
                 button.addEventListener("click", () => {
-                    if (!loanContext) loanContext = { kind: "product_credit" };
+                    if (!loanContext) loanContext = { kind: "cash_loan" };
                     loanContext.kind =
-                        button.dataset.creditKind || "product_credit";
+                        button.dataset.creditKind || "cash_loan";
                     if (loanTotalValue) loanTotalValue.dataset.manual = "0";
                     syncLoanKindUI();
                 });
@@ -6758,7 +6822,7 @@
                 loanForm.addEventListener("submit", async (event) => {
                     event.preventDefault();
                     if (!loanContext) return;
-                    const kind = loanContext.kind || "product_credit";
+                    const kind = loanContext.kind || "cash_loan";
                     const selectedProduct = selectedLoanProduct();
                     const quantity = Math.max(
                         1,
@@ -7447,14 +7511,33 @@
                     }
                     if (action === "print-label") {
                         if (!productId) return;
-                        const params = new URLSearchParams({
-                            id: productId,
-                        });
-                        window.open(
-                            `/productos/etiquetas?${params.toString()}`,
-                            "_blank",
-                            "noopener",
-                        );
+                        const params = new URLSearchParams({ id: productId });
+                        const url = `/productos/etiquetas?${params.toString()}`;
+                        if (labelModalSubtitle)
+                            labelModalSubtitle.textContent =
+                                product?.name || `ID ${productId}`;
+                        if (labelModalLoading)
+                            labelModalLoading.hidden = false;
+                        if (labelIframe) {
+                            labelIframe.hidden = true;
+                            labelIframe.onload = () => {
+                                try {
+                                    const doc = labelIframe.contentDocument;
+                                    const s = doc.createElement("style");
+                                    s.textContent =
+                                        ".topbar,.page-header,.label-toolbar{display:none!important}" +
+                                        ".label-shell{padding:16px}" +
+                                        "body{background:#f0f4f8}";
+                                    doc.head.appendChild(s);
+                                } catch (_) {}
+                                if (labelModalLoading)
+                                    labelModalLoading.hidden = true;
+                                if (labelIframe) labelIframe.hidden = false;
+                            };
+                            labelIframe.src = url;
+                        }
+                        closeOpenMenuPanels();
+                        openModal(labelModal);
                         return;
                     }
                     if (action === "stock") {

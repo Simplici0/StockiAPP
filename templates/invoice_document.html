@@ -186,6 +186,31 @@
                 flex-wrap: wrap;
             }
 
+            /* ── Tabla: ancho fijo en todos los tamaños ── */
+            .invoice-table {
+                table-layout: fixed;
+            }
+
+            .invoice-table th:first-child,
+            .invoice-table td:first-child {
+                width: 44%;
+                word-break: break-word;
+            }
+
+            .invoice-table th:nth-child(2),
+            .invoice-table td:nth-child(2) {
+                width: 12%;
+                text-align: center;
+            }
+
+            .invoice-table th:nth-child(3),
+            .invoice-table td:nth-child(3),
+            .invoice-table th:nth-child(4),
+            .invoice-table td:nth-child(4) {
+                width: 22%;
+                text-align: right;
+            }
+
             .invoice-shell.paper-compact .invoice-head,
             .invoice-shell.paper-standard .invoice-head,
             .invoice-shell.paper-compact .invoice-body,
@@ -194,30 +219,17 @@
                 padding-right: 14px;
             }
 
-            .invoice-shell.paper-compact .invoice-table,
-            .invoice-shell.paper-standard .invoice-table {
-                table-layout: fixed;
-            }
-
             .invoice-shell.paper-compact .invoice-table th,
             .invoice-shell.paper-standard .invoice-table th,
             .invoice-shell.paper-compact .invoice-table td,
             .invoice-shell.paper-standard .invoice-table td {
                 font-size: 11px;
                 padding: 8px 0;
-                word-break: break-word;
             }
 
-            .invoice-shell.paper-compact .invoice-table th:nth-child(2),
-            .invoice-shell.paper-standard .invoice-table th:nth-child(2) {
-                width: 12%;
-            }
-
-            .invoice-shell.paper-compact .invoice-table th:nth-child(3),
-            .invoice-shell.paper-standard .invoice-table th:nth-child(3),
-            .invoice-shell.paper-compact .invoice-table th:nth-child(4),
-            .invoice-shell.paper-standard .invoice-table th:nth-child(4) {
-                width: 22%;
+            @page {
+                size: {{.PaperWidthMM}}mm auto;
+                margin: 4mm;
             }
 
             @media print {
@@ -237,20 +249,203 @@
                     padding: 0;
                 }
 
+                /* ── Thermal shell ── */
                 .invoice-shell {
                     width: {{.PaperWidthMM}}mm;
                     margin: 0;
+                    gap: 0;
+                    font-family: "Courier New", Courier, monospace;
+                    font-size: 10px;
+                    line-height: 1.4;
+                    color: #000;
                 }
 
                 .invoice-card {
                     border: 0;
                     box-shadow: none;
+                    border-radius: 0;
+                    background: #fff;
                 }
-            }
 
-            @page {
-                size: {{.PaperWidthMM}}mm auto;
-                margin: 4mm;
+                /* ── Header → centrado tipo ticket ── */
+                .invoice-head {
+                    flex-direction: column;
+                    align-items: center;
+                    text-align: center;
+                    padding: 8px 4px 10px;
+                    background: none;
+                    border-bottom: 1px dashed #000;
+                    gap: 6px;
+                }
+
+                .invoice-brand {
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 6px;
+                }
+
+                .invoice-brand img {
+                    width: 38px;
+                    height: 38px;
+                    padding: 0;
+                    border: 0;
+                    border-radius: 0;
+                    filter: grayscale(1) contrast(1.2);
+                }
+
+                .invoice-kicker {
+                    font-size: 9px;
+                    letter-spacing: 0.12em;
+                    color: #444;
+                }
+
+                .invoice-head h1 {
+                    margin: 0;
+                    font-size: 13px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    color: #000;
+                }
+
+                .invoice-head p {
+                    font-size: 9px;
+                    color: #555;
+                    margin: 0;
+                }
+
+                /* ── Meta (número, fecha, etc.) → filas full-width ── */
+                .invoice-meta {
+                    width: 100%;
+                    min-width: 0;
+                    text-align: left;
+                    border-top: 1px dashed #000;
+                    margin-top: 8px;
+                    padding-top: 6px;
+                    gap: 3px;
+                }
+
+                .invoice-meta-item {
+                    font-size: 10px;
+                    color: #000;
+                }
+
+                .invoice-meta-item strong {
+                    font-size: 10px;
+                    letter-spacing: 0.04em;
+                    color: #000;
+                    text-transform: uppercase;
+                }
+
+                /* ── Body ── */
+                .invoice-body {
+                    padding: 0;
+                    gap: 0;
+                }
+
+                .invoice-block {
+                    background: none;
+                    border: 0;
+                    border-radius: 0;
+                    border-bottom: 1px dashed #000;
+                    padding: 7px 4px;
+                    gap: 4px;
+                }
+
+                .invoice-block h2 {
+                    font-size: 9px;
+                    letter-spacing: 0.1em;
+                    color: #444;
+                    margin-bottom: 4px;
+                }
+
+                /* ── Campos de cliente → fila izq-der ── */
+                .invoice-grid {
+                    grid-template-columns: 1fr;
+                    gap: 3px;
+                }
+
+                .invoice-field {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 8px;
+                    gap: 4px;
+                }
+
+                .invoice-field strong {
+                    font-size: 10px;
+                    letter-spacing: 0.04em;
+                    color: #555;
+                    text-transform: uppercase;
+                    font-weight: 400;
+                }
+
+                .invoice-field span {
+                    font-size: 10px;
+                    text-align: right;
+                    font-weight: 700;
+                    color: #000;
+                }
+
+                /* ── Tabla de ítems ── */
+                .invoice-table {
+                    width: 100%;
+                    table-layout: fixed;
+                }
+
+                .invoice-table th,
+                .invoice-table td {
+                    font-size: 10px;
+                    padding: 3px 0;
+                    color: #000;
+                    border-bottom: 0;
+                    word-break: break-word;
+                }
+
+                .invoice-table thead tr {
+                    border-bottom: 1px dashed #000;
+                }
+
+                .invoice-table th:first-child,
+                .invoice-table td:first-child {
+                    width: 44%;
+                }
+
+                .invoice-table th:nth-child(2),
+                .invoice-table td:nth-child(2) {
+                    width: 12%;
+                    text-align: center;
+                }
+
+                .invoice-table th:nth-child(3),
+                .invoice-table td:nth-child(3),
+                .invoice-table th:nth-child(4),
+                .invoice-table td:nth-child(4) {
+                    width: 22%;
+                    text-align: right;
+                }
+
+                /* ── Total ── */
+                .invoice-total {
+                    background: none;
+                    color: #000;
+                    border-radius: 0;
+                    border-top: 1px dashed #000;
+                    padding: 8px 4px;
+                    font-family: "Courier New", Courier, monospace;
+                }
+
+                .invoice-total strong {
+                    font-size: 11px;
+                    color: #000;
+                    letter-spacing: 0.06em;
+                }
+
+                .invoice-total span {
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #000;
+                }
             }
 
             @media (max-width: 720px) {
