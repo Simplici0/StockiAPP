@@ -29,15 +29,17 @@ Read these first when the task touches schema or tenancy:
 - `README.md` section `Desarrollo local con Postgres`
 - `main.go`, especially:
   - `loadDatabaseConfig`
-  - `normalizeSchemaSQLForEngine`
+  - `initPostgresDB`
   - `tenantIDFromRequest`
   - `tenantIDFromRequestStrict`
   - `tenantIDFromUser`
   - `tenantIDFromUserStrict`
   - `productVisibilityPredicate`
   - `creditVisibilityPredicate`
+  - `ensureLegacyOperationalColumns`
   - `ensureCustomerCRMBase`
   - `ensureProductLoanBase`
+  - `repairMissingProductosFromUnits`
   - Postgres `CREATE TABLE IF NOT EXISTS ...` blocks
 
 Canonical backend concepts that must stay stable:
@@ -79,7 +81,9 @@ Forbidden by default:
 - `REINDEX`
 - `COPY` to or from production-like data
 
-If a task later evolves into a real migration, stop treating it as a pure inspection task and switch back to repo rules in `AGENTS.md`: preserve dual SQLite/Postgres compatibility where reasonable, reuse `ensureSchema()` and existing migration helpers, assume non-empty databases, and use safe defaults.
+If a task later evolves into a real migration, stop treating it as a pure inspection task and switch back to repo rules in `AGENTS.md`: keep StockiAPP Postgres-only, reuse existing schema/bootstrap helpers where they are still canonical, assume non-empty databases, and use safe defaults.
+
+There is no supported SQLite runtime or in-app SQLite migration path anymore. If beta-era SQLite data still exists, treat the move to Postgres as an external migration prerequisite before running the current binary.
 
 ## Tenant And Ownership Rules
 
@@ -134,7 +138,7 @@ Do not recommend `sku = ? OR id = ?` lookups for runtime behavior. If legacy rep
 5. Run tenant-integrity checks before proposing changes.
 6. Summarize findings with risks, not just raw query output.
 
-If the task touches seeds or legacy backfills, verify that any reconstruction of missing visible IDs happens only in repair/bootstrap code and never by treating `sku` as the normal visible ID.
+If the task touches seeds or legacy backfills, verify that any reconstruction of missing visible IDs happens only in repair/bootstrap code and never by treating `sku` as the normal visible ID. In the current repo, repairs like `repairMissingProductosFromUnits` belong to bootstrap/migration paths, not to normal API/runtime resolution.
 
 Use local environment values from `.env.local` or exported vars. StockiAPP does not auto-load `.env`.
 
@@ -330,7 +334,7 @@ When validating a migration idea:
 - inspect whether backfill is needed for legacy rows
 - inspect related indexes
 - verify audit and customer traceability impact
-- verify whether the change would break SQLite compatibility
+- verify whether the change stays aligned with the current Postgres-only runtime and the real schema
 
 Always report:
 
@@ -339,7 +343,7 @@ Always report:
 - tenant impact
 - ownership impact if `productos` is involved
 - audit/customer-event impact
-- whether the proposal is Postgres-only or dual-engine safe
+- whether the proposal stays aligned with the Postgres-only runtime and deployed schema
 
 ## Output Expectations
 

@@ -192,6 +192,61 @@
                 );
             }
 
+            .reset-warning {
+                display: grid;
+                gap: 14px;
+                margin-top: 16px;
+                padding: 16px 18px;
+                border-radius: 16px;
+                border: 1px solid rgba(217, 75, 99, 0.18);
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.98) 0%,
+                    rgba(255, 241, 245, 0.96) 100%
+                );
+            }
+
+            .reset-warning h4 {
+                margin: 0;
+                color: #9f2445;
+                font-size: 14px;
+            }
+
+            .reset-warning p {
+                margin: 0;
+                color: var(--text);
+            }
+
+            .reset-grid {
+                display: grid;
+                gap: 12px;
+            }
+
+            .reset-form {
+                display: grid;
+                gap: 10px;
+                padding: 12px 14px;
+                border-radius: 14px;
+                border: 1px solid rgba(217, 75, 99, 0.15);
+                background: #fff;
+            }
+
+            .reset-form h5 {
+                margin: 0;
+                font-size: 13px;
+                color: var(--secondary);
+            }
+
+            .destructive {
+                color: #9f2445 !important;
+                border-color: rgba(217, 75, 99, 0.22) !important;
+                background: rgba(217, 75, 99, 0.08) !important;
+            }
+
+            .destructive:hover {
+                background: rgba(217, 75, 99, 0.14) !important;
+            }
+
             .flash.error {
                 color: #9f2445;
                 background: rgba(217, 75, 99, 0.08);
@@ -1311,6 +1366,161 @@
                                             web y API al volver a
                                             activarlo.{{end}}
                                         </p>
+
+                                        <div class="reset-warning">
+                                            <h4>Hard reset por módulo</h4>
+                                            <p>
+                                                Esta acción elimina datos de
+                                                forma irreversible. Escribe el
+                                                slug exacto del tenant para
+                                                confirmar.
+                                            </p>
+                                            <div class="reset-grid">
+                                                <form
+                                                    class="reset-form"
+                                                    method="POST"
+                                                    action="/configuracion/tenants/reset"
+                                                    onsubmit="
+                                                        return confirm(
+                                                            'Vas a vaciar el inventario del tenant {{.Slug}}. Esto elimina unidades, ventas, retomas, préstamos físicos y movimientos. ¿Continuar?',
+                                                        );
+                                                    "
+                                                >
+                                                    <input
+                                                        type="hidden"
+                                                        name="tenant_id"
+                                                        value="{{.ID}}"
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="scope"
+                                                        value="inventory"
+                                                    />
+                                                    <h5>Vaciar inventario</h5>
+                                                    <div class="line-form-grid">
+                                                        <div>
+                                                            <label
+                                                                for="reset_inventory_slug_{{.ID}}"
+                                                                >Escribe
+                                                                {{.Slug}} para
+                                                                confirmar</label
+                                                            >
+                                                            <input
+                                                                id="reset_inventory_slug_{{.ID}}"
+                                                                name="confirm_slug"
+                                                                type="text"
+                                                                placeholder="{{.Slug}}"
+                                                                required
+                                                            />
+                                                        </div>
+                                                        <div class="actions">
+                                                            <button
+                                                                class="secondary destructive"
+                                                                type="submit"
+                                                            >
+                                                                Vaciar inventario
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </form>
+
+                                                <form
+                                                    class="reset-form"
+                                                    method="POST"
+                                                    action="/configuracion/tenants/reset"
+                                                    onsubmit="
+                                                        return confirm(
+                                                            'Vas a vaciar los créditos del tenant {{.Slug}}. Esto elimina créditos, cuotas, facturas de crédito y su trazabilidad. ¿Continuar?',
+                                                        );
+                                                    "
+                                                >
+                                                    <input
+                                                        type="hidden"
+                                                        name="tenant_id"
+                                                        value="{{.ID}}"
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="scope"
+                                                        value="credits"
+                                                    />
+                                                    <h5>Vaciar créditos</h5>
+                                                    <div class="line-form-grid">
+                                                        <div>
+                                                            <label
+                                                                for="reset_credits_slug_{{.ID}}"
+                                                                >Escribe
+                                                                {{.Slug}} para
+                                                                confirmar</label
+                                                            >
+                                                            <input
+                                                                id="reset_credits_slug_{{.ID}}"
+                                                                name="confirm_slug"
+                                                                type="text"
+                                                                placeholder="{{.Slug}}"
+                                                                required
+                                                            />
+                                                        </div>
+                                                        <div class="actions">
+                                                            <button
+                                                                class="secondary destructive"
+                                                                type="submit"
+                                                            >
+                                                                Vaciar créditos
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </form>
+
+                                                <form
+                                                    class="reset-form"
+                                                    method="POST"
+                                                    action="/configuracion/tenants/reset"
+                                                    onsubmit="
+                                                        return confirm(
+                                                            'Vas a vaciar los usuarios del tenant {{.Slug}}. Esto elimina usuarios, sesiones y API keys del tenant, y desasigna propietarios de productos. ¿Continuar?',
+                                                        );
+                                                    "
+                                                >
+                                                    <input
+                                                        type="hidden"
+                                                        name="tenant_id"
+                                                        value="{{.ID}}"
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="scope"
+                                                        value="users"
+                                                    />
+                                                    <h5>Vaciar usuarios</h5>
+                                                    <div class="line-form-grid">
+                                                        <div>
+                                                            <label
+                                                                for="reset_users_slug_{{.ID}}"
+                                                                >Escribe
+                                                                {{.Slug}} para
+                                                                confirmar</label
+                                                            >
+                                                            <input
+                                                                id="reset_users_slug_{{.ID}}"
+                                                                name="confirm_slug"
+                                                                type="text"
+                                                                placeholder="{{.Slug}}"
+                                                                required
+                                                            />
+                                                        </div>
+                                                        <div class="actions">
+                                                            <button
+                                                                class="secondary destructive"
+                                                                type="submit"
+                                                            >
+                                                                Vaciar usuarios
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
                                         {{end}}
                                     </div>
                                 </div>

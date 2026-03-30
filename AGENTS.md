@@ -102,17 +102,15 @@ Reglas:
 - toda query, loader, escritura y validación nueva debe respetar tenant antes que ownership
 - ownership (`owner_user_id`) se evalúa dentro del tenant ya resuelto
 
-### 3.2 Motores de base de datos
-El proyecto mantiene compatibilidad con SQLite y quedó preparado para Postgres.
+### 3.2 Base de datos canónica
+StockiAPP opera únicamente sobre Postgres.
 
 Reglas:
-- no cambiar el motor de base de datos por accidente
-- preferir compatibilidad dual si se toca acceso a datos en esta fase
-- configuración actual esperada:
-  - `DB_ENGINE=sqlite|postgres`
-  - `DB_PATH` para SQLite
-  - `DB_DSN` o `DATABASE_URL` para Postgres
-- no asumir funciones o sintaxis exclusivas de SQLite en cambios nuevos si existe alternativa razonable
+- no reintroducir compatibilidad con SQLite
+- la configuración esperada es `DB_DSN` o `DATABASE_URL`
+- `DB_ENGINE`, si se usa, debe ser `postgres`
+- el arranque debe fallar cerrado si falta configuración válida de Postgres
+- cualquier cambio de acceso a datos debe mantenerse compatible con Postgres y con el esquema real ya desplegado
 
 ---
 

@@ -8,7 +8,7 @@ User=granempresa
 Group=granempresa
 WorkingDirectory=/srv/granempresa/app
 Environment=PORT=8080
-Environment=DB_PATH=/srv/granempresa/data/data.db
+Environment=DATABASE_URL=postgres://stockiapp:stockiapp@127.0.0.1:5432/stockiapp?sslmode=disable
 ExecStart=/srv/granempresa/app/granempresa
 Restart=on-failure
 RestartSec=5

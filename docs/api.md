@@ -8,6 +8,23 @@ La regla operativa es simple:
 - no se envía `tenant_id` manual ni en auth ni en payloads
 - si cambia solo el `APIKEY`, cambia solo el negocio al que apunta el workflow
 
+## Runtime Y Base De Datos
+
+StockiAPP opera exclusivamente sobre Postgres.
+
+Reglas operativas:
+
+- la configuración válida es `DATABASE_URL` o `DB_DSN`
+- `DB_ENGINE`, si se define, debe ser `postgres`
+- no existe `DB_PATH` ni soporte runtime para SQLite
+- la API y los ejemplos de este documento asumen un backend ya conectado a Postgres
+
+Nota de transición:
+
+- la etapa beta de compatibilidad dual terminó
+- si tienes datos legacy de SQLite, debes migrarlos a Postgres antes de usar el binario actual
+- las reparaciones legacy que siguen en el bootstrap actual solo normalizan datos ya presentes en Postgres; no ejecutan una migración desde SQLite
+
 ## Modelo De Acceso
 
 Stocki App usa una sola app, una sola base de datos y aislamiento lógico por `tenant_id`.

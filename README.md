@@ -4,7 +4,7 @@ Esta guía cubre el despliegue en un VPS de Hetzner con Linux (Ubuntu/Debian), u
 - Binario Go (linux/amd64)
 - systemd como servicio
 - Caddy como reverse proxy con HTTPS (Let's Encrypt)
-- Backup diario de SQLite con rotación
+- Postgres como base de datos obligatoria
 
 ## 1) Requisitos en el servidor
 
@@ -12,7 +12,7 @@ Instala dependencias básicas:
 
 ```bash
 sudo apt update
-sudo apt install -y caddy sqlite3
+sudo apt install -y caddy postgresql-client
 ```
 
 > Si compilas en el servidor, también instala Go (`golang-go`) o usa el instalador oficial de Go.
@@ -36,7 +36,7 @@ sudo ufw enable
 
 ```bash
 sudo useradd --system --create-home --home-dir /srv/granempresa --shell /usr/sbin/nologin granempresa
-sudo install -d -o granempresa -g granempresa /srv/granempresa/app /srv/granempresa/data /srv/granempresa/backups /srv/granempresa/scripts
+sudo install -d -o granempresa -g granempresa /srv/granempresa/app /srv/granempresa/data
 ```
 
 ## 4) Construir el binario (linux/amd64)
@@ -69,11 +69,6 @@ Copia los unit files:
 
 ```bash
 sudo cp deploy/systemd/granempresa.service /etc/systemd/system/granempresa.service
-sudo cp deploy/systemd/granempresa-backup.service /etc/systemd/system/granempresa-backup.service
-sudo cp deploy/systemd/granempresa-backup.timer /etc/systemd/system/granempresa-backup.timer
-sudo cp deploy/backup_db.sh /srv/granempresa/scripts/backup_db.sh
-sudo chown granempresa:granempresa /srv/granempresa/scripts/backup_db.sh
-sudo chmod +x /srv/granempresa/scripts/backup_db.sh
 ```
 
 Recarga systemd y habilita servicios:
@@ -81,14 +76,12 @@ Recarga systemd y habilita servicios:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now granempresa.service
-sudo systemctl enable --now granempresa-backup.timer
 ```
 
 Verifica estado:
 
 ```bash
 sudo systemctl status granempresa.service
-sudo systemctl list-timers | grep granempresa-backup
 ```
 
 ## 6) Configurar Caddy (HTTPS automático)
@@ -103,11 +96,22 @@ sudo systemctl reload caddy
 
 > Asegúrate de que el DNS de `TU_DOMINIO` apunte al VPS antes de reiniciar Caddy.
 
-## 7) Base de datos y backups
+## 7) Base de datos
 
-- La app usa `DB_PATH` (por defecto `data.db`). El servicio la apunta a `/srv/granempresa/data/data.db`.
-- El backup diario se ejecuta con `VACUUM INTO` y genera archivos timestamped en `/srv/granempresa/backups`.
-- Se conserva la cantidad de días definida por `KEEP_DAYS` (por defecto 14) y se rota automáticamente.
+- La app requiere Postgres.
+- Configura `DATABASE_URL` o `DB_DSN` en el servicio.
+- `DB_ENGINE` es opcional; si se define, debe ser `postgres`.
+- No existe `DB_PATH`, `data.db` ni runtime alterno a Postgres.
+- Si falta configuración válida de Postgres, la app falla al arrancar.
+- No hay fallback silencioso a SQLite.
+- La estrategia de backups debe hacerse con herramientas de Postgres (`pg_dump`, snapshots o respaldo administrado), no con scripts SQLite heredados.
+
+### Nota de migración beta
+
+- La etapa beta de compatibilidad dual terminó.
+- El binario actual no abre SQLite ni ejecuta migraciones desde `data.db`.
+- Si tienes datos legacy de SQLite, migra o importa esos datos a Postgres antes de arrancar esta versión.
+- Las reparaciones legacy que siguen existiendo en el bootstrap actual son solo para normalizar datos ya cargados en Postgres; no son una vía de migración desde SQLite.
 
 ## 7.1) Usuario administrador inicial
 
@@ -125,13 +129,8 @@ Environment=ADMIN_USER=admin
 Environment=ADMIN_PASS=SuperSecreto123
 ```
 
+> Si `ADMIN_USER` o `ADMIN_PASS` no están definidos, la app omite la creación automática.
 > Si ya existe un usuario con ese `username`, no se vuelve a crear.
-
-### Ejecutar backup manual
-
-```bash
-sudo -u granempresa DB_PATH=/srv/granempresa/data/data.db BACKUP_DIR=/srv/granempresa/backups /srv/granempresa/scripts/backup_db.sh
-```
 
 ## 7.2) Desarrollo local con Postgres
 
@@ -139,7 +138,6 @@ Para desarrollo local, usa Postgres como motor principal:
 
 ```bash
 cp .env.example .env.local
-export DB_ENGINE=postgres
 export DATABASE_URL=postgres://stockiapp:stockiapp@127.0.0.1:5432/stockiapp_dev?sslmode=disable
 export PORT=8092
 go run .
@@ -160,12 +158,14 @@ Para detener el Postgres local:
 Notas:
 
 - La app no carga `.env` automáticamente; `.env.example` es solo plantilla/documentación.
+- Puedes usar `DB_DSN` en lugar de `DATABASE_URL`; el runtime trata ambas como equivalentes.
+- No uses `DB_PATH` ni variables heredadas de SQLite.
 - No subas `.env.local`, dumps ni datos locales al repo.
 - Mantén las credenciales reales fuera de archivos versionados.
 
 ## 8) Ajustes útiles
 
 - Cambiar el puerto interno: edita `Environment=PORT=8080` en `/etc/systemd/system/granempresa.service`.
-- Cambiar la ruta de DB: edita `Environment=DB_PATH=/ruta/nueva.db`.
-- Cambiar el motor DB: usa `DB_ENGINE=postgres` junto con `DB_DSN` o `DATABASE_URL`.
+- Cambiar la conexión a Postgres: edita `Environment=DATABASE_URL=postgres://...` o `Environment=DB_DSN=postgres://...`.
+- Si defines `DB_ENGINE`, usa `Environment=DB_ENGINE=postgres`.
 - Ver logs: `journalctl -u granempresa.service -f`
