@@ -9881,6 +9881,10 @@ func createTenantWithSeed(db *sql.DB, currentUser *User, usersCols map[string]bo
 	if err != nil {
 		return nil, err
 	}
+	businessSettingsCols, err := tableColumns(db, "business_settings")
+	if err != nil {
+		return nil, err
+	}
 	sourceLines, err := loadBusinessLinesForTenant(db, sourceTenantID, false)
 	if err != nil {
 		return nil, err
@@ -9933,10 +9937,28 @@ func createTenantWithSeed(db *sql.DB, currentUser *User, usersCols map[string]bo
 		return nil, err
 	}
 
-	if _, err := tx.Exec(`
-		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, label_paper_width, invoice_paper_width, ticket_paper_width, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, tenantID, name, sourceSettings.LogoPath, sourceSettings.PrimaryColor, sourceSettings.Currency, sourceSettings.DateFormat, sourceSettings.LabelPaperWidth, sourceSettings.InvoicePaperWidth, sourceSettings.TicketPaperWidth, now); err != nil {
+	settingsInsertCols := []string{"tenant_id", "business_name", "logo_path", "primary_color", "currency", "date_format", "updated_at"}
+	settingsInsertArgs := []any{tenantID, name, sourceSettings.LogoPath, sourceSettings.PrimaryColor, sourceSettings.Currency, sourceSettings.DateFormat, now}
+	if businessSettingsCols["label_paper_width"] {
+		settingsInsertCols = append(settingsInsertCols, "label_paper_width")
+		settingsInsertArgs = append(settingsInsertArgs, sourceSettings.LabelPaperWidth)
+	}
+	if businessSettingsCols["invoice_paper_width"] {
+		settingsInsertCols = append(settingsInsertCols, "invoice_paper_width")
+		settingsInsertArgs = append(settingsInsertArgs, sourceSettings.InvoicePaperWidth)
+	}
+	if businessSettingsCols["ticket_paper_width"] {
+		settingsInsertCols = append(settingsInsertCols, "ticket_paper_width")
+		settingsInsertArgs = append(settingsInsertArgs, sourceSettings.TicketPaperWidth)
+	}
+	settingsPlaceholders := make([]string, len(settingsInsertCols))
+	for i := range settingsPlaceholders {
+		settingsPlaceholders[i] = "?"
+	}
+	if _, err := tx.Exec(fmt.Sprintf(`
+		INSERT INTO business_settings (%s)
+		VALUES (%s)
+	`, strings.Join(settingsInsertCols, ", "), strings.Join(settingsPlaceholders, ", ")), settingsInsertArgs...); err != nil {
 		return nil, err
 	}
 
@@ -12414,6 +12436,31 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 	}
 	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id)"); err != nil {
 		return err
+	}
+
+	businessSettingsExists, err := tableExists(db, "business_settings")
+	if err != nil {
+		return err
+	}
+	if businessSettingsExists {
+		businessSettingsCols, err := tableColumns(db, "business_settings")
+		if err != nil {
+			return err
+		}
+		for _, column := range []struct {
+			name       string
+			definition string
+		}{
+			{name: "label_paper_width", definition: "TEXT NOT NULL DEFAULT '58mm'"},
+			{name: "invoice_paper_width", definition: "TEXT NOT NULL DEFAULT '58mm'"},
+			{name: "ticket_paper_width", definition: "TEXT NOT NULL DEFAULT '58mm'"},
+		} {
+			if !businessSettingsCols[column.name] {
+				if _, err := db.Exec("ALTER TABLE business_settings ADD COLUMN " + column.name + " " + column.definition); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	productosCols, err := tableColumns(db, "productos")

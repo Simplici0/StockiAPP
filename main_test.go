@@ -1968,6 +1968,62 @@ func TestCreateTenantWithSeedCopiesOperationalCatalogs(t *testing.T) {
 	}
 }
 
+func TestCreateTenantWithSeedRepairsLegacyBusinessSettingsPaperColumns(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "tenant-create-legacy-settings"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	for _, column := range []string{"label_paper_width", "invoice_paper_width", "ticket_paper_width"} {
+		if _, err := db.Exec(`ALTER TABLE business_settings DROP COLUMN ` + column); err != nil {
+			t.Fatalf("drop legacy test column %s: %v", column, err)
+		}
+	}
+	if err := ensureLegacyOperationalColumns(db); err != nil {
+		t.Fatalf("ensureLegacyOperationalColumns: %v", err)
+	}
+
+	settingsCols, err := tableColumns(db, "business_settings")
+	if err != nil {
+		t.Fatalf("tableColumns(business_settings): %v", err)
+	}
+	for _, column := range []string{"label_paper_width", "invoice_paper_width", "ticket_paper_width"} {
+		if !settingsCols[column] {
+			t.Fatalf("expected repaired business_settings column %s", column)
+		}
+	}
+
+	adminUser := &User{ID: 1, Username: "admin", Role: rolePlatformAdmin, TenantID: defaultTenantID}
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns(users): %v", err)
+	}
+	provisioned, err := createTenantWithSeed(db, adminUser, usersCols, "Tenant Legacy", "", "tenant.legacy.admin", "Secreta123")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed: %v", err)
+	}
+
+	var (
+		labelPaper   string
+		invoicePaper string
+		ticketPaper  string
+	)
+	if err := db.QueryRow(`
+		SELECT label_paper_width, invoice_paper_width, ticket_paper_width
+		FROM business_settings
+		WHERE tenant_id = ?
+	`, provisioned.Tenant.ID).Scan(&labelPaper, &invoicePaper, &ticketPaper); err != nil {
+		t.Fatalf("query repaired business settings: %v", err)
+	}
+	if labelPaper == "" || invoicePaper == "" || ticketPaper == "" {
+		t.Fatalf("expected non-empty paper widths, got label=%q invoice=%q ticket=%q", labelPaper, invoicePaper, ticketPaper)
+	}
+}
+
 func TestRotateTenantInitialAPIKeyKeepsSingleCanonicalCredential(t *testing.T) {
 	t.Setenv("ADMIN_USER", "admin")
 	t.Setenv("ADMIN_PASS", "SuperSecreto123")
