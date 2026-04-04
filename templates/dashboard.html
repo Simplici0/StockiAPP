@@ -1250,6 +1250,34 @@
                 return node;
               };
 
+              const escapeHTML = (value) =>
+                String(value ?? "").replace(/[&<>"']/g, (char) => {
+                  switch (char) {
+                    case "&": return "&amp;";
+                    case "<": return "&lt;";
+                    case ">": return "&gt;";
+                    case '"': return "&quot;";
+                    case "'": return "&#39;";
+                    default: return char;
+                  }
+                });
+
+              const safeCssColor = (value, fallback = "#2c6bed") => {
+                const raw = String(value ?? "").trim();
+                if (/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8})$/.test(raw)) return raw;
+                if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(raw)) return raw;
+                if (/^hsla?\(\s*\d{1,3}(?:deg|rad|turn)?\s*,\s*\d{1,3}%\s*,\s*\d{1,3}%(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(raw)) return raw;
+                return fallback;
+              };
+
+              const appendTextCell = (row, value, className) => {
+                const cell = document.createElement("td");
+                if (className) cell.className = className;
+                cell.textContent = value == null ? "" : String(value);
+                row.appendChild(cell);
+                return cell;
+              };
+
                const renderDonut = (data) => {
                  if (!pieSvg) return;
                  clearEl(pieSvg);
@@ -1260,12 +1288,13 @@
 
                  pieSvg.appendChild(el("circle", { cx: 60, cy: 60, r: 45, fill: "none", stroke: "#eef2ff", "stroke-width": 16 }));
                  slices.forEach((s) => {
+                   const sliceColor = safeCssColor(s.color);
                    pieSvg.appendChild(el("circle", {
                      cx: 60,
                     cy: 60,
                     r: 45,
                     fill: "none",
-                    stroke: s.color || "#2c6bed",
+                    stroke: sliceColor,
                     "stroke-width": 16,
                     "stroke-dasharray": `${Number(s.percent || 0).toFixed(2)} ${(Number(s.gap || 0)).toFixed(2)}`,
                     "stroke-dashoffset": `${Number(s.offset || 0).toFixed(2)}`,
@@ -1285,25 +1314,29 @@
                    pieLegend.innerHTML = "";
                    slices.forEach((s) => {
                      const div = document.createElement("div");
-                    div.className = "legend-item";
-                    const dot = document.createElement("span");
-                    dot.className = "legend-dot";
-                    dot.style.background = s.color || "#2c6bed";
-                    const left = document.createElement("span");
-                    left.className = "legend-left";
-                    const label = document.createElement("div");
-                    const pct = Math.round(Number(s.percent || 0));
-                    label.textContent = `${s.metodo || "-"}`;
-                    left.appendChild(dot);
-                    left.appendChild(label);
+                     div.className = "legend-item";
+                     const dot = document.createElement("span");
+                     dot.className = "legend-dot";
+                     dot.style.background = safeCssColor(s.color);
+                     const left = document.createElement("span");
+                     left.className = "legend-left";
+                     const label = document.createElement("div");
+                     const pct = Math.round(Number(s.percent || 0));
+                     label.textContent = `${s.metodo || "-"}`;
+                     left.appendChild(dot);
+                     left.appendChild(label);
 
-                    const right = document.createElement("span");
-                    right.className = "legend-right";
-                    right.innerHTML = `${s.total || "-" } <small>${pct}%</small>`;
+                     const right = document.createElement("span");
+                     right.className = "legend-right";
+                     right.appendChild(document.createTextNode(String(s.total || "-")));
+                     right.appendChild(document.createTextNode(" "));
+                     const small = document.createElement("small");
+                     small.textContent = `${pct}%`;
+                     right.appendChild(small);
 
-                    div.appendChild(left);
-                    div.appendChild(right);
-                    pieLegend.appendChild(div);
+                     div.appendChild(left);
+                     div.appendChild(right);
+                     pieLegend.appendChild(div);
                   });
                 }
               };
@@ -1413,23 +1446,32 @@
                  salesTableBody.innerHTML = "";
                  sales.forEach((s) => {
                    const tr = document.createElement("tr");
-                   const cells = [
-                     String(s.id ?? "-"),
-                     String(s.fecha || "-"),
-                     String(s.producto || "-"),
-                     String(s.cantidad ?? "-"),
-                     String(s.total || "-"),
-                     String(s.metodo_pago || "-"),
-                     (() => {
-                       const receiptHref = `/venta/comprobante?sale_id=${encodeURIComponent(String(s.id ?? ""))}`;
-                       const receiptBtn = `<a class="button secondary" href="${receiptHref}" target="_blank" rel="noreferrer">Comprobante</a>`;
-                       if (isAdmin) {
-                         return `${receiptBtn} <button type="button" class="button secondary" data-sale-delete="${s.id}">Eliminar</button>`;
-                       }
-                       return receiptBtn;
-                     })()
-                   ];
-                   tr.innerHTML = cells.map((c) => `<td>${c}</td>`).join("");
+                   appendTextCell(tr, s.id ?? "-");
+                   appendTextCell(tr, s.fecha || "-");
+                   appendTextCell(tr, s.producto || "-");
+                   appendTextCell(tr, s.cantidad ?? "-");
+                   appendTextCell(tr, s.total || "-");
+                   appendTextCell(tr, s.metodo_pago || "-");
+
+                   const actionCell = document.createElement("td");
+                   const receiptHref = `/venta/comprobante?sale_id=${encodeURIComponent(String(s.id ?? ""))}`;
+                   const receiptLink = document.createElement("a");
+                   receiptLink.className = "button secondary";
+                   receiptLink.href = receiptHref;
+                   receiptLink.target = "_blank";
+                   receiptLink.rel = "noreferrer";
+                   receiptLink.textContent = "Comprobante";
+                   actionCell.appendChild(receiptLink);
+                   if (isAdmin) {
+                     actionCell.appendChild(document.createTextNode(" "));
+                     const deleteButton = document.createElement("button");
+                     deleteButton.type = "button";
+                     deleteButton.className = "button secondary";
+                     deleteButton.dataset.saleDelete = String(s.id ?? "");
+                     deleteButton.textContent = "Eliminar";
+                     actionCell.appendChild(deleteButton);
+                   }
+                   tr.appendChild(actionCell);
                    salesTableBody.appendChild(tr);
                  });
                };
@@ -1483,7 +1525,7 @@
 
                  series.forEach((item) => {
                    const points = Array.isArray(item.points) ? item.points : [];
-                   const color = item.color || "#2c6bed";
+                   const color = safeCssColor(item.color);
                    const polyPoints = points.map((point, i) => `${xAt(i).toFixed(1)},${yAt(Number(point.value || 0)).toFixed(1)}`).join(" ");
                    userTimelineSvg.appendChild(el("polyline", {
                      fill: "none",
@@ -1493,18 +1535,27 @@
                      "stroke-linejoin": "round",
                      points: polyPoints
                    }));
-                   const dots = el("g", { opacity: 0.4 });
-                   points.forEach((point, i) => {
-                     dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(point.value || 0)), r: 3, fill: color }));
-                   });
-                   userTimelineSvg.appendChild(dots);
+                 const dots = el("g", { opacity: 0.4 });
+                 points.forEach((point, i) => {
+                   dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(point.value || 0)), r: 3, fill: color }));
+                 });
+                 userTimelineSvg.appendChild(dots);
 
-                   if (userTimelineLegend) {
+                 if (userTimelineLegend) {
                      const legend = document.createElement("span");
                      legend.className = "chart-legend-item";
-                     legend.innerHTML = `<span class="legend-swatch" style="background:${color};"></span><strong>${item.user_label || "-"}</strong><span>${item.total || fmtMoney(0)}</span>`;
+                     const swatch = document.createElement("span");
+                     swatch.className = "legend-swatch";
+                     swatch.style.background = safeCssColor(color);
+                     const strong = document.createElement("strong");
+                     strong.textContent = item.user_label || "-";
+                     const total = document.createElement("span");
+                     total.textContent = item.total || fmtMoney(0);
+                     legend.appendChild(swatch);
+                     legend.appendChild(strong);
+                     legend.appendChild(total);
                      userTimelineLegend.appendChild(legend);
-                   }
+                  }
                  });
                };
 
@@ -1519,15 +1570,26 @@
                    const row = document.createElement("div");
                    row.className = "bar-row";
                    const width = ((Number(item.value || 0) / safeMax) * 100).toFixed(2);
-                   row.innerHTML = `
-                     <div class="bar-meta">
-                       <div><strong>${item.label || "-"}</strong> · ${Number(item.count || 0)} registros</div>
-                       <div>${item.total || fmtMoney(0)}</div>
-                     </div>
-                     <div class="bar-track">
-                       <div class="bar-fill" style="width:${width}%; background:${item.color || "#2c6bed"};"></div>
-                     </div>
-                   `;
+                   const meta = document.createElement("div");
+                   meta.className = "bar-meta";
+                   const metaTop = document.createElement("div");
+                   const metaStrong = document.createElement("strong");
+                   metaStrong.textContent = item.label || "-";
+                   metaTop.appendChild(metaStrong);
+                   metaTop.appendChild(document.createTextNode(` · ${Number(item.count || 0)} registros`));
+                   const metaTotal = document.createElement("div");
+                   metaTotal.textContent = item.total || fmtMoney(0);
+                   meta.appendChild(metaTop);
+                   meta.appendChild(metaTotal);
+                   const track = document.createElement("div");
+                   track.className = "bar-track";
+                   const fill = document.createElement("div");
+                   fill.className = "bar-fill";
+                   fill.style.width = `${width}%`;
+                   fill.style.background = safeCssColor(item.color);
+                   track.appendChild(fill);
+                   row.appendChild(meta);
+                   row.appendChild(track);
                    categoryBars.appendChild(row);
                  });
                };
@@ -1538,13 +1600,35 @@
                  const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
                  list.innerHTML = "";
                  if (!series.length) {
-                   list.innerHTML = '<div class="empty-chart" style="min-height:60px;">Sin datos</div>';
+                   const empty = document.createElement("div");
+                   empty.className = "empty-chart";
+                   empty.style.minHeight = "60px";
+                   empty.textContent = "Sin datos";
+                   list.appendChild(empty);
                    return;
                  }
                  series.forEach((item) => {
                    const row = document.createElement("div");
                    row.className = "user-sale-row";
-                   row.innerHTML = `<span class="user-sale-left"><span class="legend-dot" style="background:${item.color || "#2c6bed"};border-radius:50%;display:inline-block;width:8px;height:8px;flex-shrink:0;"></span><span>${item.user_label || "-"}</span></span><span class="user-sale-total">${item.total || fmtMoney(0)}</span>`;
+                   const left = document.createElement("span");
+                   left.className = "user-sale-left";
+                   const dot = document.createElement("span");
+                   dot.className = "legend-dot";
+                   dot.style.background = safeCssColor(item.color);
+                   dot.style.borderRadius = "50%";
+                   dot.style.display = "inline-block";
+                   dot.style.width = "8px";
+                   dot.style.height = "8px";
+                   dot.style.flexShrink = "0";
+                   const label = document.createElement("span");
+                   label.textContent = item.user_label || "-";
+                   left.appendChild(dot);
+                   left.appendChild(label);
+                   const total = document.createElement("span");
+                   total.className = "user-sale-total";
+                   total.textContent = item.total || fmtMoney(0);
+                   row.appendChild(left);
+                   row.appendChild(total);
                    list.appendChild(row);
                  });
                };

@@ -190,7 +190,7 @@
                             venta.
                         </p>
                     </div>
-                    <form method="GET" action="/venta/ticket">
+                    <form method="POST" action="/venta/ticket">
                         <input
                             type="hidden"
                             name="sale_id"
@@ -240,7 +240,7 @@
                 <div class="thermal-actions">
                     <a
                         class="button secondary"
-                        href="/venta/comprobante?sale_id={{.SaleID}}&buyer_name={{.BuyerName}}&buyer_document={{.BuyerDocument}}"
+                        href="{{.DownloadURL}}"
                         target="_blank"
                         rel="noreferrer"
                     >

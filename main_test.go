@@ -687,6 +687,7 @@ func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handle
 	mux.HandleFunc("/api/users", handleAPIUsers(db, usersCols))
 	mux.HandleFunc("/api/users/", handleAPIUserRoutes(db, usersCols))
 	mux.HandleFunc("/api/products/", handleAPIProductRoutes(db))
+	mux.HandleFunc("/api/inventory/adjust", handleAPIInventoryAdjust(db, nil))
 	mux.HandleFunc("/api/productos/precio", func(w http.ResponseWriter, r *http.Request) {
 		productID := strings.TrimSpace(r.URL.Query().Get("id"))
 		productSKU := strings.TrimSpace(r.URL.Query().Get("sku"))
@@ -789,6 +790,15 @@ func setupTenantWriteAPIHarness(t *testing.T) (*sql.DB, http.Handler, *Tenant, s
 	return db, newTenantWriteAPIHandler(db, usersCols), provisioned.Tenant, provisioned.InitialAPIToken
 }
 
+func setupTenantAdminSessionAPIHarness(t *testing.T) (*sql.DB, http.Handler, *Tenant, string) {
+	t.Helper()
+
+	db, handler, tenant, _ := setupTenantWriteAPIHarness(t)
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	sessionToken := createTestSession(t, db, tenantAdmin)
+	return db, handler, tenant, sessionToken
+}
+
 func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 	t.Setenv("ADMIN_USER", "admin")
 	t.Setenv("ADMIN_PASS", "SuperSecreto123")
@@ -865,8 +875,10 @@ func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 }
 
 func TestAPIUpdateProductIDUsesTenantScopedVisibleIdentifier(t *testing.T) {
-	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	db, handler, tenant, _ := setupTenantWriteAPIHarness(t)
 	defer db.Close()
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	sessionToken := createTestSession(t, db, tenantAdmin)
 
 	now := time.Now().Format(time.RFC3339)
 	if _, err := db.Exec(`
@@ -933,16 +945,16 @@ func TestAPIUpdateProductIDUsesTenantScopedVisibleIdentifier(t *testing.T) {
 		t.Fatalf("seed audit reference: %v", err)
 	}
 
-	collisionResp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", token, map[string]any{
+	collisionResp := performSessionAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", sessionToken, map[string]any{
 		"id": "P-KEEP",
-	})
+	}, "https://example.com")
 	if collisionResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 on duplicate id, got %d body=%s", collisionResp.Code, collisionResp.Body.String())
 	}
 
-	resp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", token, map[string]any{
+	resp := performSessionAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", sessionToken, map[string]any{
 		"id": "P-NEW",
-	})
+	}, "https://example.com")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
@@ -1545,6 +1557,46 @@ func performAPIJSONRequest(t *testing.T, handler http.Handler, method, path, tok
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec
+}
+
+func performSessionAPIJSONRequest(t *testing.T, handler http.Handler, method, path, sessionToken string, payload any, origin string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var body *bytes.Reader
+	if payload == nil {
+		body = bytes.NewReader(nil)
+	} else {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		body = bytes.NewReader(raw)
+	}
+
+	req := httptest.NewRequest(method, "https://example.com"+path, body)
+	req.Header.Set("Content-Type", "application/json")
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: sessionToken})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func createTestSession(t *testing.T, db *sql.DB, user *User) string {
+	t.Helper()
+
+	token := "session-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	now := time.Now()
+	if _, err := db.Exec(`
+		INSERT INTO sessions (token, user_id, tenant_id, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, token, user.ID, user.TenantID, now.Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	return token
 }
 
 func decodeAPIResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
@@ -2677,7 +2729,7 @@ func TestAPIAuthFromRequestUsesTenantScopedIntegrationUser(t *testing.T) {
 	if authMode != "api_key" {
 		t.Fatalf("auth mode inesperado: %q", authMode)
 	}
-	if user == nil || user.Username != "api:tenant-dos-key" || user.TenantID != 2 || user.Role != roleAdmin || user.ID != 0 {
+	if user == nil || user.Username != "api:tenant-dos-key" || user.TenantID != 2 || user.Role != roleAPIKey || user.ID != 0 {
 		t.Fatalf("usuario tenant inesperado: %+v", user)
 	}
 }
@@ -2728,6 +2780,283 @@ func TestAPIAuthFromRequestPrefersBearerOverSession(t *testing.T) {
 	}
 	if user == nil || user.TenantID != 2 || user.Username != "api:tenant-dos-key" {
 		t.Fatalf("expected bearer tenant context, got %+v", user)
+	}
+}
+
+func TestAPIKeyCannotAccessAdminRoutesButSessionAdminCan(t *testing.T) {
+	db, handler, _, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	apiKeyUsersResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users", token, nil)
+	if apiKeyUsersResp.Code != http.StatusForbidden {
+		t.Fatalf("expected API key users access to be forbidden, got %d body=%s", apiKeyUsersResp.Code, apiKeyUsersResp.Body.String())
+	}
+
+	apiKeyOwnersResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/settings/owners", token, nil)
+	if apiKeyOwnersResp.Code != http.StatusForbidden {
+		t.Fatalf("expected API key owners access to be forbidden, got %d body=%s", apiKeyOwnersResp.Code, apiKeyOwnersResp.Body.String())
+	}
+
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	sessionToken := createTestSession(t, db, tenantAdmin)
+
+	csrfBlocked := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users", sessionToken, map[string]any{
+		"username":  "tenant2.csrf",
+		"password":  "Segura123!",
+		"role":      roleEmployee,
+		"is_active": true,
+	}, "")
+	if csrfBlocked.Code != http.StatusForbidden {
+		t.Fatalf("expected CSRF-protected session request to fail, got %d body=%s", csrfBlocked.Code, csrfBlocked.Body.String())
+	}
+
+	sessionResp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users", sessionToken, map[string]any{
+		"username":  "tenant2.session",
+		"password":  "Segura123!",
+		"role":      roleEmployee,
+		"is_active": true,
+	}, "https://example.com")
+	if sessionResp.Code != http.StatusCreated {
+		t.Fatalf("expected session admin request to succeed, got %d body=%s", sessionResp.Code, sessionResp.Body.String())
+	}
+}
+
+func TestAPIKeyRouteAllowlistBlocksInventoryAdjust(t *testing.T) {
+	db, _, _, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/inventory/adjust", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := authMiddleware(db, mux)
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/inventory/adjust", token, map[string]any{
+		"product_id": "P-001",
+	})
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected inventory adjust via api key to be forbidden, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequestUsesSecureCookiesHonorsProxyHeaders(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://internal.local/login", nil)
+	if requestUsesSecureCookies(req) {
+		t.Fatalf("expected plain local request to keep cookies insecure")
+	}
+
+	req.Header.Set("X-Forwarded-Proto", "https")
+	if !requestUsesSecureCookies(req) {
+		t.Fatalf("expected forwarded https request to mark cookies secure")
+	}
+
+	t.Setenv("COOKIE_SECURE", "false")
+	if requestUsesSecureCookies(req) {
+		t.Fatalf("expected explicit COOKIE_SECURE=false to disable secure cookies")
+	}
+
+	t.Setenv("COOKIE_SECURE", "")
+	t.Setenv("SECURE_COOKIES", "true")
+	if !requestUsesSecureCookies(req) {
+		t.Fatalf("expected SECURE_COOKIES=true to force secure cookies")
+	}
+}
+
+func TestRequestPassesCSRFSameOriginCheck(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "https://example.com/api/users", nil)
+	req.Header.Set("Origin", "https://example.com")
+	if !requestPassesCSRFSameOriginCheck(req) {
+		t.Fatalf("expected same-origin request to pass CSRF validation")
+	}
+
+	req.Header.Set("Origin", "https://evil.example")
+	if requestPassesCSRFSameOriginCheck(req) {
+		t.Fatalf("expected cross-origin request to fail CSRF validation")
+	}
+
+	req.Header.Del("Origin")
+	req.Header.Set("Referer", "https://example.com/admin/users")
+	if !requestPassesCSRFSameOriginCheck(req) {
+		t.Fatalf("expected same-origin referer fallback to pass")
+	}
+}
+
+func TestAuthMiddlewareProtectsLogoutPOSTWithCSRFSameOrigin(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "logout-csrf"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	admin := mustLoadTestUser(t, db, "admin")
+	sessionToken := createTestSession(t, db, admin)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := authMiddleware(db, mux)
+
+	blocked := httptest.NewRequest(http.MethodPost, "https://example.com/logout", nil)
+	blocked.AddCookie(&http.Cookie{Name: "session_token", Value: sessionToken})
+	blockedRec := httptest.NewRecorder()
+	handler.ServeHTTP(blockedRec, blocked)
+	if blockedRec.Code != http.StatusForbidden {
+		t.Fatalf("expected logout POST without same-origin proof to be forbidden, got %d", blockedRec.Code)
+	}
+
+	allowed := httptest.NewRequest(http.MethodPost, "https://example.com/logout", nil)
+	allowed.Header.Set("Origin", "https://example.com")
+	allowed.AddCookie(&http.Cookie{Name: "session_token", Value: sessionToken})
+	allowedRec := httptest.NewRecorder()
+	handler.ServeHTTP(allowedRec, allowed)
+	if allowedRec.Code != http.StatusNoContent {
+		t.Fatalf("expected same-origin logout POST to reach handler, got %d", allowedRec.Code)
+	}
+}
+
+func TestAuthMiddlewareSetsSecurityHeaders(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "security-headers"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := authMiddleware(db, mux)
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/health", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Content-Security-Policy"); got != defaultResponseCSP {
+		t.Fatalf("unexpected CSP header: %q", got)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("unexpected nosniff header: %q", got)
+	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Fatalf("unexpected frame header: %q", got)
+	}
+	if got := rec.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Fatalf("unexpected referrer policy: %q", got)
+	}
+}
+
+func TestAuthMiddlewareSetsStrictSVGSecurityHeaders(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "security-headers-svg"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/static/uploads/branding/logo-legacy.svg", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := authMiddleware(db, mux)
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/static/uploads/branding/logo-legacy.svg", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Content-Security-Policy"); got != staticSVGResponseCSP {
+		t.Fatalf("unexpected SVG CSP header: %q", got)
+	}
+}
+
+func TestLoginRateLimitBlocksAfterRepeatedFailures(t *testing.T) {
+	previousLimiter := appLoginRateLimiter
+	appLoginRateLimiter = newLoginRateLimiter()
+	defer func() {
+		appLoginRateLimiter = previousLimiter
+	}()
+
+	req := httptest.NewRequest(http.MethodPost, "https://example.com/login", nil)
+	req.RemoteAddr = "203.0.113.10:4321"
+	username := "tenant2.admin"
+	now := time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)
+
+	for attempt := 0; attempt < loginRateMaxFailures-1; attempt++ {
+		registerLoginFailure(req, username, now)
+		if retryAfter, allowed := loginRequestAllowed(req, username, now); !allowed || retryAfter != 0 {
+			t.Fatalf("expected login to remain allowed before threshold, got allowed=%v retry_after=%s", allowed, retryAfter)
+		}
+	}
+
+	registerLoginFailure(req, username, now)
+	retryAfter, allowed := loginRequestAllowed(req, username, now)
+	if allowed {
+		t.Fatalf("expected login to be blocked after repeated failures")
+	}
+	if retryAfter <= 0 {
+		t.Fatalf("expected positive retry-after duration, got %s", retryAfter)
+	}
+
+	resetLoginRateLimit(req, username)
+	if retryAfter, allowed := loginRequestAllowed(req, username, now); !allowed || retryAfter != 0 {
+		t.Fatalf("expected login limit reset to clear block, got allowed=%v retry_after=%s", allowed, retryAfter)
+	}
+}
+
+func TestSaveBusinessLogoRejectsSVG(t *testing.T) {
+	if _, err := saveBusinessLogo(strings.NewReader(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`), "logo.svg"); err == nil {
+		t.Fatalf("expected SVG upload to be rejected")
+	}
+}
+
+func TestEffectiveBusinessLogoPathRejectsUploadedSVG(t *testing.T) {
+	businessSettingsMu.Lock()
+	previousSettings := businessSettings
+	businessSettings = normalizeBusinessSettings(BusinessSettings{
+		BusinessName: "Brand global",
+		LogoPath:     "/static/uploads/branding/logo-global.png",
+	})
+	businessSettingsMu.Unlock()
+	defer func() {
+		businessSettingsMu.Lock()
+		businessSettings = previousSettings
+		businessSettingsMu.Unlock()
+	}()
+
+	tenantUser := &User{ID: 7, Username: "tenant2.admin", Role: roleAdmin, TenantID: 2}
+	legacySettings := normalizeBusinessSettings(BusinessSettings{
+		BusinessName: "Tenant Dos",
+		LogoPath:     "/static/uploads/branding/logo-legacy.svg",
+	})
+	data := struct {
+		Settings    BusinessSettings
+		CurrentUser *User
+	}{
+		Settings:    legacySettings,
+		CurrentUser: tenantUser,
+	}
+
+	if got := effectiveBusinessLogoPath(legacySettings, data); got != "/static/uploads/branding/logo-global.png" {
+		t.Fatalf("expected legacy SVG logo to fall back to safe global branding, got %q", got)
+	}
+
+	businessSettingsMu.Lock()
+	businessSettings = normalizeBusinessSettings(BusinessSettings{
+		BusinessName: "Brand global",
+		LogoPath:     "/static/uploads/branding/logo-global.svg",
+	})
+	businessSettingsMu.Unlock()
+
+	if got := effectiveBusinessLogoPath(legacySettings, data); got != defaultBusinessSettings().LogoPath {
+		t.Fatalf("expected legacy SVG logo to fall back to default logo when global branding is also SVG, got %q", got)
 	}
 }
 
@@ -4120,6 +4449,8 @@ func TestAPICreditHistoryAndCustomerEventsReflectEditChanges(t *testing.T) {
 func TestAPICreditsEditedReportSupportsFiltersAndTenantScope(t *testing.T) {
 	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	sessionToken := createTestSession(t, db, tenantAdmin)
 
 	seedTenantProductWithUnits(t, db, tenant.ID, "T2-REPORT-CREDIT-001", "Producto Reporte", 42000, 2)
 
@@ -4162,7 +4493,7 @@ func TestAPICreditsEditedReportSupportsFiltersAndTenantScope(t *testing.T) {
 		t.Fatalf("expected 200 updating credit, got %d body=%s", updateResp.Code, updateResp.Body.String())
 	}
 
-	reportResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/edited?status=suspended&kind=product_credit&customer=94445566&credit_sale_id="+strconv.Itoa(creditSaleID), token, nil)
+	reportResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/edited?status=suspended&kind=product_credit&customer=94445566&credit_sale_id="+strconv.Itoa(creditSaleID), sessionToken, nil, "")
 	if reportResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 report, got %d body=%s", reportResp.Code, reportResp.Body.String())
 	}
@@ -4213,7 +4544,7 @@ func TestAPICreditsEditedReportSupportsFiltersAndTenantScope(t *testing.T) {
 		t.Fatalf("insert cross audit event: %v", err)
 	}
 
-	crossReportResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/edited", token, nil)
+	crossReportResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/edited", sessionToken, nil, "")
 	if crossReportResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 report without cross tenant, got %d body=%s", crossReportResp.Code, crossReportResp.Body.String())
 	}
@@ -4825,10 +5156,10 @@ func TestAPICustomerDetailAndEventsRespectTenantScope(t *testing.T) {
 }
 
 func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
-	db, handler, _, token := setupTenantWriteAPIHarness(t)
+	db, handler, _, sessionToken := setupTenantAdminSessionAPIHarness(t)
 	defer db.Close()
 
-	createResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users", token, map[string]any{
+	createResp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users", sessionToken, map[string]any{
 		"username":    "tenant2.ops",
 		"name":        "Operador Dos",
 		"email":       "tenant2.ops@example.com",
@@ -4836,7 +5167,7 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 		"role":        "empleado",
 		"is_active":   true,
 		"telegram_id": "44556677",
-	})
+	}, "https://example.com")
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("expected 201 creating user, got %d body=%s", createResp.Code, createResp.Body.String())
 	}
@@ -4850,7 +5181,7 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 		t.Fatalf("unexpected role in create response: %+v", user)
 	}
 
-	listResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users", token, nil)
+	listResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/users", sessionToken, nil, "")
 	if listResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 listing users, got %d body=%s", listResp.Code, listResp.Body.String())
 	}
@@ -4859,7 +5190,7 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 		t.Fatalf("expected at least tenant admin + created user, got %+v", listBody)
 	}
 
-	detailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users/"+strconv.Itoa(userID), token, nil)
+	detailResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/users/"+strconv.Itoa(userID), sessionToken, nil, "")
 	if detailResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 getting user detail, got %d body=%s", detailResp.Code, detailResp.Body.String())
 	}
@@ -4869,9 +5200,9 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 		t.Fatalf("unexpected detail payload: %+v", detailUser)
 	}
 
-	toggleOffResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(userID)+"/toggle", token, map[string]any{
+	toggleOffResp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(userID)+"/toggle", sessionToken, map[string]any{
 		"is_active": false,
-	})
+	}, "https://example.com")
 	if toggleOffResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 toggling user off, got %d body=%s", toggleOffResp.Code, toggleOffResp.Body.String())
 	}
@@ -4881,11 +5212,11 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 		t.Fatalf("unexpected toggle-off payload: %+v", toggledOffUser)
 	}
 
-	updateResp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/users/"+strconv.Itoa(userID), token, map[string]any{
+	updateResp := performSessionAPIJSONRequest(t, handler, http.MethodPatch, "/api/users/"+strconv.Itoa(userID), sessionToken, map[string]any{
 		"name":        "Operador Dos Actualizado",
 		"telegram_id": "88990011",
 		"is_active":   true,
-	})
+	}, "https://example.com")
 	if updateResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 updating user, got %d body=%s", updateResp.Code, updateResp.Body.String())
 	}
@@ -4904,7 +5235,7 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 		t.Fatalf("insert legacy user: %v", err)
 	}
 
-	legacyDetailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users/"+strconv.Itoa(int(legacyUserID)), token, nil)
+	legacyDetailResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/users/"+strconv.Itoa(int(legacyUserID)), sessionToken, nil, "")
 	if legacyDetailResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 getting legacy user detail, got %d body=%s", legacyDetailResp.Code, legacyDetailResp.Body.String())
 	}
@@ -4927,9 +5258,9 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 	`, userID, time.Now().Format(time.RFC3339), now); err != nil {
 		t.Fatalf("insert session for password reset: %v", err)
 	}
-	passwordResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(userID)+"/password", token, map[string]any{
+	passwordResp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(userID)+"/password", sessionToken, map[string]any{
 		"password": "NuevaClave123!",
-	})
+	}, "https://example.com")
 	if passwordResp.Code != http.StatusOK {
 		t.Fatalf("expected 200 updating password, got %d body=%s", passwordResp.Code, passwordResp.Body.String())
 	}
@@ -4941,30 +5272,30 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 		t.Fatalf("expected sessions to be invalidated after password reset, got %d", remainingSessions)
 	}
 
-	crossTenantResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users/1", token, nil)
+	crossTenantResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/users/1", sessionToken, nil, "")
 	if crossTenantResp.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 cross-tenant user detail, got %d body=%s", crossTenantResp.Code, crossTenantResp.Body.String())
 	}
 
-	forbiddenRoleResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users", token, map[string]any{
+	forbiddenRoleResp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users", sessionToken, map[string]any{
 		"username":  "tenant2.platform",
 		"password":  "PlatformSegura123!",
 		"role":      "platform_admin",
 		"is_active": true,
-	})
+	}, "https://example.com")
 	if forbiddenRoleResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when tenant admin tries to create platform admin, got %d body=%s", forbiddenRoleResp.Code, forbiddenRoleResp.Body.String())
 	}
 }
 
 func TestAPIUsersRejectsDeactivatingLastTenantAdmin(t *testing.T) {
-	db, handler, _, token := setupTenantWriteAPIHarness(t)
+	db, handler, _, sessionToken := setupTenantAdminSessionAPIHarness(t)
 	defer db.Close()
 
 	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
-	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(tenantAdmin.ID)+"/toggle", token, map[string]any{
+	resp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(tenantAdmin.ID)+"/toggle", sessionToken, map[string]any{
 		"is_active": false,
-	})
+	}, "https://example.com")
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when deactivating last tenant admin, got %d body=%s", resp.Code, resp.Body.String())
 	}
@@ -5167,6 +5498,61 @@ func TestAdjustInventoryProductUpdatesStockAndRetoma(t *testing.T) {
 	}
 	if inventoryAuditCount != 1 || productAuditCount != 1 {
 		t.Fatalf("unexpected audit counts inventory=%d product=%d", inventoryAuditCount, productAuditCount)
+	}
+}
+
+func TestAPIInventoryAdjustRequiresSessionUser(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "INV-ADJ-001", "Producto Ajustable", 20000, 2)
+
+	apiKeyResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/inventory/adjust", token, map[string]any{
+		"product_id":      "INV-ADJ-001",
+		"target_quantity": 3,
+		"sale_price":      22000,
+		"retoma_enabled":  true,
+		"retoma_price":    12000,
+	})
+	if apiKeyResp.Code != http.StatusForbidden {
+		t.Fatalf("expected inventory adjust 403 for API key, got %d body=%s", apiKeyResp.Code, apiKeyResp.Body.String())
+	}
+
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	sessionToken := createTestSession(t, db, tenantAdmin)
+
+	sessionResp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/inventory/adjust", sessionToken, map[string]any{
+		"product_id":      "INV-ADJ-001",
+		"target_quantity": 3,
+		"sale_price":      22000,
+		"retoma_enabled":  true,
+		"retoma_price":    12000,
+	}, "https://example.com")
+	if sessionResp.Code != http.StatusOK {
+		t.Fatalf("expected inventory adjust 200 for session user, got %d body=%s", sessionResp.Code, sessionResp.Body.String())
+	}
+
+	var (
+		gotPrice         float64
+		gotRetomaEnabled int
+		gotRetomaPrice   sql.NullFloat64
+		unitCount        int
+	)
+	if err := db.QueryRow(`
+		SELECT precio_venta, retoma_enabled, retoma_price
+		FROM productos
+		WHERE tenant_id = ? AND id = ?
+	`, tenant.ID, "INV-ADJ-001").Scan(&gotPrice, &gotRetomaEnabled, &gotRetomaPrice); err != nil {
+		t.Fatalf("query adjusted product: %v", err)
+	}
+	if gotPrice != 22000 || gotRetomaEnabled != 1 || !gotRetomaPrice.Valid || gotRetomaPrice.Float64 != 12000 {
+		t.Fatalf("unexpected adjusted product state price=%.2f retoma_enabled=%d retoma_price=%v", gotPrice, gotRetomaEnabled, gotRetomaPrice)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ?`, tenant.ID, "INV-ADJ-001").Scan(&unitCount); err != nil {
+		t.Fatalf("count adjusted units: %v", err)
+	}
+	if unitCount != 3 {
+		t.Fatalf("expected 3 units after session adjust, got %d", unitCount)
 	}
 }
 

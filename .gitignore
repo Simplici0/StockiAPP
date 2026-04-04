@@ -42,3 +42,7 @@ GranEmpresaINV
 # Local-only tooling and runtime uploads
 scripts/
 static/uploads/branding/
+
+# Local download artifacts
+rclone-*.zip
+rclone-v*/

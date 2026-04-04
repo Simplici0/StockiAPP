@@ -3497,6 +3497,24 @@
               return parsed.toLocaleDateString("es-ES", bogotaDateOptions);
             };
             const formatDateISO = (value) => new Date(value).toISOString().slice(0, 10);
+            const escapeHTML = (value) =>
+                String(value ?? "").replace(/[&<>"']/g, (char) => {
+                    switch (char) {
+                        case "&":
+                            return "&amp;";
+                        case "<":
+                            return "&lt;";
+                        case ">":
+                            return "&gt;";
+                        case '"':
+                            return "&quot;";
+                        case "'":
+                            return "&#39;";
+                        default:
+                            return char;
+                    }
+                });
+            const esc = escapeHTML;
             const statusLabels = {
               available: "Disponible",
               credit_active: "Crédito activo",
@@ -3543,16 +3561,25 @@
                 (product) => product.ageAlert || product.units.some((unit) => isExpiringSoon(unit.expires))
               ).length;
 
-              summary.innerHTML = `
-                <div class="summary-card">
-                  <h3>Productos</h3>
-                  <span>${totalProducts}</span>
-                </div>
-                <div class="summary-card">
-                  <h3>Unidades</h3>
-                  <span>${totalUnits}</span>
-                </div>
-              `;
+              const productsCard = document.createElement("div");
+              productsCard.className = "summary-card";
+              const productsTitle = document.createElement("h3");
+              productsTitle.textContent = "Productos";
+              const productsValue = document.createElement("span");
+              productsValue.textContent = String(totalProducts);
+              productsCard.appendChild(productsTitle);
+              productsCard.appendChild(productsValue);
+
+              const unitsCard = document.createElement("div");
+              unitsCard.className = "summary-card";
+              const unitsTitle = document.createElement("h3");
+              unitsTitle.textContent = "Unidades";
+              const unitsValue = document.createElement("span");
+              unitsValue.textContent = String(totalUnits);
+              unitsCard.appendChild(unitsTitle);
+              unitsCard.appendChild(unitsValue);
+
+              summary.replaceChildren(productsCard, unitsCard);
             };
 
             const isExpiringSoon = (dateString) => {
@@ -3629,118 +3656,133 @@
               productTable.innerHTML = "";
 
               items.forEach((product) => {
+                const productId = esc(product.id);
+                const productName = esc(product.name || "");
+                const productLine = esc(normalizeLine(product.line));
+                const productLocation = esc(product.location || "");
+                const productBaseId = esc(product.baseProductId || "-");
+                const productIngreso = esc(product.ingreso || "-");
+                const productDebtorName = esc(product.debtorName || "Sin definir");
+                const productDebtorDocumentNumber = esc(product.debtorDocumentNumber || "Sin registro");
+                const productDebtorPhone = esc(product.debtorPhone || "Sin registro");
+                const productCustomerCity = esc(product.customerCity || "Sin registro");
+                const productManagedByName = esc(product.managedByName || "Sin registro");
+                const productNotes = esc(product.notes || "Sin notas");
+                const productCurrentDebt = esc(formatCOP(product.currentDebt || 0));
+                const productTotalPaid = esc(formatCOP(product.totalPaid || 0));
+                const productInstallmentValue = esc(formatCOP(product.installmentValue || 0));
                 const row = document.createElement("tr");
                 const isCredit = product.entryType === "credit";
                 const isPhysicalLoan = product.entryType === "loan";
                 row.innerHTML = `
                   <td>
-                    <div class="product-name" data-product="${product.id}">
-                      ${product.name}
-                      ${product.ageAlert ? `<span class="age-pill" title="En stock ${product.ageMonths} meses (fecha ingreso: ${product.ingreso || '-'})">+6 meses</span>` : ``}
+                    <div class="product-name" data-product="${productId}">
+                      ${productName}
+                      ${product.ageAlert ? `<span class="age-pill" title="En stock ${esc(product.ageMonths)} meses (fecha ingreso: ${productIngreso})">+6 meses</span>` : ``}
                     </div>
-                    <div class="fifo-note">${isCredit ? `Crédito ${product.id} · Producto ${product.baseProductId || "-"}` : isPhysicalLoan ? `Préstamo ${product.id} · Producto ${product.baseProductId || "-"}` : `ID ${product.id} · ${product.available} disponibles`}</div>
-                    ${product.entryType === "product" && product.location ? `<div class="fifo-note">Locación · ${product.location}</div>` : ``}
+                    <div class="fifo-note">${isCredit ? `Crédito ${productId} · Producto ${productBaseId}` : isPhysicalLoan ? `Préstamo ${productId} · Producto ${productBaseId}` : `ID ${productId} · ${esc(product.available)} disponibles`}</div>
+                    ${product.entryType === "product" && product.location ? `<div class="fifo-note">Locación · ${productLocation}</div>` : ``}
                     ${isCredit
-                      ? `<button type="button" class="credit-details-toggle" data-credit-toggle="${product.id}" aria-expanded="false">
+                      ? `<button type="button" class="credit-details-toggle" data-credit-toggle="${productId}" aria-expanded="false">
                           <span class="credit-badge">${product.creditKind === "cash_loan" ? "Préstamo" : "Crédito"}</span>
                           <span class="credit-caret" aria-hidden="true"></span>
                         </button>`
                       : isPhysicalLoan
-                        ? `<button type="button" class="credit-details-toggle" data-credit-toggle="${product.id}" aria-expanded="false">
+                        ? `<button type="button" class="credit-details-toggle" data-credit-toggle="${productId}" aria-expanded="false">
                             <span class="credit-badge">Préstamo físico</span>
                             <span class="credit-caret" aria-hidden="true"></span>
                           </button>`
                       : ``}
                   </td>
-                  <td>${normalizeLine(product.line)}</td>
+                  <td>${productLine}</td>
                   <td>
                     <div class="value-cell">
                       <div class="value-line sale">
                         <span class="value-label">${isCredit ? "Deuda total" : isPhysicalLoan ? "Valor ref." : "Venta"}</span>
-                        <span class="value-amount">${formatCOP(isCredit ? (product.debtTotal || 0) : (product.salePrice || 0))}</span>
+                        <span class="value-amount">${esc(formatCOP(isCredit ? (product.debtTotal || 0) : (product.salePrice || 0)))}</span>
                       </div>
                       ${isCredit
                         ? `<div class="value-line sale">
                             <span class="value-label">Deuda actual</span>
-                            <span class="value-amount">${formatCOP(product.currentDebt || 0)}</span>
+                            <span class="value-amount">${productCurrentDebt}</span>
                           </div>
                           <div class="value-line sale">
                             <span class="value-label">Cuota</span>
-                            <span class="value-amount">${formatCOP(product.installmentValue || 0)}</span>
+                            <span class="value-amount">${productInstallmentValue}</span>
                           </div>`
                         : isPhysicalLoan
                           ? `<div class="value-line sale">
                               <span class="value-label">Cantidad prestada</span>
-                              <span class="value-amount">${product.units.length || 0}</span>
+                              <span class="value-amount">${esc(product.units.length || 0)}</span>
                             </div>
                             <div class="value-line sale">
                               <span class="value-label">Retorno</span>
-                              <span class="value-amount">${formatOptionalDate(product.dueAt)}</span>
+                              <span class="value-amount">${esc(formatOptionalDate(product.dueAt))}</span>
                             </div>`
                         : ``}
                       ${product.entryType === "product" && product.retomaEnabled
                         ? `<div class="value-line retoma ${product.retomaPrice > 0 ? "" : "is-empty"}">
                             <span class="value-label">Retoma</span>
-                            <span class="value-amount">${product.retomaPrice > 0 ? formatCOP(product.retomaPrice) : "No definido"}</span>
+                            <span class="value-amount">${product.retomaPrice > 0 ? esc(formatCOP(product.retomaPrice)) : "No definido"}</span>
                           </div>`
                         : ``}
                     </div>
                   </td>
-                  <td><span class="status ${product.statusClass}">${statusLabel(product.statusLabel)}</span></td>
+                  <td><span class="status ${esc(product.statusClass || "")}">${esc(statusLabel(product.statusLabel))}</span></td>
                   <td>
-                    <strong>${isPhysicalLoan ? product.units.length : product.available}</strong>
+                    <strong>${esc(isPhysicalLoan ? product.units.length : product.available)}</strong>
                     ${isPhysicalLoan ? `<div class="fifo-note">Prestadas</div>` : ``}
                   </td>
                   <td>
                     <div class="actions">
                       ${isCredit
-                        ? `{{if .CanCredit}}<button class="primary" data-action="installment" data-product="${product.id}">Registrar pago</button>{{end}}`
+                        ? `{{if .CanCredit}}<button class="primary" data-action="installment" data-product="${productId}">Registrar pago</button>{{end}}`
                         : isPhysicalLoan
-                          ? `{{if .CanLoan}}<button class="primary" data-action="close-loan" data-product="${product.id}">Cerrar préstamo</button>{{end}}`
+                          ? `{{if .CanLoan}}<button class="primary" data-action="close-loan" data-product="${productId}">Cerrar préstamo</button>{{end}}`
                         : `
-                      <input type="number" min="1" max="${Math.max(product.available, 1)}" value="1" data-qty="${product.id}" />
+                      <input type="number" min="1" max="${Math.max(product.available, 1)}" value="1" data-qty="${productId}" />
                       {{if .CanSell}}
-                      <button class="primary" data-action="sell" data-product="${product.id}">Vender</button>
+                      <button class="primary" data-action="sell" data-product="${productId}">Vender</button>
                       {{end}}
                       {{if .CanSwap}}
-                      <button class="secondary" data-action="swap" data-product="${product.id}">Cambio</button>
+                      <button class="secondary" data-action="swap" data-product="${productId}">Cambio</button>
                       {{end}}
                       {{if .CanRetoma}}
-                      ${product.retomaEnabled ? `<button class="ghost" data-action="retoma" data-product="${product.id}">Retoma</button>` : ``}
+                      ${product.retomaEnabled ? `<button class="ghost" data-action="retoma" data-product="${productId}">Retoma</button>` : ``}
                       {{end}}
                       `}
                     </div>
                   </td>
                   <td>
                     <div class="menu">
-                      <button class="ghost" data-menu="${product.id}">⋮</button>
-                      <div class="menu-panel" id="menu-${product.id}">
+                      <button class="ghost" data-menu="${productId}">⋮</button>
+                      <div class="menu-panel" id="menu-${productId}">
                         ${isCredit ? `
                         {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}
-                        <button type="button" data-menu-action="edit-credit" data-product="${product.id}">Editar crédito</button>
+                        <button type="button" data-menu-action="edit-credit" data-product="${productId}">Editar crédito</button>
                         {{end}}
-                        <button type="button" data-menu-action="invoice-credit" data-product="${product.id}">Generar factura</button>
-                        <button type="button" data-menu-action="history" data-product="${product.id}">Ver historial</button>
+                        <button type="button" data-menu-action="invoice-credit" data-product="${productId}">Generar factura</button>
+                        <button type="button" data-menu-action="history" data-product="${productId}">Ver historial</button>
                         ` : isPhysicalLoan ? `
                         {{if .CanLoan}}
-                        <button type="button" data-menu-action="close-loan" data-product="${product.id}">Cerrar préstamo</button>
+                        <button type="button" data-menu-action="close-loan" data-product="${productId}">Cerrar préstamo</button>
                         {{end}}
-                        <button type="button" data-menu-action="history" data-product="${product.id}">Ver historial</button>
+                        <button type="button" data-menu-action="history" data-product="${productId}">Ver historial</button>
                         ` : `
-                        <button type="button" data-menu-action="reserve" data-product="${product.id}">Reservar unidades</button>
-                        <button type="button" data-menu-action="damage" data-product="${product.id}">Registrar daño</button>
+                        <button type="button" data-menu-action="reserve" data-product="${productId}">Reservar unidades</button>
+                        <button type="button" data-menu-action="damage" data-product="${productId}">Registrar daño</button>
                         {{if .CanLoan}}
-                        <button type="button" data-menu-action="loan-product" data-product="${product.id}">Prestar producto</button>
+                        <button type="button" data-menu-action="loan-product" data-product="${productId}">Prestar producto</button>
                         {{end}}
-                        <button type="button" data-menu-action="edit" data-product="${product.id}">Editar producto</button>
-                        <button type="button" data-menu-action="print-label" data-product="${product.id}">Imprimir etiqueta</button>
+                        <button type="button" data-menu-action="edit" data-product="${productId}">Editar producto</button>
+                        <button type="button" data-menu-action="print-label" data-product="${productId}">Imprimir etiqueta</button>
                         {{if .CanRetoma}}
-                        ${product.retomaEnabled ? `<button type="button" data-menu-action="retoma" data-product="${product.id}">Preparar retoma</button>` : ``}
+                        ${product.retomaEnabled ? `<button type="button" data-menu-action="retoma" data-product="${productId}">Preparar retoma</button>` : ``}
                         {{end}}
                         {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "empleado"))}}
-                        <button type="button" data-menu-action="stock" data-product="${product.id}">Ajustar stock</button>
+                        <button type="button" data-menu-action="stock" data-product="${productId}">Ajustar stock</button>
                         {{end}}
-                        <button type="button" data-menu-action="history" data-product="${product.id}">Ver historial</button>
+                        <button type="button" data-menu-action="history" data-product="${productId}">Ver historial</button>
                         `}
                       </div>
                     </div>
@@ -3751,7 +3793,7 @@
 
                 const unitsRow = document.createElement("tr");
                 unitsRow.className = "units-row";
-                unitsRow.id = `units-row-${product.id}`;
+                unitsRow.id = `units-row-${productId}`;
                 unitsRow.hidden = true;
                 if (isCredit) {
                   unitsRow.innerHTML = `
@@ -3761,14 +3803,14 @@
                         <span class="fifo-note">${product.creditKind === "cash_loan" ? "Seguimiento operativo del cash_loan" : "Seguimiento operativo del crédito activo"}</span>
                       </div>
                       <div class="credit-meta">
-                        <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
-                        <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Cuotas:</strong><span>${product.paidInstallmentsCount || product.installmentsPaid || 0}/${product.installmentsTotal}</span></span>
-                        <span class="credit-meta-item"><strong>Total pagado:</strong><span>${formatCOP(product.totalPaid || 0)}</span></span>
-                        <span class="credit-meta-item"><strong>Deuda actual:</strong><span>${formatCOP(product.currentDebt || 0)}</span></span>
-                        <span class="credit-meta-item"><strong>Último pago:</strong><span>${product.lastPaymentAmount > 0 ? `${paymentTypeLabel(product.lastPaymentType)} · ${formatCOP(product.lastPaymentAmount)}` : "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Último movimiento:</strong><span>${timeAgo(product.lastPaymentAt)}</span></span>
+                        <span class="credit-meta-item"><strong>Cliente:</strong><span>${productDebtorName}</span></span>
+                        <span class="credit-meta-item"><strong>Documento:</strong><span>${productDebtorDocumentNumber}</span></span>
+                        <span class="credit-meta-item"><strong>Ciudad:</strong><span>${productCustomerCity}</span></span>
+                        <span class="credit-meta-item"><strong>Cuotas:</strong><span>${esc(product.paidInstallmentsCount || product.installmentsPaid || 0)}/${esc(product.installmentsTotal)}</span></span>
+                        <span class="credit-meta-item"><strong>Total pagado:</strong><span>${productTotalPaid}</span></span>
+                        <span class="credit-meta-item"><strong>Deuda actual:</strong><span>${productCurrentDebt}</span></span>
+                        <span class="credit-meta-item"><strong>Último pago:</strong><span>${product.lastPaymentAmount > 0 ? esc(`${paymentTypeLabel(product.lastPaymentType)} · ${formatCOP(product.lastPaymentAmount)}`) : "Sin registro"}</span></span>
+                        <span class="credit-meta-item"><strong>Último movimiento:</strong><span>${esc(timeAgo(product.lastPaymentAt))}</span></span>
                       </div>
                     </td>
                   `;
@@ -3783,14 +3825,14 @@
                         <span class="fifo-note">Seguimiento operativo del préstamo</span>
                       </div>
                       <div class="credit-meta" style="margin-bottom: 12px;">
-                        <span class="credit-meta-item"><strong>Cliente:</strong><span>${product.debtorName || "Sin definir"}</span></span>
-                        <span class="credit-meta-item"><strong>Documento:</strong><span>${product.debtorDocumentNumber || "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Teléfono:</strong><span>${product.debtorPhone || "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Ciudad:</strong><span>${product.customerCity || "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Gestionado por:</strong><span>${product.managedByName || "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Prestado desde:</strong><span>${product.ingreso || "Sin registro"}</span></span>
-                        <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${formatOptionalDate(product.dueAt)}</span></span>
-                        <span class="credit-meta-item"><strong>Observaciones:</strong><span>${product.notes || "Sin notas"}</span></span>
+                        <span class="credit-meta-item"><strong>Cliente:</strong><span>${productDebtorName}</span></span>
+                        <span class="credit-meta-item"><strong>Documento:</strong><span>${productDebtorDocumentNumber}</span></span>
+                        <span class="credit-meta-item"><strong>Teléfono:</strong><span>${productDebtorPhone}</span></span>
+                        <span class="credit-meta-item"><strong>Ciudad:</strong><span>${productCustomerCity}</span></span>
+                        <span class="credit-meta-item"><strong>Gestionado por:</strong><span>${productManagedByName}</span></span>
+                        <span class="credit-meta-item"><strong>Prestado desde:</strong><span>${productIngreso}</span></span>
+                        <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${esc(formatOptionalDate(product.dueAt))}</span></span>
+                        <span class="credit-meta-item"><strong>Observaciones:</strong><span>${productNotes}</span></span>
                       </div>
                       <table class="units-table" aria-label="Unidades prestadas">
                         <thead>
@@ -3806,11 +3848,11 @@
                           ${product.units
                             .map((unit) => `
                               <tr>
-                                <td>${unit.id}</td>
-                                <td>${product.ingreso || "-"}</td>
-                                <td>${formatOptionalDate(product.dueAt)}</td>
-                                <td>${statusLabel(unit.statusLabel)}</td>
-                                <td>${product.managedByName || "-"}</td>
+                                <td>${esc(unit.id)}</td>
+                                <td>${productIngreso}</td>
+                                <td>${esc(formatOptionalDate(product.dueAt))}</td>
+                                <td>${esc(statusLabel(unit.statusLabel))}</td>
+                                <td>${productManagedByName}</td>
                               </tr>
                             `)
                           .join("")}
@@ -3844,12 +3886,12 @@
                             const fifoOrder = unit.fifo || (unit.statusClass === "available" ? index + 1 : "-");
                             return `
                               <tr>
-                                <td>${unit.id}</td>
-                                <td>${formatOptionalDate(unit.created)}</td>
-                                <td>${formatOptionalDate(unit.expires)}</td>
-                                <td>${product.location || "-"}</td>
-                                <td>${statusLabel(unit.statusLabel)}</td>
-                                <td><span class="unit-tag">${fifoOrder}</span></td>
+                                <td>${esc(unit.id)}</td>
+                                <td>${esc(formatOptionalDate(unit.created))}</td>
+                                <td>${esc(formatOptionalDate(unit.expires))}</td>
+                                <td>${productLocation || "-"}</td>
+                                <td>${esc(statusLabel(unit.statusLabel))}</td>
+                                <td><span class="unit-tag">${esc(fifoOrder)}</span></td>
                               </tr>
                             `;
                         })
@@ -5154,12 +5196,15 @@
                 if (productLoanCloseSubmit)
                     productLoanCloseSubmit.disabled = false;
                 if (productLoanCloseSummary) {
-                    productLoanCloseSummary.innerHTML = `
-                        <strong>${product.name || "Préstamo"}</strong>
-                        <p>Cliente: ${product.debtorName || "Sin cliente"} · Documento: ${product.debtorDocumentNumber || "Sin registro"}</p>
-                        <p>Prestado desde: ${product.ingreso || "Sin registro"} · Retorno esperado: ${formatOptionalDate(product.dueAt)}</p>
-                        <p>Gestionado por: ${product.managedByName || "Sin registro"} · Unidades: ${product.units.length || 0}</p>
-                    `;
+                    const title = document.createElement("strong");
+                    title.textContent = product.name || "Préstamo";
+                    const customer = document.createElement("p");
+                    customer.textContent = `Cliente: ${product.debtorName || "Sin cliente"} · Documento: ${product.debtorDocumentNumber || "Sin registro"}`;
+                    const schedule = document.createElement("p");
+                    schedule.textContent = `Prestado desde: ${product.ingreso || "Sin registro"} · Retorno esperado: ${formatOptionalDate(product.dueAt)}`;
+                    const meta = document.createElement("p");
+                    meta.textContent = `Gestionado por: ${product.managedByName || "Sin registro"} · Unidades: ${product.units.length || 0}`;
+                    productLoanCloseSummary.replaceChildren(title, customer, schedule, meta);
                 }
                 openModal(
                     productLoanCloseModal,
@@ -5234,23 +5279,23 @@
                                       change.field,
                                       change.after,
                                   );
-                                  return `<span><strong>${label}:</strong> ${before} -> ${after}</span>`;
+                                  return `<span><strong>${esc(label)}:</strong> ${esc(before)} -> ${esc(after)}</span>`;
                               })
                               .join("")
                         : "";
                     const impact = entry.impact || {};
                     item.innerHTML = `
                         <div class="credit-edit-history-meta">
-                            <strong>${entry.event_label || "Credito editado"}</strong>
-                            <span>${entry.created_at || ""}</span>
-                            <span>${entry.created_by || "Sin usuario"}</span>
-                            <span>${entry.source || "web"}</span>
+                            <strong>${esc(entry.event_label || "Credito editado")}</strong>
+                            <span>${esc(entry.created_at || "")}</span>
+                            <span>${esc(entry.created_by || "Sin usuario")}</span>
+                            <span>${esc(entry.source || "web")}</span>
                         </div>
                         <div class="credit-edit-history-changes">
                             ${changes || "<span>Sin cambios legibles registrados.</span>"}
                         </div>
                         <div class="credit-edit-history-impact">
-                            Deuda: ${formatCOP(impact.current_debt_before || 0)} -> ${formatCOP(impact.current_debt_after || 0)} · Estado: ${impact.status_label_before || statusLabels[String(impact.status_before || "active")] || "Activo"} -> ${impact.status_label_after || statusLabels[String(impact.status_after || "active")] || "Activo"}
+                            Deuda: ${esc(formatCOP(impact.current_debt_before || 0))} -> ${esc(formatCOP(impact.current_debt_after || 0))} · Estado: ${esc(impact.status_label_before || statusLabels[String(impact.status_before || "active")] || "Activo")} -> ${esc(impact.status_label_after || statusLabels[String(impact.status_after || "active")] || "Activo")}
                         </div>
                     `;
                     creditEditHistoryList.appendChild(item);
@@ -5269,16 +5314,16 @@
                     card.innerHTML = `
                         <div class="credit-manager-head">
                             <div>
-                                <strong>${credit.kind === "cash_loan" ? "Préstamo de dinero" : credit.product || "Crédito"}</strong>
-                                <span>${credit.customer_name || "Sin cliente"} · ${credit.kind_label || "Crédito"} · ID ${credit.id}</span>
+                                <strong>${esc(credit.kind === "cash_loan" ? "Préstamo de dinero" : credit.product || "Crédito")}</strong>
+                                <span>${esc(credit.customer_name || "Sin cliente")} · ${esc(credit.kind_label || "Crédito")} · ID ${esc(credit.id)}</span>
                             </div>
-                            <button type="button" class="secondary" data-credit-edit="${credit.id}">Editar</button>
+                            <button type="button" class="secondary" data-credit-edit="${esc(credit.id)}">Editar</button>
                         </div>
                         <div class="credit-manager-meta">
-                            <span>Estado: ${credit.status_label || credit.status || "-"}</span>
-                            <span>Cuotas: ${credit.installments_paid || 0}/${credit.installments_total || 0}</span>
-                            <span>Cuota: ${formatCOP(credit.installment_value || 0)}</span>
-                            <span>Deuda actual: ${formatCOP(credit.current_debt || 0)}</span>
+                            <span>Estado: ${esc(credit.status_label || credit.status || "-")}</span>
+                            <span>Cuotas: ${esc(credit.installments_paid || 0)}/${esc(credit.installments_total || 0)}</span>
+                            <span>Cuota: ${esc(formatCOP(credit.installment_value || 0))}</span>
+                            <span>Deuda actual: ${esc(formatCOP(credit.current_debt || 0))}</span>
                         </div>
                     `;
                     creditManageList.appendChild(card);
@@ -5324,11 +5369,13 @@
                             : `${credit.product || "Crédito"} · ${credit.customer_name || "Sin cliente"}`;
                 }
                 if (creditEditSummary) {
-                    creditEditSummary.innerHTML = `
-                        <strong>${credit.kind === "cash_loan" ? "Préstamo de dinero" : credit.product || "Crédito"}</strong>
-                        <p>Cliente: ${credit.customer_name || "Sin cliente"} · Documento: ${credit.customer_document_number || "Sin registro"}</p>
-                        <p>Total pagado: ${formatCOP(credit.total_paid || 0)} · Deuda actual: ${formatCOP(credit.current_debt || 0)}</p>
-                    `;
+                    const title = document.createElement("strong");
+                    title.textContent = credit.kind === "cash_loan" ? "Préstamo de dinero" : credit.product || "Crédito";
+                    const customer = document.createElement("p");
+                    customer.textContent = `Cliente: ${credit.customer_name || "Sin cliente"} · Documento: ${credit.customer_document_number || "Sin registro"}`;
+                    const debt = document.createElement("p");
+                    debt.textContent = `Total pagado: ${formatCOP(credit.total_paid || 0)} · Deuda actual: ${formatCOP(credit.current_debt || 0)}`;
+                    creditEditSummary.replaceChildren(title, customer, debt);
                 }
                 if (creditEditInstallmentsTotal)
                     creditEditInstallmentsTotal.value = String(
@@ -5524,17 +5571,16 @@
                     loanProductFields.style.display = isCash ? "none" : "grid";
                 }
                 if (creditKindContext) {
+                    const title = document.createElement("strong");
+                    const description = document.createElement("p");
                     if (kind === "cash_loan") {
-                        creditKindContext.innerHTML = `
-                            <strong>Préstamo de dinero</strong>
-                            <p>Registra una deuda comercial sin producto asociado. No afecta stock, unidades ni movimientos físicos.</p>
-                        `;
+                        title.textContent = "Préstamo de dinero";
+                        description.textContent = "Registra una deuda comercial sin producto asociado. No afecta stock, unidades ni movimientos físicos.";
                     } else {
-                        creditKindContext.innerHTML = `
-                            <strong>Crédito con producto</strong>
-                            <p>Selecciona el producto, la cantidad y los datos del cliente. Este flujo descuenta inventario y crea el crédito.</p>
-                        `;
+                        title.textContent = "Crédito con producto";
+                        description.textContent = "Selecciona el producto, la cantidad y los datos del cliente. Este flujo descuenta inventario y crea el crédito.";
                     }
+                    creditKindContext.replaceChildren(title, description);
                 }
                 if (loanTotalLabel) {
                     loanTotalLabel.textContent =

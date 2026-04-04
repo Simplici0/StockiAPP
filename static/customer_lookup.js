@@ -15,6 +15,10 @@
     return tail ? `${name} · ${tail}` : name;
   }
 
+  function safeText(value) {
+    return value == null ? "" : String(value);
+  }
+
   function setValue(input, value) {
     if (!input) return;
     input.value = value == null ? "" : String(value);
@@ -86,7 +90,14 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "customer-lookup-result";
-        button.innerHTML = `<strong>${item.name || "Sin nombre"}</strong><span>${[item.document_type, item.document_number].filter(Boolean).join(" ")}${item.city ? ` · ${item.city}` : ""}${item.phone ? ` · ${item.phone}` : ""}</span>`;
+        const strong = document.createElement("strong");
+        strong.textContent = safeText(item.name || "Sin nombre");
+        const span = document.createElement("span");
+        const parts = [item.document_type, item.document_number].filter(Boolean);
+        span.textContent =
+          `${parts.join(" ")}${item.city ? ` · ${item.city}` : ""}${item.phone ? ` · ${item.phone}` : ""}`;
+        button.appendChild(strong);
+        button.appendChild(span);
         button.addEventListener("click", () => applyCustomer(item));
         results.appendChild(button);
       });

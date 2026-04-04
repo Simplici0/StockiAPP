@@ -38,7 +38,9 @@ Authorization: Bearer <APIKEY>
 Reglas importantes:
 - `Bearer` tiene prioridad sobre la sesión web cuando ambos llegan a `/api/*`
 - si no llega `Bearer`, `/api/*` todavía puede usar sesión por compatibilidad
+- las requests mutantes a `/api/*` autenticadas por cookie/sesión pasan validación same-origin (`Origin` o `Referer`)
 - para automatizaciones nuevas, el contrato oficial es `Bearer`
+- una API key autentica un principal operativo tenant-scoped, no un admin implícito del tenant
 - si el tenant está inactivo, la API rechaza la request aunque el token exista
 
 ## API Key Para Agentes
@@ -52,6 +54,13 @@ Reglas de la key:
 - no hay que mandar `tenant_id` manual
 - un workflow por negocio debe usar una key por negocio
 - si la key está inactiva, deja de autenticar de inmediato
+- por seguridad, la key no abre endpoints administrativos sensibles por defecto
+
+Rutas administrativas que requieren sesión admin del tenant:
+- gestión de usuarios en `/api/users*`
+- owners asignables en `/api/settings/owners`
+- cambio de ID visible de producto en `/api/products/{id}`
+- reporte `/api/credits/edited`
 
 Uso recomendado en `n8n`:
 - mismo workflow base
@@ -224,7 +233,7 @@ Respuesta:
 Devuelve las líneas de negocio del tenant autenticado.
 
 Por defecto devuelve solo las activas.
-Si la request viene de un admin, puede incluir inactivas con `?include_inactive=true`.
+Si la request viene de un admin por sesión web, puede incluir inactivas con `?include_inactive=true`.
 
 Ejemplo:
 
@@ -255,7 +264,7 @@ Respuesta:
 
 Devuelve los usuarios asignables del tenant autenticado para `owner_user_id`.
 
-Solo administrador del tenant.
+Solo administrador del tenant por sesión web. Las API keys operativas responden `403` en esta ruta.
 
 Ejemplo:
 
@@ -345,7 +354,7 @@ Reglas:
 
 Actualiza el `id` visible de un producto existente.
 
-Solo admin.
+Solo admin por sesión web. Las API keys operativas responden `403`.
 
 Payload:
 
@@ -423,7 +432,7 @@ Respuesta:
 
 Ajusta inventario y, si aplica, precio o retoma del producto.
 
-Solo personal autorizado.
+Solo personal autorizado por sesión web (`staff`/`admin`). Las API keys operativas responden `403` en esta ruta.
 
 Payload:
 
@@ -1048,11 +1057,15 @@ Estos endpoints reutilizan la misma base compartida que usa `/admin/users` en la
 
 Reglas:
 - solo `admin` y `platform_admin` pueden operar usuarios por API
-- el tenant se resuelve por `Bearer/API key`
+- el tenant se resuelve por la sesión admin autenticada
 - no se envía `tenant_id` manual
 - `telegram_id` está disponible para lectura y edición
 - no se puede dejar un tenant sin al menos un admin activo
 - solo un `platform_admin` puede crear o editar usuarios `platform_admin`
+- las API keys operativas responden `403` en `/api/users*`
+
+Nota:
+- estas rutas están pensadas para la administración web del tenant; si reproduces requests fuera del browser, reutiliza una sesión admin válida en vez de una API key
 
 ### `GET /api/users`
 
@@ -1655,10 +1668,11 @@ Uso recomendado:
 - revisión rápida de impacto en deuda y estado
 
 Reglas:
-- solo `admin` y `platform_admin`
-- tenant-scoped por Bearer token o API key
+- solo `admin` y `platform_admin` por sesión web
+- tenant-scoped por la sesión autenticada
 - reutiliza la trazabilidad ya registrada en `audit_events`
 - no requiere `tenant_id`
+- las API keys operativas responden `403`
 
 Filtros disponibles:
 - `date_from`

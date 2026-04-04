@@ -18,6 +18,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -769,6 +770,7 @@ const (
 	rolePlatformAdmin = "platform_admin"
 	roleAdmin         = "admin"
 	roleEmployee      = "empleado"
+	roleAPIKey        = "api_key"
 
 	defaultTenantID   = 1
 	defaultTenantSlug = "default"
@@ -781,6 +783,11 @@ const (
 	dbEnginePostgres dbEngine = "postgres"
 
 	postgresDriverName = "stocki-postgres"
+)
+
+const (
+	apiAuthModeAPIKey  = "api_key"
+	apiAuthModeSession = "session"
 )
 
 type databaseConfig struct {
@@ -927,6 +934,334 @@ func loadDatabaseConfig() (databaseConfig, error) {
 		DSN:    dsn,
 		Label:  "Postgres",
 	}, nil
+}
+
+const (
+	loginFormBodyLimit      int64 = 64 << 10
+	defaultFormBodyLimit    int64 = 256 << 10
+	defaultJSONBodyLimit    int64 = 1 << 20
+	brandingUploadBodyLimit int64 = 10 << 20
+	csvUploadBodyLimit      int64 = 40 << 20
+
+	loginRateWindow       = 10 * time.Minute
+	loginRateLockDuration = 5 * time.Minute
+	loginRateMaxFailures  = 5
+
+	defaultResponseCSP   = "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'self'; img-src 'self' data: blob:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+	staticSVGResponseCSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox"
+)
+
+type loginRateRecord struct {
+	windowStart  time.Time
+	failures     int
+	blockedUntil time.Time
+}
+
+type loginRateLimiter struct {
+	mu      sync.Mutex
+	records map[string]loginRateRecord
+}
+
+var appLoginRateLimiter = newLoginRateLimiter()
+
+func newLoginRateLimiter() *loginRateLimiter {
+	return &loginRateLimiter{records: map[string]loginRateRecord{}}
+}
+
+func (l *loginRateLimiter) allow(key string, now time.Time) (time.Duration, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	record, ok := l.records[key]
+	if !ok {
+		return 0, true
+	}
+	if !record.blockedUntil.IsZero() && now.Before(record.blockedUntil) {
+		return record.blockedUntil.Sub(now), false
+	}
+	if now.Sub(record.windowStart) > loginRateWindow {
+		delete(l.records, key)
+	}
+	return 0, true
+}
+
+func (l *loginRateLimiter) recordFailure(key string, now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	record := l.records[key]
+	if record.windowStart.IsZero() || now.Sub(record.windowStart) > loginRateWindow {
+		record = loginRateRecord{windowStart: now}
+	}
+	record.failures++
+	if record.failures >= loginRateMaxFailures {
+		record.blockedUntil = now.Add(loginRateLockDuration)
+		record.failures = 0
+		record.windowStart = now
+	}
+	l.records[key] = record
+}
+
+func (l *loginRateLimiter) reset(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.records, key)
+}
+
+func clientIPFromRequest(r *http.Request) string {
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+		parts := strings.Split(forwarded, ",")
+		if len(parts) > 0 {
+			candidate := strings.TrimSpace(parts[0])
+			if candidate != "" {
+				return candidate
+			}
+		}
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func loginRateLimitKeys(r *http.Request, username string) []string {
+	ip := strings.TrimSpace(clientIPFromRequest(r))
+	username = strings.ToLower(strings.TrimSpace(username))
+	keys := []string{}
+	if ip != "" {
+		keys = append(keys, "ip:"+ip)
+	}
+	if username != "" && ip != "" {
+		keys = append(keys, "user:"+username+"|"+ip)
+	} else if username != "" {
+		keys = append(keys, "user:"+username)
+	}
+	return keys
+}
+
+func loginRequestAllowed(r *http.Request, username string, now time.Time) (time.Duration, bool) {
+	keys := loginRateLimitKeys(r, username)
+	if len(keys) == 0 {
+		return 0, true
+	}
+	var retryAfter time.Duration
+	for _, key := range keys {
+		wait, allowed := appLoginRateLimiter.allow(key, now)
+		if !allowed {
+			if wait > retryAfter {
+				retryAfter = wait
+			}
+		}
+	}
+	return retryAfter, retryAfter == 0
+}
+
+func registerLoginFailure(r *http.Request, username string, now time.Time) {
+	for _, key := range loginRateLimitKeys(r, username) {
+		appLoginRateLimiter.recordFailure(key, now)
+	}
+}
+
+func resetLoginRateLimit(r *http.Request, username string) {
+	for _, key := range loginRateLimitKeys(r, username) {
+		appLoginRateLimiter.reset(key)
+	}
+}
+
+func requestMutatesState(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func forwardedProto(r *http.Request) string {
+	if raw := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); raw != "" {
+		return strings.ToLower(strings.TrimSpace(strings.Split(raw, ",")[0]))
+	}
+	for _, field := range strings.Split(r.Header.Get("Forwarded"), ";") {
+		part := strings.TrimSpace(field)
+		if !strings.HasPrefix(strings.ToLower(part), "proto=") {
+			continue
+		}
+		value := strings.Trim(strings.TrimSpace(strings.TrimPrefix(part, "proto=")), `"`)
+		if value != "" {
+			return strings.ToLower(value)
+		}
+	}
+	return ""
+}
+
+func requestScheme(r *http.Request) string {
+	if forced := strings.TrimSpace(firstNonEmptyString(os.Getenv("SECURE_COOKIES"), os.Getenv("COOKIE_SECURE"))); forced != "" {
+		if secure, err := strconv.ParseBool(forced); err == nil && secure {
+			return "https"
+		}
+	}
+	if proto := forwardedProto(r); proto == "https" {
+		return "https"
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func requestUsesSecureCookies(r *http.Request) bool {
+	if forced := strings.TrimSpace(firstNonEmptyString(os.Getenv("SECURE_COOKIES"), os.Getenv("COOKIE_SECURE"))); forced != "" {
+		if secure, err := strconv.ParseBool(forced); err == nil {
+			return secure
+		}
+	}
+	return requestScheme(r) == "https"
+}
+
+func requestOriginHost(r *http.Request) string {
+	if host := strings.TrimSpace(r.Host); host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+}
+
+func parseRequestOrigin(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, errors.New("missing origin")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return nil, errors.New("invalid origin")
+	}
+	return parsed, nil
+}
+
+func requestPassesCSRFSameOriginCheck(r *http.Request) bool {
+	scheme := requestScheme(r)
+	host := requestOriginHost(r)
+	if host == "" {
+		return false
+	}
+
+	check := func(raw string) bool {
+		parsed, err := parseRequestOrigin(raw)
+		if err != nil {
+			return false
+		}
+		return strings.EqualFold(parsed.Scheme, scheme) && strings.EqualFold(parsed.Host, host)
+	}
+
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		return check(origin)
+	}
+	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
+		return check(referer)
+	}
+	return false
+}
+
+func apiKeyRequestAllowed(r *http.Request) bool {
+	path := strings.TrimRight(strings.TrimSpace(r.URL.Path), "/")
+	if path == "" {
+		path = "/"
+	}
+
+	switch {
+	case r.Method == http.MethodGet && path == "/api/health":
+		return true
+	case r.Method == http.MethodGet && path == "/api/settings/business":
+		return true
+	case r.Method == http.MethodGet && path == "/api/settings/lines":
+		return true
+	case r.Method == http.MethodGet && path == "/api/products":
+		return true
+	case r.Method == http.MethodGet && path == "/api/products/search":
+		return true
+	case r.Method == http.MethodGet && path == "/api/productos/precio":
+		return true
+	case r.Method == http.MethodGet && path == "/api/inventory":
+		return true
+	case r.Method == http.MethodGet && path == "/api/sales/recent":
+		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/sales":
+		return true
+	case r.Method == http.MethodPost && path == "/api/swaps":
+		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/retomas":
+		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/customers":
+		return true
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/customers/"):
+		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/credits":
+		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/credits/installments":
+		return true
+	case r.Method == http.MethodGet && path == "/api/credits/edited":
+		return false
+	case (r.Method == http.MethodGet || r.Method == http.MethodPut || r.Method == http.MethodPatch) && strings.HasPrefix(path, "/api/credits/"):
+		return true
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/invoices":
+		return true
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/invoices/"):
+		return true
+	case r.Method == http.MethodGet && path == "/api/agent/business":
+		return true
+	case r.Method == http.MethodGet && path == "/api/agent/customers/search":
+		return true
+	case r.Method == http.MethodPost && path == "/api/agent/credits":
+		return true
+	case r.Method == http.MethodPost && path == "/api/agent/invoices":
+		return true
+	case r.Method == http.MethodGet && path == "/api/agent/products/search":
+		return true
+	case r.Method == http.MethodGet && path == "/api/agent/products/price":
+		return true
+	case r.Method == http.MethodGet && path == "/api/agent/inventory":
+		return true
+	default:
+		return false
+	}
+}
+
+func requestBodyLimit(r *http.Request) int64 {
+	if !requestMutatesState(r.Method) {
+		return 0
+	}
+	switch {
+	case r.URL.Path == "/configuracion":
+		return brandingUploadBodyLimit
+	case r.URL.Path == "/productos/csv":
+		return csvUploadBodyLimit
+	case strings.HasPrefix(r.URL.Path, "/api/"):
+		return defaultJSONBodyLimit
+	default:
+		return defaultFormBodyLimit
+	}
+}
+
+func applyRequestBodyLimit(w http.ResponseWriter, r *http.Request) {
+	if limit := requestBodyLimit(r); limit > 0 && r.Body != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+	}
+}
+
+func setSecurityHeaders(w http.ResponseWriter, r *http.Request) {
+	csp := defaultResponseCSP
+	if r != nil &&
+		strings.HasPrefix(strings.TrimSpace(r.URL.Path), "/static/uploads/branding/") &&
+		strings.HasSuffix(strings.ToLower(strings.TrimSpace(r.URL.Path)), ".svg") {
+		csp = staticSVGResponseCSP
+	}
+	w.Header().Set("Content-Security-Policy", csp)
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 }
 
 func sanitizePostgresIdentifier(value string) string {
@@ -1470,7 +1805,7 @@ func loadAssignableUsersForTenant(db *sql.DB, tenantID int) ([]assignableUser, e
 }
 
 func canAccessProduct(user *User, product productOption) bool {
-	if user != nil && isAdminRole(user.Role) {
+	if user != nil && hasTenantWideVisibility(user.Role) {
 		return true
 	}
 	if !product.HasOwner {
@@ -1507,7 +1842,7 @@ func productAccessibleByID(db *sql.DB, user *User, productID string) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	if user != nil && isAdminRole(user.Role) {
+	if user != nil && hasTenantWideVisibility(user.Role) {
 		return true, nil
 	}
 	if !record.OwnerUserID.Valid {
@@ -1531,7 +1866,7 @@ func productAccessibleBySKU(db *sql.DB, user *User, sku string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if user != nil && isAdminRole(user.Role) {
+	if user != nil && hasTenantWideVisibility(user.Role) {
 		return true, nil
 	}
 	if !record.OwnerUserID.Valid {
@@ -1613,7 +1948,7 @@ func productVisibilityPredicate(alias string, user *User) (string, []any) {
 	if err != nil {
 		return "1 = 0", nil
 	}
-	if user != nil && isAdminRole(user.Role) {
+	if user != nil && hasTenantWideVisibility(user.Role) {
 		return fmt.Sprintf("%s.tenant_id = ?", alias), []any{tenantID}
 	}
 	return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?))", alias, alias, alias, alias), []any{tenantID, user.ID}
@@ -1630,7 +1965,7 @@ func tenantScopedProductAccessPredicate(entityAlias, productAlias string, user *
 	if err != nil {
 		return "1 = 0", nil
 	}
-	if user != nil && isAdminRole(user.Role) {
+	if user != nil && hasTenantWideVisibility(user.Role) {
 		return fmt.Sprintf("%s.tenant_id = ?", entityAlias), []any{tenantID}
 	}
 	return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?))", entityAlias, productAlias, productAlias, productAlias), []any{tenantID, user.ID}
@@ -1644,7 +1979,7 @@ func creditVisibilityPredicate(creditAlias string, user *User) (string, []any) {
 	if err != nil {
 		return "1 = 0", nil
 	}
-	if user != nil && isAdminRole(user.Role) {
+	if user != nil && hasTenantWideVisibility(user.Role) {
 		return fmt.Sprintf("%s.tenant_id = ?", creditAlias), []any{tenantID}
 	}
 	return fmt.Sprintf(`(
@@ -6364,7 +6699,7 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 }
 
 func updateCreditSale(db *sql.DB, currentUser *User, creditSaleID int, input creditSaleUpdateInput, source string, decoratePayload func(map[string]any) map[string]any) (creditSaleUpdateResult, error) {
-	if currentUser == nil || !isAdminRole(currentUser.Role) {
+	if currentUser == nil || (!isAdminRole(currentUser.Role) && !isAPIKeyRole(currentUser.Role)) {
 		return creditSaleUpdateResult{}, requestError{Status: http.StatusForbidden, Message: "Solo administrador puede editar créditos."}
 	}
 	tenantID := tenantIDFromUser(currentUser)
@@ -7331,9 +7666,13 @@ func effectiveBusinessLogoPath(settings BusinessSettings, data any) string {
 	defaultLogoPath := strings.TrimSpace(defaultBusinessSettings().LogoPath)
 	globalLogoPath := strings.TrimSpace(currentBusinessSettings().LogoPath)
 	logoPath := strings.TrimSpace(settings.LogoPath)
+	isUploadedSVG := func(value string) bool {
+		value = strings.TrimSpace(strings.ToLower(value))
+		return strings.HasPrefix(value, "/static/uploads/branding/") && strings.HasSuffix(value, ".svg")
+	}
 
 	if logoPath == "" {
-		if globalLogoPath != "" {
+		if globalLogoPath != "" && !isUploadedSVG(globalLogoPath) {
 			return globalLogoPath
 		}
 		return defaultLogoPath
@@ -7343,10 +7682,17 @@ func effectiveBusinessLogoPath(settings BusinessSettings, data any) string {
 	// prefer current global branding configured by platform admin.
 	if logoPath == defaultLogoPath {
 		if user, ok := currentUserFromTemplateData(data); ok && tenantIDFromUser(user) != defaultTenantID {
-			if globalLogoPath != "" {
+			if globalLogoPath != "" && !isUploadedSVG(globalLogoPath) {
 				return globalLogoPath
 			}
 		}
+	}
+
+	if isUploadedSVG(logoPath) {
+		if globalLogoPath != "" && !isUploadedSVG(globalLogoPath) {
+			return globalLogoPath
+		}
+		return defaultLogoPath
 	}
 
 	return logoPath
@@ -7878,12 +8224,30 @@ func saveBusinessLogo(file io.Reader, originalName string) (string, error) {
 	if err := ensureUploadDirs(); err != nil {
 		return "", err
 	}
-	ext := strings.ToLower(filepath.Ext(originalName))
-	switch ext {
-	case ".png", ".jpg", ".jpeg", ".svg", ".webp":
-	default:
+	header := make([]byte, 512)
+	readBytes, err := io.ReadFull(file, header)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", err
+	}
+	header = header[:readBytes]
+	contentType := strings.ToLower(http.DetectContentType(header))
+	allowedByType := map[string]string{
+		"image/png":  ".png",
+		"image/jpeg": ".jpg",
+		"image/webp": ".webp",
+	}
+	ext, ok := allowedByType[contentType]
+	if !ok {
 		return "", fmt.Errorf("formato de logo no soportado")
 	}
+	originalExt := strings.ToLower(filepath.Ext(originalName))
+	if contentType == "image/jpeg" && originalExt == ".jpeg" {
+		originalExt = ".jpg"
+	}
+	if originalExt != "" && originalExt != ext {
+		return "", fmt.Errorf("el archivo no coincide con un formato de imagen soportado")
+	}
+
 	fileName := fmt.Sprintf("logo-%d%s", time.Now().UnixNano(), ext)
 	relPath := filepath.Join("uploads", "branding", fileName)
 	fullPath := filepath.Join("static", relPath)
@@ -7892,6 +8256,11 @@ func saveBusinessLogo(file io.Reader, originalName string) (string, error) {
 		return "", err
 	}
 	defer dst.Close()
+	if len(header) > 0 {
+		if _, err := dst.Write(header); err != nil {
+			return "", err
+		}
+	}
 	if _, err := io.Copy(dst, file); err != nil {
 		return "", err
 	}
@@ -9076,25 +9445,26 @@ func generateToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(tokenBytes), nil
 }
 
-func setSessionCookie(w http.ResponseWriter, token string, expiresAt time.Time, secure bool) {
+func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   secure,
+		Secure:   requestUsesSecureCookies(r),
 		Expires:  expiresAt,
 	})
 }
 
-func clearSessionCookie(w http.ResponseWriter) {
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   requestUsesSecureCookies(r),
 		MaxAge:   -1,
 	})
 }
@@ -9138,12 +9508,20 @@ func isPlatformAdmin(user *User) bool {
 	return user != nil && user.Role == rolePlatformAdmin
 }
 
+func isAPIKeyRole(role string) bool {
+	return role == roleAPIKey
+}
+
 func isAdminRole(role string) bool {
 	return role == roleAdmin || role == rolePlatformAdmin
 }
 
+func hasTenantWideVisibility(role string) bool {
+	return isAdminRole(role) || isAPIKeyRole(role)
+}
+
 func isStaffRole(role string) bool {
-	return isAdminRole(role) || role == roleEmployee
+	return isAdminRole(role) || role == roleEmployee || isAPIKeyRole(role)
 }
 
 func isValidManagedRole(role string, allowPlatform bool) bool {
@@ -10219,10 +10597,10 @@ func integrationPrincipalForTenant(tenantID int, integrationName string) *User {
 	if integrationName == "" {
 		integrationName = fmt.Sprintf("tenant-%d", tenantID)
 	}
-	// Keep API auth tenant-scoped without depending on any mutable human admin account.
+	// API keys stay tenant-scoped, but no longer impersonate a tenant admin.
 	return &User{
 		Username: "api:" + integrationName,
-		Role:     roleAdmin,
+		Role:     roleAPIKey,
 		IsActive: true,
 		TenantID: tenantID,
 	}
@@ -10811,6 +11189,64 @@ func handleAPIInvoiceRoutes(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "invoice": item})
+	}
+}
+
+func handleAPIInventoryAdjust(db *sql.DB, syncProduct func(productID string, salePrice *float64, name *string, retomaEnabled *bool, retomaPrice *float64)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
+			writeAPIError(w, http.StatusForbidden, "Solo personal autorizado puede ajustar stock y precio.", nil)
+			return
+		}
+		var payload struct {
+			ProductID      string   `json:"product_id"`
+			TargetQuantity *int     `json:"target_quantity"`
+			Notes          string   `json:"notes"`
+			SalePrice      *float64 `json:"sale_price"`
+			Name           *string  `json:"name"`
+			RetomaEnabled  *bool    `json:"retoma_enabled"`
+			RetomaPrice    *float64 `json:"retoma_price"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+			return
+		}
+		result, err := adjustInventoryProduct(db, currentUser, inventoryAdjustInput{
+			ProductID:      payload.ProductID,
+			TargetQuantity: payload.TargetQuantity,
+			Notes:          payload.Notes,
+			SalePrice:      payload.SalePrice,
+			Name:           payload.Name,
+			RetomaEnabled:  payload.RetomaEnabled,
+			RetomaPrice:    payload.RetomaPrice,
+		}, "api", func(item map[string]any) map[string]any {
+			return withAPIAuditMetadata(r, item)
+		})
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo actualizar el inventario.", nil)
+			return
+		}
+		if syncProduct != nil && (payload.SalePrice != nil || payload.Name != nil || payload.RetomaEnabled != nil) {
+			syncProduct(result.ProductID, payload.SalePrice, payload.Name, payload.RetomaEnabled, payload.RetomaPrice)
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":                true,
+			"product_id":        result.ProductID,
+			"previous_quantity": result.PreviousQuantity,
+			"current_quantity":  result.CurrentQuantity,
+			"delta":             result.Delta,
+			"message":           result.Message,
+		})
 	}
 }
 
@@ -11865,6 +12301,8 @@ func setAPIContextHeaders(w http.ResponseWriter, r *http.Request) {
 
 func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w, r)
+
 		// Allow unauthenticated access to healthcheck and static assets.
 		// Static assets are safe to serve publicly and needed for the login page too.
 		if r.URL.Path == "/login" || r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/static/") {
@@ -11892,6 +12330,15 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 				ctx = context.WithValue(ctx, apiAuthModeContextKey, authMode)
 			}
 			reqWithCtx := r.WithContext(ctx)
+			applyRequestBodyLimit(w, reqWithCtx)
+			if authMode == "api_key" && !apiKeyRequestAllowed(reqWithCtx) {
+				writeAPIError(w, http.StatusForbidden, "La API key no tiene permiso para operar esta ruta.", nil)
+				return
+			}
+			if authMode == "session" && requestMutatesState(reqWithCtx.Method) && !requestPassesCSRFSameOriginCheck(reqWithCtx) {
+				writeAPIError(w, http.StatusForbidden, "La validación CSRF falló para esta operación.", nil)
+				return
+			}
 			setAPIContextHeaders(w, reqWithCtx)
 			next.ServeHTTP(w, reqWithCtx)
 			return
@@ -11905,12 +12352,18 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), userContextKey, user)
 		tenant, err := resolveTenantByID(db, user.TenantID)
 		if err != nil || !tenant.Active {
-			clearSessionCookie(w)
+			clearSessionCookie(w, r)
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		ctx = context.WithValue(ctx, tenantContextKey, tenant)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		reqWithCtx := r.WithContext(ctx)
+		applyRequestBodyLimit(w, reqWithCtx)
+		if requestMutatesState(reqWithCtx.Method) && !requestPassesCSRFSameOriginCheck(reqWithCtx) {
+			http.Error(w, "La validación CSRF falló para esta operación.", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, reqWithCtx)
 	})
 }
 
@@ -13765,13 +14218,34 @@ func main() {
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, loginFormBodyLimit)
 		if err := r.ParseForm(); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+				http.Error(w, "El formulario de login excede el tamaño permitido.", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "No se pudo leer el formulario", http.StatusBadRequest)
 			return
 		}
 
 		username := strings.TrimSpace(r.FormValue("username"))
 		password := r.FormValue("password")
+		now := time.Now()
+		if retryAfter, allowed := loginRequestAllowed(r, username, now); !allowed {
+			retrySeconds := int(math.Ceil(retryAfter.Seconds()))
+			if retrySeconds <= 0 {
+				retrySeconds = int(loginRateLockDuration.Seconds())
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
+			data := loginPageData{
+				Title:    "Iniciar sesión",
+				Error:    "Demasiados intentos fallidos. Espera unos minutos antes de intentar de nuevo.",
+				Username: username,
+			}
+			w.WriteHeader(http.StatusTooManyRequests)
+			renderTemplate(w, "login.html", data, "Error al renderizar login")
+			return
+		}
 
 		var (
 			user     User
@@ -13794,6 +14268,7 @@ func main() {
 				Error:    "Credenciales inválidas.",
 				Username: username,
 			}
+			registerLoginFailure(r, username, now)
 			w.WriteHeader(http.StatusUnauthorized)
 			renderTemplate(w, "login.html", data, "Error al renderizar login")
 			return
@@ -13805,6 +14280,7 @@ func main() {
 				Error:    "La empresa asociada a este usuario es inválida.",
 				Username: username,
 			}
+			registerLoginFailure(r, username, now)
 			w.WriteHeader(http.StatusUnauthorized)
 			renderTemplate(w, "login.html", data, "Error al renderizar login")
 			return
@@ -13817,6 +14293,7 @@ func main() {
 				Error:    "Credenciales inválidas.",
 				Username: username,
 			}
+			registerLoginFailure(r, username, now)
 			w.WriteHeader(http.StatusUnauthorized)
 			renderTemplate(w, "login.html", data, "Error al renderizar login")
 			return
@@ -13830,6 +14307,7 @@ func main() {
 				Error:    "La empresa asociada a este usuario está inactiva.",
 				Username: username,
 			}
+			registerLoginFailure(r, username, now)
 			w.WriteHeader(http.StatusUnauthorized)
 			renderTemplate(w, "login.html", data, "Error al renderizar login")
 			return
@@ -13850,19 +14328,24 @@ func main() {
 			return
 		}
 
-		setSessionCookie(w, token, expiresAt, r.TLS != nil)
+		resetLoginRateLimit(r, username)
+		setSessionCookie(w, r, token, expiresAt)
 		http.Redirect(w, r, "/inventario", http.StatusSeeOther)
 	})
 
 	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		if r.Method == http.MethodGet {
+			http.Redirect(w, r, "/inventario", http.StatusSeeOther)
+			return
+		}
+		if r.Method != http.MethodPost {
 			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 			return
 		}
 		if cookie, err := r.Cookie("session_token"); err == nil {
 			_, _ = db.Exec("DELETE FROM sessions WHERE token = ?", cookie.Value)
 		}
-		clearSessionCookie(w)
+		clearSessionCookie(w, r)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
 
@@ -14345,7 +14828,7 @@ func main() {
 			defer file.Close()
 			logoPath, saveErr := saveBusinessLogo(file, header.Filename)
 			if saveErr != nil {
-				redirectWithMessage(w, r, "/configuracion", "", "No se pudo guardar el logo. Usa PNG, JPG, WEBP o SVG.")
+				redirectWithMessage(w, r, "/configuracion", "", "No se pudo guardar el logo. Usa PNG, JPG o WEBP.")
 				return
 			}
 			settings.LogoPath = logoPath
@@ -18189,83 +18672,31 @@ func main() {
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
 	})
 
-	mux.HandleFunc("/api/inventory/adjust", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
-			return
-		}
-		currentUser := userFromContext(r)
-		if currentUser == nil || !isStaffRole(currentUser.Role) {
-			writeAPIError(w, http.StatusForbidden, "Solo personal autorizado puede ajustar stock y precio.", nil)
-			return
-		}
-		var payload struct {
-			ProductID      string   `json:"product_id"`
-			TargetQuantity *int     `json:"target_quantity"`
-			Notes          string   `json:"notes"`
-			SalePrice      *float64 `json:"sale_price"`
-			Name           *string  `json:"name"`
-			RetomaEnabled  *bool    `json:"retoma_enabled"`
-			RetomaPrice    *float64 `json:"retoma_price"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
-			return
-		}
-		result, err := adjustInventoryProduct(db, currentUser, inventoryAdjustInput{
-			ProductID:      payload.ProductID,
-			TargetQuantity: payload.TargetQuantity,
-			Notes:          payload.Notes,
-			SalePrice:      payload.SalePrice,
-			Name:           payload.Name,
-			RetomaEnabled:  payload.RetomaEnabled,
-			RetomaPrice:    payload.RetomaPrice,
-		}, "api", func(item map[string]any) map[string]any {
-			return withAPIAuditMetadata(r, item)
-		})
-		if err != nil {
-			var reqErr requestError
-			if errors.As(err, &reqErr) {
-				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
-				return
+	mux.HandleFunc("/api/inventory/adjust", handleAPIInventoryAdjust(db, func(productID string, salePrice *float64, name *string, retomaEnabled *bool, retomaPrice *float64) {
+		productsMu.Lock()
+		defer productsMu.Unlock()
+		for idx := range products {
+			if products[idx].ID != productID {
+				continue
 			}
-			writeAPIError(w, http.StatusInternalServerError, "No se pudo actualizar el inventario.", nil)
-			return
-		}
-		if payload.SalePrice != nil || payload.Name != nil || payload.RetomaEnabled != nil {
-			productsMu.Lock()
-			for idx := range products {
-				if products[idx].ID != result.ProductID {
-					continue
-				}
-				if payload.SalePrice != nil {
-					products[idx].SalePrice = *payload.SalePrice
-				}
-				if payload.Name != nil {
-					products[idx].Name = strings.TrimSpace(*payload.Name)
-				}
-				if payload.RetomaEnabled != nil {
-					products[idx].RetomaEnabled = *payload.RetomaEnabled
-					products[idx].HasRetomaPrice = payload.RetomaPrice != nil && *payload.RetomaEnabled
-					if payload.RetomaPrice != nil && *payload.RetomaEnabled {
-						products[idx].RetomaPrice = *payload.RetomaPrice
-					} else {
-						products[idx].RetomaPrice = 0
-					}
-				}
-				break
+			if salePrice != nil {
+				products[idx].SalePrice = *salePrice
 			}
-			productsMu.Unlock()
+			if name != nil {
+				products[idx].Name = strings.TrimSpace(*name)
+			}
+			if retomaEnabled != nil {
+				products[idx].RetomaEnabled = *retomaEnabled
+				products[idx].HasRetomaPrice = retomaPrice != nil && *retomaEnabled
+				if retomaPrice != nil && *retomaEnabled {
+					products[idx].RetomaPrice = *retomaPrice
+				} else {
+					products[idx].RetomaPrice = 0
+				}
+			}
+			break
 		}
-		writeAPIJSON(w, http.StatusOK, map[string]any{
-			"ok":                true,
-			"product_id":        result.ProductID,
-			"previous_quantity": result.PreviousQuantity,
-			"current_quantity":  result.CurrentQuantity,
-			"delta":             result.Delta,
-			"message":           result.Message,
-		})
-	})
+	}))
 
 	mux.HandleFunc("/api/sales/recent", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -18389,12 +18820,22 @@ func main() {
 
 	mux.HandleFunc("/venta/comprobante", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 			return
 		}
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "No se pudo leer el formulario del comprobante.", http.StatusBadRequest)
+				return
+			}
+		}
 
-		saleID, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("sale_id")))
+		saleIDRaw := strings.TrimSpace(r.URL.Query().Get("sale_id"))
+		if r.Method == http.MethodPost {
+			saleIDRaw = strings.TrimSpace(r.FormValue("sale_id"))
+		}
+		saleID, err := strconv.Atoi(saleIDRaw)
 		if err != nil || saleID <= 0 {
 			http.Error(w, "Venta inválida", http.StatusBadRequest)
 			return
@@ -18410,9 +18851,14 @@ func main() {
 			http.Error(w, "No se pudo generar el comprobante.", http.StatusInternalServerError)
 			return
 		}
+		hasStoredBuyerSnapshot := strings.TrimSpace(data.BuyerName) != "" && strings.TrimSpace(data.BuyerDocument) != ""
 
 		buyerName := strings.TrimSpace(r.URL.Query().Get("buyer_name"))
 		buyerDocument := strings.TrimSpace(r.URL.Query().Get("buyer_document"))
+		if r.Method == http.MethodPost {
+			buyerName = strings.TrimSpace(r.FormValue("buyer_name"))
+			buyerDocument = strings.TrimSpace(r.FormValue("buyer_document"))
+		}
 		if buyerName == "" {
 			buyerName = strings.TrimSpace(data.BuyerName)
 		}
@@ -18434,32 +18880,39 @@ func main() {
 		}
 		data.BuyerName = buyerName
 		data.BuyerDocument = buyerDocument
-		data.DownloadURL = saleReceiptDownloadURLWithBuyer(saleID, buyerName, buyerDocument)
-		if err := saveSaleReceiptSnapshot(db, currentUser, saleID, buyerName, buyerDocument, "standard"); err != nil {
-			var reqErr requestError
-			if errors.As(err, &reqErr) {
-				http.Error(w, reqErr.Message, reqErr.Status)
+		if hasStoredBuyerSnapshot || r.Method == http.MethodPost {
+			data.DownloadURL = saleReceiptDownloadURL(saleID)
+			data.ThermalURL = saleThermalTicketViewURL(saleID)
+		} else {
+			data.DownloadURL = saleReceiptDownloadURLWithBuyer(saleID, buyerName, buyerDocument)
+			data.ThermalURL = saleThermalTicketViewURLWithBuyer(saleID, buyerName, buyerDocument)
+		}
+		download := r.URL.Query().Get("download") == "1"
+		if r.Method == http.MethodPost {
+			download = strings.TrimSpace(r.FormValue("download")) == "1"
+			if err := saveSaleReceiptSnapshot(db, currentUser, saleID, buyerName, buyerDocument, "standard"); err != nil {
+				var reqErr requestError
+				if errors.As(err, &reqErr) {
+					http.Error(w, reqErr.Message, reqErr.Status)
+					return
+				}
+				http.Error(w, "No se pudo guardar el comprobante.", http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "No se pudo guardar el comprobante.", http.StatusInternalServerError)
-			return
+			if auditErr := logAuditEvent(db, currentUser, "sale_receipt_generated", "sale", strconv.Itoa(saleID), "web", map[string]any{
+				"sale_id":        saleID,
+				"product_id":     data.ProductoID,
+				"receipt_number": data.ReceiptNumber,
+				"buyer_name":     buyerName,
+				"buyer_document": buyerDocument,
+				"download":       download,
+			}); auditErr != nil {
+				log.Printf("audit sale receipt generated: %v", auditErr)
+			}
 		}
-
-		download := r.URL.Query().Get("download") == "1"
 		if download {
 			filename := fmt.Sprintf("comprobante-venta-%d.html", saleID)
 			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		}
-
-		if auditErr := logAuditEvent(db, currentUser, "sale_receipt_generated", "sale", strconv.Itoa(saleID), "web", map[string]any{
-			"sale_id":        saleID,
-			"product_id":     data.ProductoID,
-			"receipt_number": data.ReceiptNumber,
-			"buyer_name":     buyerName,
-			"buyer_document": buyerDocument,
-			"download":       download,
-		}); auditErr != nil {
-			log.Printf("audit sale receipt generated: %v", auditErr)
 		}
 
 		var buf bytes.Buffer
@@ -18472,12 +18925,22 @@ func main() {
 
 	mux.HandleFunc("/venta/ticket", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
 			return
 		}
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "No se pudo leer el formulario del ticket térmico.", http.StatusBadRequest)
+				return
+			}
+		}
 
-		saleID, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("sale_id")))
+		saleIDRaw := strings.TrimSpace(r.URL.Query().Get("sale_id"))
+		if r.Method == http.MethodPost {
+			saleIDRaw = strings.TrimSpace(r.FormValue("sale_id"))
+		}
+		saleID, err := strconv.Atoi(saleIDRaw)
 		if err != nil || saleID <= 0 {
 			http.Error(w, "Venta inválida", http.StatusBadRequest)
 			return
@@ -18493,7 +18956,11 @@ func main() {
 			http.Error(w, "No se pudo generar el ticket térmico.", http.StatusInternalServerError)
 			return
 		}
+		hasStoredBuyerSnapshot := strings.TrimSpace(data.BuyerName) != "" && strings.TrimSpace(data.BuyerDocument) != ""
 		paperValue := strings.TrimSpace(r.URL.Query().Get("paper"))
+		if r.Method == http.MethodPost {
+			paperValue = strings.TrimSpace(r.FormValue("paper"))
+		}
 		if paperValue == "" {
 			paperValue = settingsForUser(currentUser).TicketPaperWidth
 		}
@@ -18505,6 +18972,10 @@ func main() {
 
 		buyerName := strings.TrimSpace(r.URL.Query().Get("buyer_name"))
 		buyerDocument := strings.TrimSpace(r.URL.Query().Get("buyer_document"))
+		if r.Method == http.MethodPost {
+			buyerName = strings.TrimSpace(r.FormValue("buyer_name"))
+			buyerDocument = strings.TrimSpace(r.FormValue("buyer_document"))
+		}
 		if buyerName == "" {
 			buyerName = strings.TrimSpace(data.BuyerName)
 		}
@@ -18528,27 +18999,33 @@ func main() {
 
 		data.BuyerName = buyerName
 		data.BuyerDocument = buyerDocument
-		data.DownloadURL = saleReceiptDownloadURLWithBuyer(saleID, buyerName, buyerDocument)
-		data.ThermalURL = saleThermalTicketViewURLWithBuyer(saleID, buyerName, buyerDocument)
-		if err := saveSaleReceiptSnapshot(db, currentUser, saleID, buyerName, buyerDocument, "thermal"); err != nil {
-			var reqErr requestError
-			if errors.As(err, &reqErr) {
-				http.Error(w, reqErr.Message, reqErr.Status)
+		if hasStoredBuyerSnapshot || r.Method == http.MethodPost {
+			data.DownloadURL = saleReceiptViewURL(saleID)
+			data.ThermalURL = saleThermalTicketViewURLWithPaper(saleID, paperKey)
+		} else {
+			data.DownloadURL = saleReceiptViewURLWithBuyer(saleID, buyerName, buyerDocument)
+			data.ThermalURL = saleThermalTicketViewURLWithBuyer(saleID, buyerName, buyerDocument)
+		}
+		if r.Method == http.MethodPost {
+			if err := saveSaleReceiptSnapshot(db, currentUser, saleID, buyerName, buyerDocument, "thermal"); err != nil {
+				var reqErr requestError
+				if errors.As(err, &reqErr) {
+					http.Error(w, reqErr.Message, reqErr.Status)
+					return
+				}
+				http.Error(w, "No se pudo guardar el ticket térmico.", http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "No se pudo guardar el ticket térmico.", http.StatusInternalServerError)
-			return
-		}
-
-		if auditErr := logAuditEvent(db, currentUser, "sale_receipt_generated", "sale", strconv.Itoa(saleID), "web", map[string]any{
-			"sale_id":        saleID,
-			"product_id":     data.ProductoID,
-			"receipt_number": data.ReceiptNumber,
-			"buyer_name":     buyerName,
-			"buyer_document": buyerDocument,
-			"format":         "thermal",
-		}); auditErr != nil {
-			log.Printf("audit thermal sale ticket generated: %v", auditErr)
+			if auditErr := logAuditEvent(db, currentUser, "sale_receipt_generated", "sale", strconv.Itoa(saleID), "web", map[string]any{
+				"sale_id":        saleID,
+				"product_id":     data.ProductoID,
+				"receipt_number": data.ReceiptNumber,
+				"buyer_name":     buyerName,
+				"buyer_document": buyerDocument,
+				"format":         "thermal",
+			}); auditErr != nil {
+				log.Printf("audit thermal sale ticket generated: %v", auditErr)
+			}
 		}
 
 		var buf bytes.Buffer

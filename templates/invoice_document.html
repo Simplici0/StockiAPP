@@ -469,10 +469,10 @@
                 <section class="invoice-card">
                     <header class="invoice-head">
                         <div class="invoice-brand">
-                            {{if .Settings.LogoPath}}
+                            {{if businessLogoPath .}}
                             <img
-                                src="{{.Settings.LogoPath}}"
-                                alt="{{.Settings.BusinessName}}"
+                                src="{{businessLogoPath .}}"
+                                alt="{{businessName .}}"
                             />
                             {{end}}
                             <div>

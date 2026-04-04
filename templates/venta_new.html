@@ -182,7 +182,14 @@
       }
 
       if (stockHint) {
-        stockHint.innerHTML = `Disponibles: <strong>${available}</strong>`;
+        stockHint.replaceChildren(
+          document.createTextNode("Disponibles: "),
+          (() => {
+            const strong = document.createElement("strong");
+            strong.textContent = String(available);
+            return strong;
+          })(),
+        );
       }
 
       if (submitBtn) {

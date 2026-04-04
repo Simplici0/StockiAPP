@@ -828,38 +828,81 @@
                 return { rows: parsedRows, errors: [] };
             };
 
+            const makeStatusSpan = (text) => {
+                const span = document.createElement("span");
+                span.textContent = text;
+                return span;
+            };
+
+            const safeNavigationURL = (value) => {
+                try {
+                    const parsed = new URL(
+                        String(value || "").trim(),
+                        window.location.origin,
+                    );
+                    if (
+                        parsed.protocol !== "http:" &&
+                        parsed.protocol !== "https:"
+                    ) {
+                        return "";
+                    }
+                    return parsed.toString();
+                } catch (_) {
+                    return "";
+                }
+            };
+
+            const renderEmptyPreview = (message) => {
+                uploadPreviewBody.replaceChildren();
+                const tr = document.createElement("tr");
+                const td = document.createElement("td");
+                td.colSpan = 14;
+                td.style.textAlign = "center";
+                td.style.color = "var(--muted)";
+                td.textContent = message;
+                tr.appendChild(td);
+                uploadPreviewBody.appendChild(tr);
+            };
+
             const renderPreview = (rows) => {
                 const previewRows = rows.slice(0, 10);
-                uploadPreviewBody.innerHTML = "";
+                uploadPreviewBody.replaceChildren();
                 if (previewRows.length === 0) {
-                    uploadPreviewBody.innerHTML = `
-          <tr>
-            <td colspan="14" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
-          </tr>
-        `;
+                    renderEmptyPreview("Sin filas para mostrar.");
                     return;
                 }
                 previewRows.forEach((row) => {
-                    const errorMarkup = row.errors.length
-                        ? `<span class="error-tag">Errores: ${row.errors.join(" ")}</span>`
-                        : `<span class="success-tag">OK</span>`;
                     const tr = document.createElement("tr");
-                    tr.innerHTML = `
-          <td>${row.index}</td>
-          <td>${row.id || "-"}</td>
-          <td>${row.linea || "-"}</td>
-          <td>${row.nombre || "-"}</td>
-          <td>${row.location || "-"}</td>
-          <td>${row.cantidad === "" ? "-" : row.cantidad}</td>
-          <td>${row.precioVenta || "-"}</td>
-          <td>${row.ownerUserID || "-"}</td>
-          <td>${row.retomaEnabled || "-"}</td>
-          <td>${row.creditEnabled || "-"}</td>
-          <td>${row.anotaciones || "-"}</td>
-          <td>${row.fechaCaducidad || "-"}</td>
-          <td>${row.aplicaCaducidad || "-"}</td>
-          <td>${errorMarkup}</td>
-        `;
+                    const values = [
+                        row.index,
+                        row.id || "-",
+                        row.linea || "-",
+                        row.nombre || "-",
+                        row.location || "-",
+                        row.cantidad === "" ? "-" : row.cantidad,
+                        row.precioVenta || "-",
+                        row.ownerUserID || "-",
+                        row.retomaEnabled || "-",
+                        row.creditEnabled || "-",
+                        row.anotaciones || "-",
+                        row.fechaCaducidad || "-",
+                        row.aplicaCaducidad || "-",
+                    ];
+                    values.forEach((value) => {
+                        const td = document.createElement("td");
+                        td.textContent = value == null ? "" : String(value);
+                        tr.appendChild(td);
+                    });
+                    const errorCell = document.createElement("td");
+                    const tag = document.createElement("span");
+                    tag.className = row.errors.length
+                        ? "error-tag"
+                        : "success-tag";
+                    tag.textContent = row.errors.length
+                        ? `Errores: ${row.errors.join(" ")}`
+                        : "OK";
+                    errorCell.appendChild(tag);
+                    tr.appendChild(errorCell);
                     uploadPreviewBody.appendChild(tr);
                 });
             };
@@ -868,11 +911,11 @@
                 const validCount = rows.filter(
                     (row) => row.errors.length === 0,
                 ).length;
-                uploadStatus.innerHTML = `
-        <span>Preview: ${rows.length} filas</span>
-        <span>Válidas: ${validCount}</span>
-        <span>Errores: ${rows.length - validCount}</span>
-      `;
+                uploadStatus.replaceChildren(
+                    makeStatusSpan(`Preview: ${rows.length} filas`),
+                    makeStatusSpan(`Válidas: ${validCount}`),
+                    makeStatusSpan(`Errores: ${rows.length - validCount}`),
+                );
 
                 validationErrors.innerHTML = "";
                 if (errors.length) {
@@ -923,11 +966,7 @@
                     );
 
                     if (rows.length === 0) {
-                        uploadPreviewBody.innerHTML = `
-            <tr>
-            <td colspan="14" style="text-align: center; color: var(--muted);">Sin filas para mostrar.</td>
-            </tr>
-          `;
+                        renderEmptyPreview("Sin filas para mostrar.");
                         validatedRows = [];
                         validationErrorsList = [
                             "El archivo no contiene filas.",
@@ -960,16 +999,12 @@
                     validationErrorsList = [];
                     uploadButton.disabled = true;
                     if (validateButton) validateButton.disabled = !currentFile;
-                    uploadStatus.innerHTML = `
-          <span>Preview: 0 filas</span>
-          <span>Válidas: 0</span>
-          <span>Errores: 0</span>
-        `;
-                    uploadPreviewBody.innerHTML = `
-          <tr>
-            <td colspan="14" style="text-align: center; color: var(--muted);">Sin archivo validado.</td>
-          </tr>
-        `;
+                    uploadStatus.replaceChildren(
+                        makeStatusSpan("Preview: 0 filas"),
+                        makeStatusSpan("Válidas: 0"),
+                        makeStatusSpan("Errores: 0"),
+                    );
+                    renderEmptyPreview("Sin archivo validado.");
                     if (validationPill)
                         validationPill.textContent = "Validación pendiente";
                     validationErrors.innerHTML = "";
@@ -1022,34 +1057,34 @@
                         const errorCount = result.failed_rows
                             ? result.failed_rows.length
                             : 0;
-                        uploadResult.innerHTML = `
-            <strong>Resumen:</strong>
-            Productos creados: ${result.created_products || 0} ·
-            Productos actualizados: ${result.updated_products || 0} ·
-            Unidades creadas: ${result.created_units || 0} ·
-            Errores: ${errorCount}
-          `;
-                        latestLabelPrintURL = String(
+                        uploadResult.textContent = `Resumen: Productos creados: ${result.created_products || 0} · Productos actualizados: ${result.updated_products || 0} · Unidades creadas: ${result.created_units || 0} · Errores: ${errorCount}`;
+                        latestLabelPrintURL = safeNavigationURL(
                             result.label_print_url || "",
-                        ).trim();
+                        );
                         if (latestLabelPrintURL) {
-                            uploadResult.insertAdjacentHTML(
-                                "beforeend",
-                                `<div style="margin-top: 12px;"><a class="button secondary" href="${latestLabelPrintURL}" target="_blank" rel="noreferrer">Imprimir etiquetas</a></div>`,
-                            );
+                            const linkWrap = document.createElement("div");
+                            linkWrap.style.marginTop = "12px";
+                            const link = document.createElement("a");
+                            link.className = "button secondary";
+                            link.href = latestLabelPrintURL;
+                            link.target = "_blank";
+                            link.rel = "noreferrer";
+                            link.textContent = "Imprimir etiquetas";
+                            linkWrap.appendChild(link);
+                            uploadResult.appendChild(linkWrap);
                         }
 
                         if (errorCount > 0) {
-                            const errorItems = result.failed_rows
-                                .map(
-                                    (row) =>
-                                        `<li>Fila ${row.row} (ID: ${row.id || "-"}) → ${row.error}</li>`,
-                                )
-                                .join("");
-                            uploadResult.insertAdjacentHTML(
-                                "beforeend",
-                                `<ul>${errorItems}</ul>`,
-                            );
+                            const errorList = document.createElement("ul");
+                            (Array.isArray(result.failed_rows)
+                                ? result.failed_rows
+                                : []
+                            ).forEach((row) => {
+                                const li = document.createElement("li");
+                                li.textContent = `Fila ${row.row} (ID: ${row.id || "-"}) → ${row.error}`;
+                                errorList.appendChild(li);
+                            });
+                            uploadResult.appendChild(errorList);
                         }
 
                         inventoryLink.style.display = "inline-flex";
