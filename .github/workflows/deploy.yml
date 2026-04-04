@@ -16,11 +16,12 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
+	 script: |
             cd /opt/stockiapp
             git fetch origin
             git checkout main
             git pull origin main
             go build -buildvcs=false -o stockiapp .
-            systemctl restart stockiapp
-            systemctl status stockiapp --no-pager
+            cp stockiapp /srv/granempresa/app/granempresa
+            systemctl restart granempresa
+            systemctl status granempresa --no-pager
