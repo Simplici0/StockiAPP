@@ -3431,6 +3431,7 @@
               {{- end }}
             ];
             const currentUserRole = "{{if .CurrentUser}}{{.CurrentUser.Role}}{{end}}";
+            const productsById = new Map();
 
             const statusFilter = document.getElementById("statusFilter");
             const lineFilter = document.getElementById("lineFilter");
@@ -3455,6 +3456,25 @@
               const line = String(value || "").trim();
               return line || "Sin línea";
             };
+            const buildProductSearchText = (product) =>
+              [
+                product.name,
+                product.id,
+                product.baseProductId,
+                normalizeLine(product.line),
+                product.location,
+                product.debtorName,
+                product.debtorDocumentNumber,
+                product.debtorPhone,
+                product.customerCity,
+              ]
+                .map((value) => String(value || "").toLowerCase().trim())
+                .filter(Boolean)
+                .join(" ");
+            products.forEach((product) => {
+              product.searchText = buildProductSearchText(product);
+              productsById.set(product.id, product);
+            });
             const populateLineFilter = () => {
               if (!lineFilter) return;
               const currentValue = lineFilter.value || "all";
@@ -3604,21 +3624,7 @@
               const expiryOnly = expiryToggle.checked;
 
               const filtered = products.filter((product) => {
-                const debtorName = String(product.debtorName || "").toLowerCase();
-                const debtorPhone = String(product.debtorPhone || "").toLowerCase();
-                const debtorDocumentNumber = String(product.debtorDocumentNumber || "").toLowerCase();
-                const customerCity = String(product.customerCity || "").toLowerCase();
-                const productLocation = String(product.location || "").toLowerCase();
-                const matchesSearch =
-                  product.name.toLowerCase().includes(query) ||
-                  product.id.toLowerCase().includes(query) ||
-                  String(product.baseProductId || "").toLowerCase().includes(query) ||
-                  normalizeLine(product.line).toLowerCase().includes(query) ||
-                  productLocation.includes(query) ||
-                  debtorName.includes(query) ||
-                  debtorDocumentNumber.includes(query) ||
-                  debtorPhone.includes(query) ||
-                  customerCity.includes(query);
+                const matchesSearch = !query || String(product.searchText || "").includes(query);
                 const matchesStatus = statusValue === "all" || product.statusClass === statusValue;
                 const matchesLine = lineValue === "all" || normalizeLine(product.line) === lineValue;
                 const matchesExpiry =
@@ -3908,10 +3914,14 @@
             populateLineFilter();
             applyFilters();
             if (statusFilter && lineFilter && searchFilter && expiryToggle) {
-              [statusFilter, lineFilter, searchFilter, expiryToggle].forEach((input) =>
+              [statusFilter, lineFilter, expiryToggle].forEach((input) =>
                 input.addEventListener("change", applyFilters)
               );
-              searchFilter.addEventListener("input", applyFilters);
+              let filterInputTimer = null;
+              searchFilter.addEventListener("input", () => {
+                window.clearTimeout(filterInputTimer);
+                filterInputTimer = window.setTimeout(applyFilters, 180);
+              });
             } else {
               console.warn("Listeners de filtros no registrados por controles faltantes.");
             }
@@ -5002,12 +5012,10 @@
             };
 
             const applySaleLocally = ({ productId, quantity }) => {
-                const product = products.find(
-                    (item) =>
-                        item.id === productId && item.entryType === "product",
-                );
+                const product = productsById.get(productId);
                 if (
                     !product ||
+                    product.entryType !== "product" ||
                     !Array.isArray(product.units) ||
                     !Number.isFinite(quantity) ||
                     quantity <= 0
@@ -7430,7 +7438,7 @@
                 if (menuAction) {
                     const productId = menuAction.dataset.product;
                     const action = menuAction.dataset.menuAction;
-                    const product = products.find((p) => p.id === productId);
+                    const product = productsById.get(productId);
                     const qtyInput = document.querySelector(
                         `input[data-qty="${productId}"]`,
                     );
@@ -7655,9 +7663,7 @@
                     }
 
                     if (action === "sell") {
-                        const product = products.find(
-                            (p) => p.id === productId,
-                        );
+                        const product = productsById.get(productId);
                         closeOpenMenuPanels();
                         openSaleModal({
                             product,
@@ -7669,27 +7675,21 @@
                     }
 
                     if (action === "installment") {
-                        const product = products.find(
-                            (p) => p.id === productId,
-                        );
+                        const product = productsById.get(productId);
                         closeOpenMenuPanels();
                         addInstallment(product);
                         return;
                     }
 
                     if (action === "close-loan") {
-                        const product = products.find(
-                            (p) => p.id === productId,
-                        );
+                        const product = productsById.get(productId);
                         closeOpenMenuPanels();
                         openProductLoanCloseModal(product);
                         return;
                     }
 
                     if (action === "edit") {
-                        const product = products.find(
-                            (p) => p.id === productId,
-                        );
+                        const product = productsById.get(productId);
                         closeOpenMenuPanels();
                         openEditModal(product);
                         return;
@@ -7705,9 +7705,7 @@
                     }
 
                     if (action === "retoma") {
-                        const product = products.find(
-                            (p) => p.id === productId,
-                        );
+                        const product = productsById.get(productId);
                         if (!product?.retomaEnabled) return;
                         openRetomaModal({
                             product,

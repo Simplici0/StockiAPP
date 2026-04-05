@@ -18,6 +18,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -30,6 +31,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/code128"
@@ -250,6 +252,55 @@ type csvUploadResponse struct {
 	FailedRows      []csvFailedRow `json:"failed_rows"`
 }
 
+func readUploadedCSVFile(file multipart.File, header *multipart.FileHeader, limit int64) ([]byte, error) {
+	if header != nil {
+		if ext := strings.ToLower(strings.TrimSpace(filepath.Ext(header.Filename))); ext != ".csv" {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "Solo se aceptan archivos CSV."}
+		}
+	}
+	if limit <= 0 {
+		limit = customerCSVUploadLimit
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "No se pudo leer el archivo CSV."}
+	}
+	if int64(len(data)) > limit {
+		return nil, requestError{Status: http.StatusRequestEntityTooLarge, Message: "El archivo CSV excede el tamaño permitido."}
+	}
+	if len(data) == 0 {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El archivo CSV está vacío."}
+	}
+	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El archivo CSV debe ser texto UTF-8 válido."}
+	}
+	sniffLen := min(len(data), 512)
+	contentType := strings.ToLower(strings.TrimSpace(http.DetectContentType(data[:sniffLen])))
+	if !strings.HasPrefix(contentType, "text/plain") &&
+		!strings.HasPrefix(contentType, "text/csv") &&
+		!strings.HasPrefix(contentType, "application/csv") &&
+		!strings.HasPrefix(contentType, "application/vnd.ms-excel") {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "El archivo no parece un CSV de texto válido."}
+	}
+	return data, nil
+}
+
+type customerCSVFailedRow struct {
+	Row            int    `json:"row"`
+	DocumentType   string `json:"document_type"`
+	DocumentNumber string `json:"document_number"`
+	Error          string `json:"error"`
+}
+
+type customerCSVImportResponse struct {
+	ProcessedRows    int                    `json:"processed_rows"`
+	CreatedCustomers int                    `json:"created_customers"`
+	UpdatedCustomers int                    `json:"updated_customers"`
+	RejectedRows     []customerCSVFailedRow `json:"failed_rows"`
+	Delimiter        string                 `json:"delimiter"`
+	AcceptedColumns  []string               `json:"accepted_columns"`
+}
+
 func productCSVColumnIndex(headerRow []string) (map[string]int, error) {
 	header := make([]string, len(headerRow))
 	for i, cell := range headerRow {
@@ -271,6 +322,101 @@ func productCSVColumnIndex(headerRow []string) (map[string]int, error) {
 		}
 	}
 	return index, nil
+}
+
+func normalizeCustomerCSVHeader(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "\ufeff"))
+	value = strings.ToLower(value)
+	replacer := strings.NewReplacer("-", "_", " ", "_")
+	return replacer.Replace(value)
+}
+
+func customerCSVColumnIndex(headerRow []string) (map[string]int, []string, rune, error) {
+	if len(headerRow) == 0 {
+		return nil, nil, ',', requestError{Status: http.StatusBadRequest, Message: "El CSV no tiene encabezado."}
+	}
+
+	aliases := map[string]string{
+		"name":                     "name",
+		"customer_name":            "name",
+		"phone":                    "phone",
+		"customer_phone":           "phone",
+		"document_type":            "document_type",
+		"customer_document_type":   "document_type",
+		"document_number":          "document_number",
+		"customer_document_number": "document_number",
+		"address":                  "address",
+		"customer_address":         "address",
+		"city":                     "city",
+		"customer_city":            "city",
+		"notes":                    "notes",
+		"customer_notes":           "notes",
+	}
+	forbidden := map[string]struct{}{
+		"tenant_id":   {},
+		"customer_id": {},
+		"id":          {},
+	}
+
+	index := make(map[string]int, len(headerRow))
+	accepted := make([]string, 0, len(headerRow))
+	delimiter := ','
+
+	for i, cell := range headerRow {
+		if i == 0 && strings.Contains(cell, ";") && !strings.Contains(cell, ",") {
+			delimiter = ';'
+		}
+		name := normalizeCustomerCSVHeader(cell)
+		if name == "" {
+			continue
+		}
+		if _, blocked := forbidden[name]; blocked {
+			return nil, nil, delimiter, requestError{Status: http.StatusBadRequest, Message: "El CSV no permite columnas de tenant o IDs internos."}
+		}
+		canonical, ok := aliases[name]
+		if !ok {
+			return nil, nil, delimiter, requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("La columna %q no es soportada para importación de clientes.", strings.TrimSpace(cell))}
+		}
+		if _, exists := index[canonical]; exists {
+			return nil, nil, delimiter, requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("La columna %q está duplicada en el CSV.", canonical)}
+		}
+		index[canonical] = i
+		accepted = append(accepted, canonical)
+	}
+
+	for _, required := range []string{"name", "phone", "document_type", "document_number", "city"} {
+		if _, ok := index[required]; !ok {
+			return nil, nil, delimiter, requestError{Status: http.StatusBadRequest, Message: "Faltan columnas requeridas en el CSV de clientes."}
+		}
+	}
+
+	sort.Strings(accepted)
+	return index, accepted, delimiter, nil
+}
+
+func detectCSVDelimiter(content string) rune {
+	firstLine := content
+	if idx := strings.IndexAny(firstLine, "\r\n"); idx >= 0 {
+		firstLine = firstLine[:idx]
+	}
+	if strings.Count(firstLine, ";") > strings.Count(firstLine, ",") {
+		return ';'
+	}
+	return ','
+}
+
+func sanitizeCustomerCSVText(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "\ufeff"))
+	value = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, value)
+	return value
 }
 
 type inventoryUnit struct {
@@ -941,6 +1087,7 @@ const (
 	defaultFormBodyLimit    int64 = 256 << 10
 	defaultJSONBodyLimit    int64 = 1 << 20
 	brandingUploadBodyLimit int64 = 10 << 20
+	customerCSVUploadLimit  int64 = 8 << 20
 	csvUploadBodyLimit      int64 = 40 << 20
 
 	loginRateWindow       = 10 * time.Minute
@@ -1236,6 +1383,8 @@ func requestBodyLimit(r *http.Request) int64 {
 	switch {
 	case r.URL.Path == "/configuracion":
 		return brandingUploadBodyLimit
+	case r.URL.Path == "/clientes/csv":
+		return customerCSVUploadLimit
 	case r.URL.Path == "/productos/csv":
 		return csvUploadBodyLimit
 	case strings.HasPrefix(r.URL.Path, "/api/"):
@@ -2237,43 +2386,43 @@ func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[stri
 			COALESCE(cs.total_value, 0),
 			COALESCE(cs.interest_percent, 0),
 			COALESCE(cs.installment_value, 0),
-			COALESCE((
-				SELECT SUM(ci.amount_paid)
-				FROM credit_installments ci
-				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
-			), 0),
-			COALESCE((
-				SELECT COUNT(*)
-				FROM credit_installments ci
-				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id AND COALESCE(ci.payment_type, 'cuota') = 'cuota'
-			), COALESCE(cs.installments_paid, 0)),
+			COALESCE(pay.total_paid, 0),
+			COALESCE(pay.paid_installments_count, COALESCE(cs.installments_paid, 0)),
 			COALESCE(cs.notes, ''),
-			COALESCE((
-				SELECT ci.amount_paid
-				FROM credit_installments ci
-				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
-				ORDER BY ci.created_at DESC, ci.id DESC
-				LIMIT 1
-			), 0),
-			COALESCE((
-				SELECT ci.created_at
-				FROM credit_installments ci
-				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
-				ORDER BY ci.created_at DESC, ci.id DESC
-				LIMIT 1
-			), ''),
-			COALESCE((
-				SELECT COALESCE(ci.payment_type, 'cuota')
-				FROM credit_installments ci
-				WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id
-				ORDER BY ci.created_at DESC, ci.id DESC
-				LIMIT 1
-			), '')
+			COALESCE(last_payment.amount_paid, 0),
+			COALESCE(last_payment.created_at, ''),
+			COALESCE(last_payment.payment_type, '')
 			,
 			COALESCE(cs.status, '')
 		FROM credit_sales cs
 		LEFT JOIN productos p ON p.sku = cs.product_id AND p.tenant_id = cs.tenant_id
 		LEFT JOIN customers c ON c.id = cs.customer_id AND c.tenant_id = cs.tenant_id
+		LEFT JOIN (
+			SELECT
+				tenant_id,
+				credit_sale_id,
+				SUM(amount_paid) AS total_paid,
+				SUM(CASE WHEN COALESCE(payment_type, 'cuota') = 'cuota' THEN 1 ELSE 0 END) AS paid_installments_count
+			FROM credit_installments
+			GROUP BY tenant_id, credit_sale_id
+		) pay ON pay.tenant_id = cs.tenant_id AND pay.credit_sale_id = cs.id
+		LEFT JOIN (
+			SELECT tenant_id, credit_sale_id, amount_paid, created_at, payment_type
+			FROM (
+				SELECT
+					tenant_id,
+					credit_sale_id,
+					amount_paid,
+					created_at,
+					COALESCE(payment_type, 'cuota') AS payment_type,
+					ROW_NUMBER() OVER (
+						PARTITION BY tenant_id, credit_sale_id
+						ORDER BY created_at DESC, id DESC
+					) AS row_num
+				FROM credit_installments
+			) ranked_credit_installments
+			WHERE row_num = 1
+		) last_payment ON last_payment.tenant_id = cs.tenant_id AND last_payment.credit_sale_id = cs.id
 		WHERE ` + accessSQL
 	args = append([]any{string(creditSaleKindProduct), string(creditSaleKindProduct), string(creditSaleKindCash)}, args...)
 	if q != "" {
@@ -2991,6 +3140,99 @@ func listProductLoansReport(db *sql.DB, currentUser *User, tenantID int, filters
 		filtered = append(filtered, item)
 	}
 	return filtered, nil
+}
+
+type inventoryProductUnitStats struct {
+	AvailableCount int
+	LoanedCount    int
+	ChangeCount    int
+	ReservedCount  int
+	DamagedCount   int
+	FirstCreatedAt string
+}
+
+func loadInventoryUnitsByProductIDs(db *sql.DB, tenantID int, productIDs []string) (map[string][]inventoryUnit, map[string]inventoryProductUnitStats, error) {
+	unitsByProduct := make(map[string][]inventoryUnit, len(productIDs))
+	statsByProduct := make(map[string]inventoryProductUnitStats, len(productIDs))
+	if len(productIDs) == 0 {
+		return unitsByProduct, statsByProduct, nil
+	}
+
+	seen := make(map[string]struct{}, len(productIDs))
+	args := make([]any, 0, len(productIDs)+1)
+	placeholders := make([]string, 0, len(productIDs))
+	args = append(args, normalizeTenantID(tenantID))
+	for _, productID := range productIDs {
+		productID = strings.TrimSpace(productID)
+		if productID == "" {
+			continue
+		}
+		if _, ok := seen[productID]; ok {
+			continue
+		}
+		seen[productID] = struct{}{}
+		placeholders = append(placeholders, "?")
+		args = append(args, productID)
+	}
+	if len(placeholders) == 0 {
+		return unitsByProduct, statsByProduct, nil
+	}
+
+	rows, err := db.Query(`
+		SELECT producto_id, id, estado, creado_en, caducidad
+		FROM unidades
+		WHERE tenant_id = ? AND producto_id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY producto_id ASC, creado_en ASC, id ASC
+	`, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			productID string
+			id        string
+			estado    string
+			creadoEn  string
+			caducidad sql.NullString
+		)
+		if err := rows.Scan(&productID, &id, &estado, &creadoEn, &caducidad); err != nil {
+			return nil, nil, err
+		}
+		stats := statsByProduct[productID]
+		if stats.FirstCreatedAt == "" {
+			stats.FirstCreatedAt = strings.TrimSpace(creadoEn)
+		}
+		fifo := "-"
+		switch estado {
+		case "Disponible", "available":
+			stats.AvailableCount++
+			fifo = strconv.Itoa(stats.AvailableCount)
+		case "Prestada", "Prestado", "loaned":
+			stats.LoanedCount++
+		case "Reservada", "reserved":
+			stats.ReservedCount++
+		case "Cambio", "swapped":
+			stats.ChangeCount++
+		case "Danada", "Dañada", "damaged":
+			stats.DamagedCount++
+		}
+		statsByProduct[productID] = stats
+		unitsByProduct[productID] = append(unitsByProduct[productID], inventoryUnit{
+			ID:          id,
+			Estado:      estado,
+			EstadoClass: estadoClass(estado),
+			CreadoEn:    formatDateWithSettings(creadoEn),
+			Caducidad:   formatDateWithSettings(caducidad.String),
+			FIFO:        fifo,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	return unitsByProduct, statsByProduct, nil
 }
 
 func parseCashLoanReportFilters(r *http.Request, defaultLimit int) (cashLoanReportFilters, string) {
@@ -4640,11 +4882,37 @@ func findCustomerByID(db *sql.DB, tenantID, customerID int) (*Customer, error) {
 	return &item, nil
 }
 
+func normalizeCustomerDocumentType(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "_", " ")
+	normalized = strings.ReplaceAll(normalized, "-", " ")
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	switch normalized {
+	case "cc":
+		return "CC"
+	case "ce", "c extranjeria", "c extranjería":
+		return "C Extranjeria"
+	case "pasaporte":
+		return "Pasaporte"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func customerDocumentKey(documentType, documentNumber string) string {
+	documentType = normalizeCustomerDocumentType(documentType)
+	documentNumber = strings.TrimSpace(documentNumber)
+	if documentType == "" || documentNumber == "" {
+		return ""
+	}
+	return strings.ToLower(documentType) + "::" + strings.ToLower(documentNumber)
+}
+
 func validateCustomerInput(input customerInput) map[string]string {
 	fields := map[string]string{}
 	input.Name = strings.TrimSpace(input.Name)
 	input.Phone = strings.TrimSpace(input.Phone)
-	input.DocumentType = strings.TrimSpace(input.DocumentType)
+	input.DocumentType = normalizeCustomerDocumentType(input.DocumentType)
 	input.DocumentNumber = strings.TrimSpace(input.DocumentNumber)
 	if input.CustomerID > 0 {
 		return fields
@@ -4670,7 +4938,7 @@ func resolveCustomerForCredit(tx *sql.Tx, tenantID int, input customerInput) (*C
 	tenantID = normalizeTenantID(tenantID)
 	input.Name = strings.TrimSpace(input.Name)
 	input.Phone = strings.TrimSpace(input.Phone)
-	input.DocumentType = strings.TrimSpace(input.DocumentType)
+	input.DocumentType = normalizeCustomerDocumentType(input.DocumentType)
 	input.DocumentNumber = strings.TrimSpace(input.DocumentNumber)
 	input.Address = strings.TrimSpace(input.Address)
 	input.City = strings.TrimSpace(input.City)
@@ -4760,6 +5028,257 @@ func resolveCustomerForCredit(tx *sql.Tx, tenantID int, input customerInput) (*C
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
+}
+
+func validateCustomerCSVRow(input customerInput) map[string]string {
+	fields := validateCustomerInput(input)
+	if strings.TrimSpace(input.City) == "" {
+		fields["customer_city"] = "La ciudad del cliente es obligatoria."
+	}
+	if len(input.Name) > 160 {
+		fields["customer_name"] = "El nombre del cliente supera el máximo permitido."
+	}
+	if len(input.Phone) > 40 {
+		fields["customer_phone"] = "El teléfono del cliente supera el máximo permitido."
+	}
+	if len(input.DocumentNumber) > 60 {
+		fields["customer_document_number"] = "El documento del cliente supera el máximo permitido."
+	}
+	if len(input.Address) > 180 {
+		fields["customer_address"] = "La dirección supera el máximo permitido."
+	}
+	if len(input.City) > 80 {
+		fields["customer_city"] = "La ciudad supera el máximo permitido."
+	}
+	if len(input.Notes) > 500 {
+		fields["customer_notes"] = "Las notas superan el máximo permitido."
+	}
+	return fields
+}
+
+func importCustomersFromCSV(db *sql.DB, currentUser *User, raw []byte, source string, decorateAudit func(map[string]any) map[string]any) (customerCSVImportResponse, error) {
+	if currentUser == nil || !isStaffRole(currentUser.Role) {
+		return customerCSVImportResponse{}, requestError{Status: http.StatusForbidden, Message: "Solo personal autorizado puede importar clientes."}
+	}
+	tenantID := normalizeTenantID(tenantIDFromUser(currentUser))
+	content := strings.TrimPrefix(string(raw), "\ufeff")
+	if strings.TrimSpace(content) == "" {
+		return customerCSVImportResponse{}, requestError{Status: http.StatusBadRequest, Message: "El CSV no contiene datos para procesar."}
+	}
+
+	reader := csv.NewReader(strings.NewReader(content))
+	reader.Comma = detectCSVDelimiter(content)
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
+	records, err := reader.ReadAll()
+	if err != nil {
+		return customerCSVImportResponse{}, requestError{Status: http.StatusBadRequest, Message: "No se pudo leer el CSV de clientes."}
+	}
+	if len(records) < 2 {
+		return customerCSVImportResponse{}, requestError{Status: http.StatusBadRequest, Message: "El CSV no contiene filas para procesar."}
+	}
+
+	index, acceptedColumns, delimiter, err := customerCSVColumnIndex(records[0])
+	if err != nil {
+		var reqErr requestError
+		if errors.As(err, &reqErr) {
+			return customerCSVImportResponse{}, reqErr
+		}
+		return customerCSVImportResponse{}, requestError{Status: http.StatusBadRequest, Message: "El encabezado del CSV es inválido."}
+	}
+
+	get := func(row []string, col string) string {
+		pos, ok := index[col]
+		if !ok || pos < 0 || pos >= len(row) {
+			return ""
+		}
+		return sanitizeCustomerCSVText(row[pos])
+	}
+
+	resp := customerCSVImportResponse{
+		Delimiter:       string(delimiter),
+		AcceptedColumns: acceptedColumns,
+		RejectedRows:    []customerCSVFailedRow{},
+	}
+	seenDocuments := map[string]int{}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return customerCSVImportResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo iniciar la importación de clientes."}
+	}
+	defer tx.Rollback()
+
+	for i, row := range records[1:] {
+		if len(row) == 0 {
+			continue
+		}
+		rowIndex := i + 2
+		if strings.TrimSpace(strings.Join(row, "")) == "" {
+			continue
+		}
+		resp.ProcessedRows++
+
+		input := customerInput{
+			Name:           get(row, "name"),
+			Phone:          get(row, "phone"),
+			DocumentType:   normalizeCustomerDocumentType(get(row, "document_type")),
+			DocumentNumber: get(row, "document_number"),
+			Address:        get(row, "address"),
+			City:           get(row, "city"),
+			Notes:          get(row, "notes"),
+		}
+		documentKey := input.DocumentType + "|" + input.DocumentNumber
+
+		if previousRow, duplicated := seenDocuments[documentKey]; duplicated {
+			resp.RejectedRows = append(resp.RejectedRows, customerCSVFailedRow{
+				Row:            rowIndex,
+				DocumentType:   input.DocumentType,
+				DocumentNumber: input.DocumentNumber,
+				Error:          fmt.Sprintf("Documento duplicado dentro del archivo; ya apareció en la fila %d.", previousRow),
+			})
+			continue
+		}
+
+		if fields := validateCustomerCSVRow(input); len(fields) > 0 {
+			reasons := make([]string, 0, len(fields))
+			for _, value := range fields {
+				reasons = append(reasons, value)
+			}
+			sort.Strings(reasons)
+			resp.RejectedRows = append(resp.RejectedRows, customerCSVFailedRow{
+				Row:            rowIndex,
+				DocumentType:   input.DocumentType,
+				DocumentNumber: input.DocumentNumber,
+				Error:          strings.Join(reasons, " "),
+			})
+			continue
+		}
+		seenDocuments[documentKey] = rowIndex
+
+		if _, err := tx.Exec("SAVEPOINT customer_csv_row"); err != nil {
+			resp.RejectedRows = append(resp.RejectedRows, customerCSVFailedRow{
+				Row:            rowIndex,
+				DocumentType:   input.DocumentType,
+				DocumentNumber: input.DocumentNumber,
+				Error:          "No se pudo preparar la fila para importación.",
+			})
+			continue
+		}
+
+		existingCustomerID := 0
+		if err := tx.QueryRow(`
+			SELECT id
+			FROM customers
+			WHERE tenant_id = ? AND document_type = ? AND document_number = ?
+		`, tenantID, input.DocumentType, input.DocumentNumber).Scan(&existingCustomerID); err != nil && err != sql.ErrNoRows {
+			_, _ = tx.Exec("ROLLBACK TO customer_csv_row")
+			_, _ = tx.Exec("RELEASE customer_csv_row")
+			resp.RejectedRows = append(resp.RejectedRows, customerCSVFailedRow{
+				Row:            rowIndex,
+				DocumentType:   input.DocumentType,
+				DocumentNumber: input.DocumentNumber,
+				Error:          "No se pudo validar si el cliente ya existe en el tenant.",
+			})
+			continue
+		}
+
+		customer, err := resolveCustomerForCredit(tx, tenantID, input)
+		if err != nil {
+			_, _ = tx.Exec("ROLLBACK TO customer_csv_row")
+			_, _ = tx.Exec("RELEASE customer_csv_row")
+			resp.RejectedRows = append(resp.RejectedRows, customerCSVFailedRow{
+				Row:            rowIndex,
+				DocumentType:   input.DocumentType,
+				DocumentNumber: input.DocumentNumber,
+				Error:          "No se pudo guardar el cliente.",
+			})
+			continue
+		}
+
+		created := existingCustomerID == 0
+		eventType := "customer_updated"
+		customerEventType := "profile_updated"
+		if created {
+			resp.CreatedCustomers++
+			eventType = "customer_created"
+			customerEventType = "profile_created"
+		} else {
+			resp.UpdatedCustomers++
+		}
+
+		customerPayload := map[string]any{
+			"name":            customer.Name,
+			"phone":           customer.Phone,
+			"document_type":   customer.DocumentType,
+			"document_number": customer.DocumentNumber,
+			"address":         customer.Address,
+			"city":            customer.City,
+			"notes":           customer.Notes,
+			"row":             rowIndex,
+			"imported_via":    "csv",
+		}
+		if err := logCustomerEvent(tx, currentUser, customer.ID, customerEventType, "customer", strconv.Itoa(customer.ID), 0, customerPayload); err != nil {
+			_, _ = tx.Exec("ROLLBACK TO customer_csv_row")
+			_, _ = tx.Exec("RELEASE customer_csv_row")
+			resp.RejectedRows = append(resp.RejectedRows, customerCSVFailedRow{
+				Row:            rowIndex,
+				DocumentType:   input.DocumentType,
+				DocumentNumber: input.DocumentNumber,
+				Error:          "No se pudo registrar la trazabilidad del cliente.",
+			})
+			continue
+		}
+
+		auditPayload := map[string]any{
+			"customer_id":      customer.ID,
+			"customer_name":    customer.Name,
+			"customer_phone":   customer.Phone,
+			"document_type":    customer.DocumentType,
+			"document_number":  customer.DocumentNumber,
+			"customer_address": customer.Address,
+			"customer_city":    customer.City,
+			"row":              rowIndex,
+			"imported_via":     "csv",
+			"created":          created,
+		}
+		if decorateAudit != nil {
+			auditPayload = decorateAudit(auditPayload)
+		}
+		if err := logAuditEvent(tx, currentUser, eventType, "customer", strconv.Itoa(customer.ID), source, auditPayload); err != nil {
+			_, _ = tx.Exec("ROLLBACK TO customer_csv_row")
+			_, _ = tx.Exec("RELEASE customer_csv_row")
+			resp.RejectedRows = append(resp.RejectedRows, customerCSVFailedRow{
+				Row:            rowIndex,
+				DocumentType:   input.DocumentType,
+				DocumentNumber: input.DocumentNumber,
+				Error:          "No se pudo registrar la auditoría del cliente importado.",
+			})
+			continue
+		}
+
+		_, _ = tx.Exec("RELEASE customer_csv_row")
+	}
+
+	importAuditPayload := map[string]any{
+		"processed_rows":    resp.ProcessedRows,
+		"created_customers": resp.CreatedCustomers,
+		"updated_customers": resp.UpdatedCustomers,
+		"rejected_rows":     len(resp.RejectedRows),
+		"accepted_columns":  resp.AcceptedColumns,
+		"delimiter":         resp.Delimiter,
+	}
+	if decorateAudit != nil {
+		importAuditPayload = decorateAudit(importAuditPayload)
+	}
+	if err := logAuditEvent(tx, currentUser, "customers_csv_imported", "customer_import", strconv.Itoa(tenantID), source, importAuditPayload); err != nil {
+		return customerCSVImportResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría del import."}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return customerCSVImportResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo confirmar la importación de clientes."}
+	}
+
+	return resp, nil
 }
 
 func updateUnitsByIDStatus(tx *sql.Tx, tenantID int, unitIDs []string, currentStatuses []string, nextStatus string) error {
@@ -5196,6 +5715,100 @@ func listCustomersForTenant(db *sql.DB, tenantID int, q string, limit int) ([]ma
 	return items, nil
 }
 
+func customerSummaryForTenant(db *sql.DB, tenantID, customerID int) (map[string]any, error) {
+	customer, err := findCustomerByID(db, tenantID, customerID)
+	if err != nil {
+		return nil, err
+	}
+
+	row := db.QueryRow(`
+		SELECT
+			c.id,
+			c.name,
+			c.phone,
+			c.document_type,
+			c.document_number,
+			c.address,
+			c.city,
+			c.notes,
+			c.created_at,
+			c.updated_at,
+			COALESCE(COUNT(cs.id), 0),
+			COALESCE(SUM(cs.quantity), 0),
+			COALESCE(SUM(COALESCE(cs.installments_total, 0) * COALESCE(cs.installment_value, 0)), 0),
+			COALESCE(SUM(
+				CASE
+					WHEN COALESCE(pay.total_paid, 0) > (COALESCE(cs.installments_paid, 0) * COALESCE(cs.installment_value, 0))
+						THEN COALESCE(pay.total_paid, 0)
+					ELSE (COALESCE(cs.installments_paid, 0) * COALESCE(cs.installment_value, 0))
+				END
+			), 0),
+			COALESCE(SUM(
+				CASE
+					WHEN (COALESCE(cs.installments_total, 0) * COALESCE(cs.installment_value, 0)) -
+						(CASE
+							WHEN COALESCE(pay.total_paid, 0) > (COALESCE(cs.installments_paid, 0) * COALESCE(cs.installment_value, 0))
+								THEN COALESCE(pay.total_paid, 0)
+							ELSE (COALESCE(cs.installments_paid, 0) * COALESCE(cs.installment_value, 0))
+						END) > 0
+					THEN 1
+					ELSE 0
+				END
+			), 0),
+			COALESCE(MAX(cs.created_at), '')
+		FROM customers c
+		LEFT JOIN credit_sales cs
+			ON cs.tenant_id = c.tenant_id AND cs.customer_id = c.id
+		LEFT JOIN (
+			SELECT tenant_id, credit_sale_id, SUM(amount_paid) AS total_paid
+			FROM credit_installments
+			GROUP BY tenant_id, credit_sale_id
+		) pay
+			ON pay.tenant_id = cs.tenant_id AND pay.credit_sale_id = cs.id
+		WHERE c.tenant_id = ? AND c.id = ?
+		GROUP BY c.id, c.name, c.phone, c.document_type, c.document_number, c.address, c.city, c.notes, c.created_at, c.updated_at
+		LIMIT 1
+	`, normalizeTenantID(tenantID), customerID)
+
+	var (
+		item          Customer
+		creditsCount  int
+		unitsOnCredit int
+		debtTotal     float64
+		totalPaid     float64
+		activeCredits int
+		lastCreditAt  string
+	)
+	if err := row.Scan(&item.ID, &item.Name, &item.Phone, &item.DocumentType, &item.DocumentNumber, &item.Address, &item.City, &item.Notes, &item.CreatedAt, &item.UpdatedAt, &creditsCount, &unitsOnCredit, &debtTotal, &totalPaid, &activeCredits, &lastCreditAt); err != nil {
+		if err == sql.ErrNoRows {
+			item = *customer
+		} else {
+			return nil, err
+		}
+	}
+
+	currentDebt := creditCurrentDebt(debtTotal, totalPaid)
+	return map[string]any{
+		"id":              item.ID,
+		"name":            item.Name,
+		"phone":           item.Phone,
+		"document_type":   item.DocumentType,
+		"document_number": item.DocumentNumber,
+		"address":         item.Address,
+		"city":            item.City,
+		"notes":           item.Notes,
+		"created_at":      formatDateWithSettings(item.CreatedAt),
+		"updated_at":      formatDateWithSettings(item.UpdatedAt),
+		"credits_count":   creditsCount,
+		"units_on_credit": unitsOnCredit,
+		"debt_total":      debtTotal,
+		"total_paid":      totalPaid,
+		"current_debt":    currentDebt,
+		"active_credits":  activeCredits,
+		"last_credit_at":  formatDateWithSettings(lastCreditAt),
+	}, nil
+}
+
 func agentCustomerSearchItem(item map[string]any) map[string]any {
 	return map[string]any{
 		"id":              item["id"],
@@ -5214,34 +5827,9 @@ func agentCustomerSearchItem(item map[string]any) map[string]any {
 }
 
 func customerDetailForTenant(db *sql.DB, tenantID, customerID int) (map[string]any, error) {
-	customer, err := findCustomerByID(db, tenantID, customerID)
+	selected, err := customerSummaryForTenant(db, tenantID, customerID)
 	if err != nil {
 		return nil, err
-	}
-	items, err := listCustomersForTenant(db, tenantID, customer.DocumentNumber, 200)
-	if err != nil {
-		return nil, err
-	}
-	var selected map[string]any
-	for _, item := range items {
-		if id, ok := item["id"].(int); ok && id == customerID {
-			selected = item
-			break
-		}
-	}
-	if selected == nil {
-		selected = map[string]any{
-			"id":              customer.ID,
-			"name":            customer.Name,
-			"phone":           customer.Phone,
-			"document_type":   customer.DocumentType,
-			"document_number": customer.DocumentNumber,
-			"address":         customer.Address,
-			"city":            customer.City,
-			"notes":           customer.Notes,
-			"created_at":      formatDateWithSettings(customer.CreatedAt),
-			"updated_at":      formatDateWithSettings(customer.UpdatedAt),
-		}
 	}
 
 	recentCredits := make([]map[string]any, 0, 10)
@@ -8942,27 +9530,48 @@ func listInvoicesForUser(db *sql.DB, currentUser *User, q, fromStr, toStr string
 	if err != nil {
 		settings = currentBusinessSettings()
 	}
+	creditAccessSQL, creditAccessArgs := creditVisibilityPredicate("cs", currentUser)
+	saleAccessSQL, saleAccessArgs := tenantScopedProductAccessPredicate("v", "p", currentUser)
 	q = strings.TrimSpace(strings.ToLower(q))
 	args := []any{tenantID}
 	query := `
-		SELECT id, invoice_number, source_type, COALESCE(sale_id, 0), COALESCE(credit_sale_id, 0), COALESCE(customer_name, ''), COALESCE(customer_document_number, ''), COALESCE(total, 0), COALESCE(status, 'issued'), COALESCE(created_at, '')
-		FROM invoices
-		WHERE tenant_id = ?
+		SELECT
+			i.id,
+			i.invoice_number,
+			i.source_type,
+			COALESCE(i.sale_id, 0),
+			COALESCE(i.credit_sale_id, 0),
+			COALESCE(i.customer_name, ''),
+			COALESCE(i.customer_document_number, ''),
+			COALESCE(i.total, 0),
+			COALESCE(i.status, 'issued'),
+			COALESCE(i.created_at, '')
+		FROM invoices i
+		LEFT JOIN ventas v ON v.tenant_id = i.tenant_id AND v.id = i.sale_id
+		LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
+		LEFT JOIN credit_sales cs ON cs.tenant_id = i.tenant_id AND cs.id = i.credit_sale_id
+		WHERE i.tenant_id = ? AND (
+			(COALESCE(i.source_type, 'sale') = 'credit' AND ` + creditAccessSQL + `)
+			OR
+			(COALESCE(i.source_type, 'sale') <> 'credit' AND ` + saleAccessSQL + `)
+		)
 	`
+	args = append(args, creditAccessArgs...)
+	args = append(args, saleAccessArgs...)
 	if q != "" {
-		query += ` AND (LOWER(invoice_number) LIKE ? OR LOWER(customer_name) LIKE ? OR LOWER(customer_document_number) LIKE ?)`
+		query += ` AND (LOWER(i.invoice_number) LIKE ? OR LOWER(i.customer_name) LIKE ? OR LOWER(i.customer_document_number) LIKE ?)`
 		like := "%" + q + "%"
 		args = append(args, like, like, like)
 	}
 	if fromStr != "" {
-		query += ` AND ` + sqlDatePrefixExpr("created_at") + ` >= ?`
+		query += ` AND ` + sqlDatePrefixExpr("i.created_at") + ` >= ?`
 		args = append(args, fromStr)
 	}
 	if toStr != "" {
-		query += ` AND ` + sqlDatePrefixExpr("created_at") + ` <= ?`
+		query += ` AND ` + sqlDatePrefixExpr("i.created_at") + ` <= ?`
 		args = append(args, toStr)
 	}
-	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	query += ` ORDER BY i.created_at DESC, i.id DESC LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := db.Query(query, args...)
@@ -8987,31 +9596,6 @@ func listInvoicesForUser(db *sql.DB, currentUser *User, q, fromStr, toStr string
 		)
 		if err := rows.Scan(&invoiceID, &invoiceNumber, &sourceType, &saleID, &creditSaleID, &customerName, &customerDocument, &total, &status, &createdAt); err != nil {
 			return nil, err
-		}
-		switch sourceType {
-		case "credit":
-			allowed, err := creditAccessibleByID(db, currentUser, creditSaleID)
-			if err != nil {
-				return nil, err
-			}
-			if !allowed {
-				continue
-			}
-		default:
-			var productID string
-			if err := db.QueryRow(`SELECT producto_id FROM ventas WHERE tenant_id = ? AND id = ? LIMIT 1`, tenantID, saleID).Scan(&productID); err != nil {
-				if err == sql.ErrNoRows {
-					continue
-				}
-				return nil, err
-			}
-			allowed, err := productAccessibleByID(db, currentUser, productID)
-			if err != nil {
-				return nil, err
-			}
-			if !allowed {
-				continue
-			}
 		}
 		if parsed, ok := parseFlexibleTime(createdAt); ok {
 			createdAt = parsed.In(appTimeLocation).Format("2006-01-02 15:04")
@@ -12286,6 +12870,75 @@ func handleAPIUserRoutes(db *sql.DB, usersCols map[string]bool) http.HandlerFunc
 	}
 }
 
+func handleCustomerCSVImport(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError := func(status int, message string) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": message,
+			})
+		}
+
+		currentUser := userFromContext(r)
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
+			writeJSONError(http.StatusForbidden, "Solo personal autorizado puede importar clientes.")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.")
+			return
+		}
+
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) || strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+				writeJSONError(http.StatusRequestEntityTooLarge, "El archivo CSV excede el tamaño permitido.")
+				return
+			}
+			writeJSONError(http.StatusBadRequest, "No se pudo leer el archivo CSV.")
+			return
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			writeJSONError(http.StatusBadRequest, "Archivo CSV no encontrado.")
+			return
+		}
+		defer file.Close()
+
+		data, err := readUploadedCSVFile(file, header, customerCSVUploadLimit)
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
+				return
+			}
+			writeJSONError(http.StatusBadRequest, "No se pudo validar el archivo CSV.")
+			return
+		}
+
+		resp, err := importCustomersFromCSV(db, currentUser, data, "web", nil)
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
+				return
+			}
+			writeJSONError(http.StatusInternalServerError, "No se pudo importar el CSV de clientes.")
+			return
+		}
+
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":                true,
+			"processed_rows":    resp.ProcessedRows,
+			"created_customers": resp.CreatedCustomers,
+			"updated_customers": resp.UpdatedCustomers,
+			"rejected_rows":     len(resp.RejectedRows),
+			"failed_rows":       resp.RejectedRows,
+		})
+	}
+}
+
 func setAPIContextHeaders(w http.ResponseWriter, r *http.Request) {
 	if tenant := tenantFromContext(r); tenant != nil {
 		w.Header().Set("X-Stocki-Tenant-ID", strconv.Itoa(normalizeTenantID(tenant.ID)))
@@ -14376,6 +15029,8 @@ func main() {
 		}
 		renderTemplate(w, "customers.html", data, "Error al renderizar clientes")
 	})
+
+	mux.HandleFunc("/clientes/csv", handleCustomerCSVImport(db))
 
 	mux.HandleFunc("/clientes/", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -16545,9 +17200,10 @@ func main() {
 
 	mux.HandleFunc("/inventario", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
+		tenantID := tenantIDFromUser(currentUser)
 		flash := r.URL.Query().Get("mensaje")
 		receiptSaleID, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("receipt_sale_id")))
-		activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
+		activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantID, true)
 		if err != nil {
 			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
 			return
@@ -16574,7 +17230,7 @@ func main() {
 				return
 			}
 			editableLines = businessLineNames(lines)
-			assignableUsers, err = loadAssignableUsersForTenant(db, tenantIDFromUser(currentUser))
+			assignableUsers, err = loadAssignableUsersForTenant(db, tenantID)
 			if err != nil {
 				http.Error(w, "Error al cargar usuarios asignables", http.StatusInternalServerError)
 				return
@@ -16583,64 +17239,26 @@ func main() {
 
 		inventoryProducts := make([]inventoryProduct, 0, len(productsSnapshot))
 		allowedProducts := make(map[string]productOption, len(productsSnapshot))
+		productRefs := make([]string, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
 			allowedProducts[product.refID()] = product
 			allowedProducts[product.ID] = product
-			rows, err := db.Query(`
-					SELECT id, estado, creado_en, caducidad
-					FROM unidades
-					WHERE tenant_id = ? AND producto_id = ?
-					ORDER BY creado_en, id`, tenantIDFromUser(currentUser), product.refID())
-			if err != nil {
-				http.Error(w, "Error al consultar unidades", http.StatusInternalServerError)
-				return
-			}
+			productRefs = append(productRefs, product.refID())
+		}
+		unitsByProduct, unitStatsByProduct, err := loadInventoryUnitsByProductIDs(db, tenantID, productRefs)
+		if err != nil {
+			http.Error(w, "Error al consultar unidades", http.StatusInternalServerError)
+			return
+		}
 
-			units := []inventoryUnit{}
-			availableCount := 0
-			loanedCount := 0
-			changeCount := 0
-			reservedCount := 0
-			damagedCount := 0
-			fifoIndex := 1
-			for rows.Next() {
-				var id, estado, creadoEn string
-				var caducidad sql.NullString
-				if err := rows.Scan(&id, &estado, &creadoEn, &caducidad); err != nil {
-					rows.Close()
-					http.Error(w, "Error al leer unidades", http.StatusInternalServerError)
-					return
-				}
-				fifo := "-"
-				if estado == "Disponible" || estado == "available" {
-					fifo = strconv.Itoa(fifoIndex)
-					fifoIndex++
-					availableCount++
-				} else if estado == "Prestada" || estado == "Prestado" || estado == "loaned" {
-					loanedCount++
-				} else if estado == "Reservada" || estado == "reserved" {
-					reservedCount++
-				} else if estado == "Cambio" || estado == "swapped" {
-					changeCount++
-				} else if estado == "Danada" || estado == "Dañada" || estado == "damaged" {
-					damagedCount++
-				}
-				units = append(units, inventoryUnit{
-					ID:          id,
-					Estado:      estado,
-					EstadoClass: estadoClass(estado),
-					CreadoEn:    formatDateWithSettings(creadoEn),
-					Caducidad:   formatDateWithSettings(caducidad.String),
-					FIFO:        fifo,
-				})
-			}
-			if err := rows.Err(); err != nil {
-				rows.Close()
-				http.Error(w, "Error al procesar unidades", http.StatusInternalServerError)
-				return
-			}
-			rows.Close()
-
+		for _, product := range productsSnapshot {
+			units := unitsByProduct[product.refID()]
+			stats := unitStatsByProduct[product.refID()]
+			availableCount := stats.AvailableCount
+			loanedCount := stats.LoanedCount
+			changeCount := stats.ChangeCount
+			reservedCount := stats.ReservedCount
+			damagedCount := stats.DamagedCount
 			estadoLabel := "Disponible"
 			estadoClass := "available"
 			if availableCount == 0 {
@@ -16665,9 +17283,8 @@ func main() {
 			// Permanence alert: if the product has been in stock for >= 6 months since fecha_ingreso,
 			// flag it for UI and "Accion Caducidad 45 dias" filter.
 			fechaIngresoRaw := strings.TrimSpace(product.FechaIngreso)
-			if fechaIngresoRaw == "" && len(units) > 0 {
-				// Fallback for legacy rows: derive from the oldest unit creation timestamp.
-				fechaIngresoRaw = strings.TrimSpace(units[0].CreadoEn)
+			if fechaIngresoRaw == "" && stats.FirstCreatedAt != "" {
+				fechaIngresoRaw = stats.FirstCreatedAt
 			}
 			mesesEnStock := 0
 			fechaIngresoISO := ""
@@ -17041,6 +17658,8 @@ func main() {
 			return
 		}
 		defer loanRows.Close()
+		loanIndexByID := make(map[int]int)
+		loanIDs := make([]int, 0, 32)
 		for loanRows.Next() {
 			var (
 				productLoanID          int
@@ -17069,39 +17688,13 @@ func main() {
 			if !ok {
 				continue
 			}
-			unitRows, err := db.Query(`
-				SELECT plu.unit_id
-				FROM product_loan_units plu
-				WHERE plu.tenant_id = ? AND plu.product_loan_id = ?
-				ORDER BY plu.id ASC
-			`, tenantIDFromUser(currentUser), productLoanID)
-			if err != nil {
-				http.Error(w, "Error al consultar unidades del préstamo", http.StatusInternalServerError)
-				return
-			}
-			loanUnits := make([]inventoryUnit, 0, quantity)
-			for unitRows.Next() {
-				var unitID string
-				if err := unitRows.Scan(&unitID); err != nil {
-					unitRows.Close()
-					http.Error(w, "Error al leer unidades del préstamo", http.StatusInternalServerError)
-					return
-				}
-				loanUnits = append(loanUnits, inventoryUnit{
-					ID:          unitID,
-					Estado:      "Prestada",
-					EstadoClass: "loaned",
-					CreadoEn:    formatDateWithSettings(loanedAt),
-					Caducidad:   "",
-					FIFO:        "-",
-				})
-			}
-			unitRows.Close()
 			loanName := product.Name
 			if quantity > 1 {
 				loanName = fmt.Sprintf("%s x%d", product.Name, quantity)
 			}
 			loanStatus := normalizeProductLoanStatus(statusRaw)
+			loanIndexByID[productLoanID] = len(inventoryProducts)
+			loanIDs = append(loanIDs, productLoanID)
 			inventoryProducts = append(inventoryProducts, inventoryProduct{
 				EntryType:            "loan",
 				ProductLoanID:        productLoanID,
@@ -17125,7 +17718,7 @@ func main() {
 				EstadoLabel:          productLoanStatusLabel(loanStatus),
 				EstadoClass:          productLoanStatusClass(loanStatus),
 				Disponible:           0,
-				Unidades:             loanUnits,
+				Unidades:             []inventoryUnit{},
 				DisabledSale:         true,
 				FechaIngreso:         formatDateWithSettings(loanedAt),
 				SalePrice:            product.SalePrice,
@@ -17135,7 +17728,28 @@ func main() {
 			http.Error(w, "Error al procesar préstamos de producto", http.StatusInternalServerError)
 			return
 		}
-		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+		loanUnitMap, err := loadProductLoanUnitIDs(db, tenantID, loanIDs)
+		if err != nil {
+			http.Error(w, "Error al consultar unidades del préstamo", http.StatusInternalServerError)
+			return
+		}
+		for productLoanID, index := range loanIndexByID {
+			item := &inventoryProducts[index]
+			unitIDs := loanUnitMap[productLoanID]
+			loanUnits := make([]inventoryUnit, 0, len(unitIDs))
+			for _, unitID := range unitIDs {
+				loanUnits = append(loanUnits, inventoryUnit{
+					ID:          unitID,
+					Estado:      "Prestada",
+					EstadoClass: "loaned",
+					CreadoEn:    item.FechaIngreso,
+					Caducidad:   "",
+					FIFO:        "-",
+				})
+			}
+			item.Unidades = loanUnits
+		}
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantID)
 		if err != nil {
 			http.Error(w, "Error al cargar tipos de movimiento", http.StatusInternalServerError)
 			return

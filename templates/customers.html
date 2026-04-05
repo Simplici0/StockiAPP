@@ -48,6 +48,73 @@
                 grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             }
 
+            .customer-import {
+                display: grid;
+                gap: 14px;
+                padding: 18px;
+                border-radius: 20px;
+                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: linear-gradient(
+                    135deg,
+                    rgba(255, 255, 255, 0.98) 0%,
+                    rgba(244, 248, 252, 0.94) 100%
+                );
+                box-shadow: 0 16px 28px rgba(12, 28, 52, 0.06);
+            }
+
+            .customer-import h2 {
+                margin: 0;
+                font-size: 18px;
+                color: var(--secondary);
+            }
+
+            .customer-import p {
+                margin: 0;
+                color: var(--text-muted);
+                font-size: 13px;
+                line-height: 1.5;
+            }
+
+            .customer-import-actions {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+
+            .customer-import-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            .customer-import-table th,
+            .customer-import-table td {
+                padding: 10px 12px;
+                border-bottom: 1px solid rgba(15, 40, 80, 0.08);
+                text-align: left;
+                font-size: 13px;
+                vertical-align: top;
+            }
+
+            .customer-import-table th {
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--text-muted);
+            }
+
+            .customer-import-result {
+                display: grid;
+                gap: 10px;
+                font-size: 13px;
+                color: var(--text-muted);
+            }
+
+            .customer-import-result ul {
+                margin: 0;
+                padding-left: 18px;
+            }
+
             .customer-card {
                 display: grid;
                 gap: 12px;
@@ -200,6 +267,105 @@
                 </p>
             </form>
 
+            <section class="customer-import">
+                <div>
+                    <h2>Importar clientes por CSV</h2>
+                    <p>
+                        Sube un archivo CSV en UTF-8 separado por comas o punto
+                        y coma. El import siempre trabaja sobre el tenant
+                        autenticado: si el documento ya existe, el cliente se
+                        actualiza; si no existe, se crea.
+                    </p>
+                </div>
+
+                <div class="csv-columns">
+                    <span><strong>Obligatorias:</strong> name, phone</span>
+                    <span
+                        ><strong>Obligatorias:</strong> document_type,
+                        document_number</span
+                    >
+                    <span><strong>Obligatoria:</strong> city</span>
+                    <span><strong>Opcionales:</strong> address, notes</span>
+                </div>
+
+                <div class="customer-import-actions">
+                    <button
+                        class="secondary"
+                        type="button"
+                        id="customer-csv-download"
+                    >
+                        Descargar plantilla
+                    </button>
+                    <label class="secondary" for="customer-csv-file"
+                        >Seleccionar CSV</label
+                    >
+                    <input
+                        id="customer-csv-file"
+                        type="file"
+                        accept=".csv,text/csv"
+                    />
+                    <button
+                        class="secondary"
+                        type="button"
+                        id="customer-csv-validate"
+                        disabled
+                    >
+                        Validar archivo
+                    </button>
+                    <button
+                        class="primary"
+                        type="button"
+                        id="customer-csv-upload"
+                        disabled
+                    >
+                        Importar clientes
+                    </button>
+                </div>
+
+                <div class="upload-status" id="customer-csv-status">
+                    <span>Preview: 0 filas</span>
+                    <span>Válidas: 0</span>
+                    <span>Errores: 0</span>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Validación previa</div>
+                    <ul class="chk" id="customer-csv-validation-errors">
+                        <li>
+                            Selecciona un archivo y valida para revisar las
+                            filas antes de importar.
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="upload-preview">
+                    <table class="customer-import-table">
+                        <thead>
+                            <tr>
+                                <th>Fila</th>
+                                <th>Nombre</th>
+                                <th>Documento</th>
+                                <th>Teléfono</th>
+                                <th>Ciudad</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="customer-csv-preview-body">
+                            <tr>
+                                <td colspan="6">Sin archivo validado.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="customer-import-result" id="customer-csv-result">
+                    <span>
+                        El resumen del import aparecerá aquí después de subir el
+                        archivo.
+                    </span>
+                </div>
+            </section>
+
             {{if .Items}}
             <section class="customers-grid">
                 {{range .Items}}
@@ -264,5 +430,544 @@
             </section>
             {{end}}
         </main>
+        <script>
+            (() => {
+                const fileInput =
+                    document.getElementById("customer-csv-file");
+                const downloadButton = document.getElementById(
+                    "customer-csv-download",
+                );
+                const validateButton = document.getElementById(
+                    "customer-csv-validate",
+                );
+                const uploadButton =
+                    document.getElementById("customer-csv-upload");
+                const previewBody = document.getElementById(
+                    "customer-csv-preview-body",
+                );
+                const validationErrors = document.getElementById(
+                    "customer-csv-validation-errors",
+                );
+                const status = document.getElementById("customer-csv-status");
+                const result = document.getElementById("customer-csv-result");
+
+                if (
+                    !fileInput ||
+                    !downloadButton ||
+                    !validateButton ||
+                    !uploadButton ||
+                    !previewBody ||
+                    !validationErrors ||
+                    !status ||
+                    !result
+                ) {
+                    return;
+                }
+
+                let currentFile = null;
+                let validatedRows = [];
+                let validationMessages = [];
+
+                const escapeCSV = (value) => {
+                    const stringValue = String(value == null ? "" : value);
+                    if (/[",\n]/.test(stringValue)) {
+                        return `"${stringValue.replace(/"/g, '""')}"`;
+                    }
+                    return stringValue;
+                };
+
+                const normalizeHeaderName = (value) =>
+                    String(value || "")
+                        .replace(/^\uFEFF/, "")
+                        .trim()
+                        .toLowerCase()
+                        .replace(/[\s-]+/g, "_");
+
+                const normalizeDocumentType = (value) => {
+                    const normalized = String(value || "")
+                        .trim()
+                        .toLowerCase()
+                        .replace(/[_-]+/g, " ")
+                        .replace(/\s+/g, " ");
+                    if (normalized === "cc") return "CC";
+                    if (
+                        normalized === "ce" ||
+                        normalized === "c extranjeria" ||
+                        normalized === "c extranjería"
+                    ) {
+                        return "C Extranjeria";
+                    }
+                    if (normalized === "pasaporte") return "Pasaporte";
+                    return String(value || "").trim();
+                };
+
+                const customerDocumentKey = (documentType, documentNumber) => {
+                    const type = normalizeDocumentType(documentType)
+                        .trim()
+                        .toLowerCase();
+                    const number = String(documentNumber || "")
+                        .trim()
+                        .toLowerCase();
+                    if (!type || !number) return "";
+                    return `${type}::${number}`;
+                };
+
+                const parseCSV = (text) => {
+                    const rows = [];
+                    let current = [];
+                    let value = "";
+                    let inQuotes = false;
+                    for (let i = 0; i < text.length; i++) {
+                        const char = text[i];
+                        const next = text[i + 1];
+
+                        if (char === '"' && inQuotes && next === '"') {
+                            value += '"';
+                            i++;
+                            continue;
+                        }
+
+                        if (char === '"') {
+                            inQuotes = !inQuotes;
+                            continue;
+                        }
+
+                        if (char === "," && !inQuotes) {
+                            current.push(value);
+                            value = "";
+                            continue;
+                        }
+
+                        if ((char === "\n" || char === "\r") && !inQuotes) {
+                            if (value !== "" || current.length > 0) {
+                                current.push(value);
+                                rows.push(current);
+                                current = [];
+                                value = "";
+                            }
+                            continue;
+                        }
+
+                        value += char;
+                    }
+
+                    if (value !== "" || current.length > 0) {
+                        current.push(value);
+                        rows.push(current);
+                    }
+
+                    return rows;
+                };
+
+                const setStatus = (previewCount, validCount, errorCount) => {
+                    status.replaceChildren(
+                        Object.assign(document.createElement("span"), {
+                            textContent: `Preview: ${previewCount} filas`,
+                        }),
+                        Object.assign(document.createElement("span"), {
+                            textContent: `Válidas: ${validCount}`,
+                        }),
+                        Object.assign(document.createElement("span"), {
+                            textContent: `Errores: ${errorCount}`,
+                        }),
+                    );
+                };
+
+                const setValidationMessages = (messages) => {
+                    validationErrors.replaceChildren();
+                    messages.forEach((message) => {
+                        const item = document.createElement("li");
+                        item.textContent = message;
+                        validationErrors.appendChild(item);
+                    });
+                };
+
+                const renderEmptyPreview = (message) => {
+                    previewBody.replaceChildren();
+                    const row = document.createElement("tr");
+                    const cell = document.createElement("td");
+                    cell.colSpan = 6;
+                    cell.textContent = message;
+                    row.appendChild(cell);
+                    previewBody.appendChild(row);
+                };
+
+                const renderPreview = (rows) => {
+                    previewBody.replaceChildren();
+                    if (!rows.length) {
+                        renderEmptyPreview("Sin filas para mostrar.");
+                        return;
+                    }
+                    rows.slice(0, 10).forEach((row) => {
+                        const tr = document.createElement("tr");
+                        const values = [
+                            row.index,
+                            row.name || "-",
+                            row.documentLabel || "-",
+                            row.phone || "-",
+                            row.city || "-",
+                            row.errors.length
+                                ? `Errores: ${row.errors.join(" ")}`
+                                : "OK",
+                        ];
+                        values.forEach((value) => {
+                            const td = document.createElement("td");
+                            td.textContent =
+                                value == null ? "" : String(value);
+                            tr.appendChild(td);
+                        });
+                        previewBody.appendChild(tr);
+                    });
+                };
+
+                const validateRows = (rows) => {
+                    const headerAliases = {
+                        nombre: "name",
+                        telefono: "phone",
+                        "teléfono": "phone",
+                        tipo_documento: "document_type",
+                        numero_documento: "document_number",
+                        "número_documento": "document_number",
+                        direccion: "address",
+                        "dirección": "address",
+                        ciudad: "city",
+                        notas: "notes",
+                    };
+                    const normalizedHeader = rows[0].map((cell) => {
+                        const value = normalizeHeaderName(cell);
+                        return headerAliases[value] || value;
+                    });
+                    const required = [
+                        "name",
+                        "phone",
+                        "document_type",
+                        "document_number",
+                        "city",
+                    ];
+                    const errors = [];
+                    if (normalizedHeader.includes("tenant_id")) {
+                        errors.push(
+                            "El CSV no puede incluir tenant_id. El tenant se resuelve por la sesión actual.",
+                        );
+                    }
+                    const missing = required.filter(
+                        (column) => !normalizedHeader.includes(column),
+                    );
+                    if (missing.length) {
+                        errors.push(
+                            `Faltan columnas requeridas: ${missing.join(", ")}`,
+                        );
+                    }
+                    if (errors.length) {
+                        return { rows: [], errors };
+                    }
+
+                    const index = normalizedHeader.reduce((map, column, idx) => {
+                        map[column] = idx;
+                        return map;
+                    }, {});
+                    const seenDocuments = new Map();
+                    const parsedRows = [];
+                    rows.slice(1).forEach((row, idx) => {
+                        if (
+                            row.every(
+                                (cell) => String(cell || "").trim() === "",
+                            )
+                        ) {
+                            return;
+                        }
+                        const get = (column) =>
+                            String(row[index[column]] || "").trim();
+                        const documentType = normalizeDocumentType(
+                            get("document_type"),
+                        );
+                        const documentNumber = get("document_number");
+                        const docKey = customerDocumentKey(
+                            documentType,
+                            documentNumber,
+                        );
+                        const rowErrors = [];
+                        const name = get("name");
+                        const phone = get("phone");
+                        const city = get("city");
+                        if (!name) rowErrors.push("Nombre obligatorio.");
+                        if (!phone) rowErrors.push("Teléfono obligatorio.");
+                        if (!documentType) {
+                            rowErrors.push("Tipo de documento obligatorio.");
+                        } else if (
+                            ![
+                                "CC",
+                                "C Extranjeria",
+                                "Pasaporte",
+                            ].includes(documentType)
+                        ) {
+                            rowErrors.push(
+                                "Tipo de documento inválido.",
+                            );
+                        }
+                        if (!documentNumber) {
+                            rowErrors.push("Documento obligatorio.");
+                        }
+                        if (!city) rowErrors.push("Ciudad obligatoria.");
+                        if (docKey && seenDocuments.has(docKey)) {
+                            rowErrors.push(
+                                `Documento duplicado dentro del CSV. Ya aparece en la fila ${seenDocuments.get(docKey)}.`,
+                            );
+                        } else if (docKey) {
+                            seenDocuments.set(docKey, idx + 1);
+                        }
+
+                        parsedRows.push({
+                            index: idx + 1,
+                            name,
+                            phone,
+                            city,
+                            documentLabel: `${documentType || "-"} ${documentNumber || "-"}`.trim(),
+                            errors: rowErrors,
+                        });
+                    });
+                    return { rows: parsedRows, errors: [] };
+                };
+
+                downloadButton.addEventListener("click", () => {
+                    const header = [
+                        "name",
+                        "phone",
+                        "document_type",
+                        "document_number",
+                        "address",
+                        "city",
+                        "notes",
+                    ];
+                    const rows = [
+                        [
+                            "Carolina Perez",
+                            "3001234567",
+                            "CC",
+                            "123456789",
+                            "Calle 10 # 20-30",
+                            "Bogota",
+                            "Cliente frecuente",
+                        ],
+                        [
+                            "Luis Mejia",
+                            "3010001122",
+                            "Pasaporte",
+                            "AB123456",
+                            "Carrera 15 # 8-10",
+                            "Medellin",
+                            "",
+                        ],
+                    ];
+                    const csvContent = [header, ...rows]
+                        .map((row) => row.map(escapeCSV).join(","))
+                        .join("\n");
+                    const blob = new Blob([csvContent], {
+                        type: "text/csv;charset=utf-8;",
+                    });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = "plantilla_clientes_stockiapp.csv";
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    URL.revokeObjectURL(url);
+                });
+
+                fileInput.addEventListener("change", (event) => {
+                    const file = event.target.files[0];
+                    currentFile = file || null;
+                    validatedRows = [];
+                    validationMessages = [];
+                    uploadButton.disabled = true;
+                    validateButton.disabled = !currentFile;
+                    setStatus(0, 0, 0);
+                    setValidationMessages([
+                        "Selecciona un archivo y valida para revisar las filas antes de importar.",
+                    ]);
+                    renderEmptyPreview("Sin archivo validado.");
+                    result.replaceChildren(
+                        Object.assign(document.createElement("span"), {
+                            textContent:
+                                "El resumen del import aparecerá aquí después de subir el archivo.",
+                        }),
+                    );
+                });
+
+                validateButton.addEventListener("click", () => {
+                    if (!currentFile) return;
+                    if (
+                        !String(currentFile.name || "")
+                            .toLowerCase()
+                            .endsWith(".csv")
+                    ) {
+                        validationMessages = [
+                            "Selecciona un archivo con extensión .csv.",
+                        ];
+                        validatedRows = [];
+                        setValidationMessages(validationMessages);
+                        renderEmptyPreview("Archivo inválido.");
+                        setStatus(0, 0, 1);
+                        uploadButton.disabled = true;
+                        return;
+                    }
+                    if (currentFile.size > 8 * 1024 * 1024) {
+                        validationMessages = [
+                            "El archivo excede el tamaño máximo de 8 MB.",
+                        ];
+                        validatedRows = [];
+                        setValidationMessages(validationMessages);
+                        renderEmptyPreview("Archivo demasiado grande.");
+                        setStatus(0, 0, 1);
+                        uploadButton.disabled = true;
+                        return;
+                    }
+
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const rows = parseCSV(String(reader.result || ""))
+                            .filter((row) =>
+                                row.some(
+                                    (cell) =>
+                                        String(cell || "").trim() !== "",
+                                ),
+                            );
+                        if (!rows.length) {
+                            validationMessages = [
+                                "El archivo no contiene filas para validar.",
+                            ];
+                            validatedRows = [];
+                            setValidationMessages(validationMessages);
+                            renderEmptyPreview("Sin filas para mostrar.");
+                            setStatus(0, 0, 1);
+                            uploadButton.disabled = true;
+                            return;
+                        }
+
+                        const validation = validateRows(rows);
+                        validatedRows = validation.rows;
+                        validationMessages = validation.errors;
+                        renderPreview(validatedRows);
+                        const validCount = validatedRows.filter(
+                            (row) => row.errors.length === 0,
+                        ).length;
+                        const errorCount =
+                            validationMessages.length +
+                            validatedRows.filter(
+                                (row) => row.errors.length > 0,
+                            ).length;
+                        setStatus(validatedRows.length, validCount, errorCount);
+                        if (validationMessages.length) {
+                            setValidationMessages(validationMessages);
+                        } else if (!validatedRows.length) {
+                            setValidationMessages([
+                                "El archivo no contiene filas para validar.",
+                            ]);
+                        } else if (errorCount > 0) {
+                            setValidationMessages([
+                                "Corrige las filas marcadas antes de importar.",
+                            ]);
+                        } else {
+                            setValidationMessages([
+                                "Archivo validado correctamente. Puedes importar los clientes.",
+                            ]);
+                        }
+                        uploadButton.disabled =
+                            !validatedRows.length || errorCount > 0;
+                    };
+                    reader.readAsText(currentFile);
+                });
+
+                uploadButton.addEventListener("click", async () => {
+                    if (!currentFile || uploadButton.disabled) return;
+
+                    uploadButton.disabled = true;
+                    uploadButton.textContent = "Importando...";
+                    result.replaceChildren(
+                        Object.assign(document.createElement("span"), {
+                            textContent:
+                                "Procesando archivo, espera unos segundos...",
+                        }),
+                    );
+
+                    const formData = new FormData();
+                    formData.append("file", currentFile);
+
+                    try {
+                        const response = await fetch("/clientes/csv", {
+                            method: "POST",
+                            body: formData,
+                            credentials: "same-origin",
+                        });
+                        let payload = {};
+                        try {
+                            payload = await response.json();
+                        } catch (_) {
+                            payload = {};
+                        }
+                        result.replaceChildren();
+
+                        if (!response.ok) {
+                            result.appendChild(
+                                Object.assign(
+                                    document.createElement("span"),
+                                    {
+                                        textContent:
+                                            payload.error ||
+                                            "No se pudo importar el CSV de clientes.",
+                                    },
+                                ),
+                            );
+                            return;
+                        }
+
+                        const summary = document.createElement("span");
+                        summary.textContent = `Resumen: Filas procesadas: ${payload.processed_rows || 0} · Creados: ${payload.created_customers || 0} · Actualizados: ${payload.updated_customers || 0} · Rechazados: ${payload.rejected_rows || 0}`;
+                        result.appendChild(summary);
+
+                        const failedRows = Array.isArray(payload.failed_rows)
+                            ? payload.failed_rows
+                            : [];
+                        if (failedRows.length) {
+                            const list = document.createElement("ul");
+                            failedRows.forEach((row) => {
+                                const item = document.createElement("li");
+                                const documentLabel = [
+                                    row.document_type || "",
+                                    row.document_number || "",
+                                ]
+                                    .join(" ")
+                                    .trim();
+                                item.textContent = `Fila ${row.row} (${documentLabel || "-"}) → ${row.error}`;
+                                list.appendChild(item);
+                            });
+                            result.appendChild(list);
+                        }
+
+                        const refreshLink = document.createElement("a");
+                        refreshLink.className = "button-link";
+                        refreshLink.href = "/clientes";
+                        refreshLink.textContent = "Actualizar lista de clientes";
+                        result.appendChild(refreshLink);
+                    } catch (_) {
+                        result.replaceChildren(
+                            Object.assign(document.createElement("span"), {
+                                textContent:
+                                    "Error inesperado al importar el archivo.",
+                            }),
+                        );
+                    } finally {
+                        uploadButton.textContent = "Importar clientes";
+                        uploadButton.disabled =
+                            !validatedRows.length ||
+                            validationMessages.length > 0 ||
+                            validatedRows.some(
+                                (row) => row.errors.length > 0,
+                            );
+                    }
+                });
+            })();
+        </script>
     </body>
 </html>

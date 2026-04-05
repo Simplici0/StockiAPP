@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -799,6 +800,18 @@ func setupTenantAdminSessionAPIHarness(t *testing.T) (*sql.DB, http.Handler, *Te
 	return db, handler, tenant, sessionToken
 }
 
+func setupTenantCustomerCSVSessionHarness(t *testing.T) (*sql.DB, http.Handler, *Tenant, *User, string) {
+	t.Helper()
+
+	db, _, tenant, _ := setupTenantWriteAPIHarness(t)
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	sessionToken := createTestSession(t, db, tenantAdmin)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/clientes/csv", handleCustomerCSVImport(db))
+	return db, authMiddleware(db, mux), tenant, tenantAdmin, sessionToken
+}
+
 func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 	t.Setenv("ADMIN_USER", "admin")
 	t.Setenv("ADMIN_PASS", "SuperSecreto123")
@@ -1575,6 +1588,34 @@ func performSessionAPIJSONRequest(t *testing.T, handler http.Handler, method, pa
 
 	req := httptest.NewRequest(method, "https://example.com"+path, body)
 	req.Header.Set("Content-Type", "application/json")
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: sessionToken})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func performSessionMultipartRequest(t *testing.T, handler http.Handler, method, path, sessionToken, origin, fieldName, filename string, content []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile(fieldName, filename)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatalf("write form file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(method, "https://example.com"+path, &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 	if origin != "" {
 		req.Header.Set("Origin", origin)
 	}
@@ -2546,10 +2587,10 @@ func seedTenantHardResetFixture(t *testing.T, db *sql.DB, tenantID int) map[stri
 	}
 
 	return map[string]int{
-		"product_loan_id": productLoanID,
-		"sale_invoice_id":  saleInvoiceID,
+		"product_loan_id":   productLoanID,
+		"sale_invoice_id":   saleInvoiceID,
 		"credit_invoice_id": creditInvoiceID,
-		"credit_sale_id":   creditSaleID,
+		"credit_sale_id":    creditSaleID,
 	}
 }
 
@@ -5152,6 +5193,242 @@ func TestAPICustomerDetailAndEventsRespectTenantScope(t *testing.T) {
 	crossDetail := performAPIJSONRequest(t, handler, http.MethodGet, "/api/customers/"+strconv.Itoa(crossCustomerID), token, nil)
 	if crossDetail.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 cross-tenant detail, got %d body=%s", crossDetail.Code, crossDetail.Body.String())
+	}
+}
+
+func TestCustomerCSVImportCreatesUpdatesAndScopesByTenant(t *testing.T) {
+	db, handler, tenant, _, sessionToken := setupTenantCustomerCSVSessionHarness(t)
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES
+			(?, 'Cliente Existente', '3000001111', 'CC', '200200', 'Dir vieja', 'Bogota', 'nota vieja', ?, ?),
+			(?, 'Cliente Otro Tenant', '3019990000', 'CC', '100100', 'Otra dir', 'Cali', '', ?, ?)
+	`, tenant.ID, now, now, defaultTenantID, now, now); err != nil {
+		t.Fatalf("insert seeded customers: %v", err)
+	}
+
+	csvContent := strings.Join([]string{
+		"name,phone,document_type,document_number,address,city,notes",
+		`"Cliente Nuevo","3001234567","CC","100100","Calle 10","Medellin","<script>alert(1)</script>"`,
+		`"Cliente Existente Actualizado","3007654321","CC","200200","Calle 20","Barranquilla","nota actualizada"`,
+	}, "\n")
+
+	resp := performSessionMultipartRequest(t, handler, http.MethodPost, "/clientes/csv", sessionToken, "https://example.com", "file", "clientes.csv", []byte(csvContent))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 importing customers csv, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "<script>alert(1)</script>") {
+		t.Fatalf("import response should not reflect unsafe CSV content, got %s", resp.Body.String())
+	}
+
+	body := decodeAPIResponse(t, resp)
+	if body["processed_rows"].(float64) != 2 {
+		t.Fatalf("unexpected processed_rows payload: %+v", body)
+	}
+	if body["created_customers"].(float64) != 1 {
+		t.Fatalf("unexpected created_customers payload: %+v", body)
+	}
+	if body["updated_customers"].(float64) != 1 {
+		t.Fatalf("unexpected updated_customers payload: %+v", body)
+	}
+	if body["rejected_rows"].(float64) != 0 {
+		t.Fatalf("unexpected rejected_rows payload: %+v", body)
+	}
+
+	var (
+		createdName  string
+		createdCity  string
+		createdNotes string
+	)
+	if err := db.QueryRow(`
+		SELECT name, city, notes
+		FROM customers
+		WHERE tenant_id = ? AND document_type = 'CC' AND document_number = '100100'
+	`, tenant.ID).Scan(&createdName, &createdCity, &createdNotes); err != nil {
+		t.Fatalf("load created customer: %v", err)
+	}
+	if createdName != "Cliente Nuevo" || createdCity != "Medellin" || createdNotes != "<script>alert(1)</script>" {
+		t.Fatalf("unexpected created customer values name=%q city=%q notes=%q", createdName, createdCity, createdNotes)
+	}
+
+	var updatedPhone, updatedAddress, updatedCity, updatedNotes string
+	if err := db.QueryRow(`
+		SELECT phone, address, city, notes
+		FROM customers
+		WHERE tenant_id = ? AND document_type = 'CC' AND document_number = '200200'
+	`, tenant.ID).Scan(&updatedPhone, &updatedAddress, &updatedCity, &updatedNotes); err != nil {
+		t.Fatalf("load updated customer: %v", err)
+	}
+	if updatedPhone != "3007654321" || updatedAddress != "Calle 20" || updatedCity != "Barranquilla" || updatedNotes != "nota actualizada" {
+		t.Fatalf("unexpected updated customer values phone=%q address=%q city=%q notes=%q", updatedPhone, updatedAddress, updatedCity, updatedNotes)
+	}
+
+	var otherTenantName string
+	if err := db.QueryRow(`
+		SELECT name
+		FROM customers
+		WHERE tenant_id = ? AND document_type = 'CC' AND document_number = '100100'
+	`, defaultTenantID).Scan(&otherTenantName); err != nil {
+		t.Fatalf("load other tenant customer: %v", err)
+	}
+	if otherTenantName != "Cliente Otro Tenant" {
+		t.Fatalf("other tenant customer should remain untouched, got %q", otherTenantName)
+	}
+
+	var importAuditCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM audit_events
+		WHERE tenant_id = ? AND event_type = 'customers_csv_imported' AND source = 'web'
+	`, tenant.ID).Scan(&importAuditCount); err != nil {
+		t.Fatalf("count import audit events: %v", err)
+	}
+	if importAuditCount != 1 {
+		t.Fatalf("expected 1 import audit event, got %d", importAuditCount)
+	}
+
+	var customerAuditCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM audit_events
+		WHERE tenant_id = ? AND event_type IN ('customer_created', 'customer_updated') AND source = 'web'
+	`, tenant.ID).Scan(&customerAuditCount); err != nil {
+		t.Fatalf("count customer audit events: %v", err)
+	}
+	if customerAuditCount != 2 {
+		t.Fatalf("expected 2 customer audit events, got %d", customerAuditCount)
+	}
+
+	var customerEventCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM customer_events
+		WHERE tenant_id = ? AND event_type IN ('profile_created', 'profile_updated')
+	`, tenant.ID).Scan(&customerEventCount); err != nil {
+		t.Fatalf("count customer events: %v", err)
+	}
+	if customerEventCount != 2 {
+		t.Fatalf("expected 2 customer events from csv import, got %d", customerEventCount)
+	}
+}
+
+func TestCustomerCSVImportRejectsTenantIDHeader(t *testing.T) {
+	db, handler, tenant, _, sessionToken := setupTenantCustomerCSVSessionHarness(t)
+	defer db.Close()
+
+	csvContent := strings.Join([]string{
+		"name,phone,document_type,document_number,address,city,notes,tenant_id",
+		`"Cliente","3001234567","CC","123123","Calle 1","Bogota","nota","999"`,
+	}, "\n")
+
+	resp := performSessionMultipartRequest(t, handler, http.MethodPost, "/clientes/csv", sessionToken, "https://example.com", "file", "clientes.csv", []byte(csvContent))
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for forbidden tenant_id column, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	body := decodeAPIResponse(t, resp)
+	if body["ok"] != false {
+		t.Fatalf("expected ok=false payload, got %+v", body)
+	}
+	if !strings.Contains(strings.ToLower(body["error"].(string)), "tenant") {
+		t.Fatalf("expected tenant_id validation error, got %+v", body)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ?`, tenant.ID).Scan(&count); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no tenant customers after rejected header, got %d", count)
+	}
+}
+
+func TestCustomerCSVImportRejectsInvalidRowsAndDuplicateDocuments(t *testing.T) {
+	db, handler, tenant, _, sessionToken := setupTenantCustomerCSVSessionHarness(t)
+	defer db.Close()
+
+	csvContent := strings.Join([]string{
+		"name,phone,document_type,document_number,address,city,notes",
+		`"Cliente Valido","3001234567","CC","300300","Calle 1","Bogota","ok"`,
+		`"Sin Ciudad","3001230000","CC","400400","Calle 2","","falta ciudad"`,
+		`"Duplicado","3009998888","CC","300300","Calle 3","Medellin","dup"`,
+	}, "\n")
+
+	resp := performSessionMultipartRequest(t, handler, http.MethodPost, "/clientes/csv", sessionToken, "https://example.com", "file", "clientes.csv", []byte(csvContent))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 for mixed valid/invalid rows, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	body := decodeAPIResponse(t, resp)
+	if body["processed_rows"].(float64) != 3 {
+		t.Fatalf("unexpected processed_rows payload: %+v", body)
+	}
+	if body["created_customers"].(float64) != 1 {
+		t.Fatalf("unexpected created_customers payload: %+v", body)
+	}
+	if body["updated_customers"].(float64) != 0 {
+		t.Fatalf("unexpected updated_customers payload: %+v", body)
+	}
+	if body["rejected_rows"].(float64) != 2 {
+		t.Fatalf("unexpected rejected_rows payload: %+v", body)
+	}
+
+	failedRows, ok := body["failed_rows"].([]any)
+	if !ok || len(failedRows) != 2 {
+		t.Fatalf("expected 2 failed_rows entries, got %+v", body)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ?`, tenant.ID).Scan(&count); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 imported customer, got %d", count)
+	}
+}
+
+func TestCustomerCSVImportRequiresCSRFSameOrigin(t *testing.T) {
+	db, handler, tenant, _, sessionToken := setupTenantCustomerCSVSessionHarness(t)
+	defer db.Close()
+
+	csvContent := strings.Join([]string{
+		"name,phone,document_type,document_number,address,city,notes",
+		`"Cliente CSRF","3001234567","CC","777000","Calle 1","Bogota","ok"`,
+	}, "\n")
+
+	resp := performSessionMultipartRequest(t, handler, http.MethodPost, "/clientes/csv", sessionToken, "", "file", "clientes.csv", []byte(csvContent))
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without same-origin headers, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ?`, tenant.ID).Scan(&count); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no customers after CSRF rejection, got %d", count)
+	}
+}
+
+func TestCustomerCSVImportRejectsOversizedUpload(t *testing.T) {
+	db, handler, tenant, _, sessionToken := setupTenantCustomerCSVSessionHarness(t)
+	defer db.Close()
+
+	oversized := bytes.Repeat([]byte("a"), int(customerCSVUploadLimit)+2048)
+	resp := performSessionMultipartRequest(t, handler, http.MethodPost, "/clientes/csv", sessionToken, "https://example.com", "file", "clientes.csv", oversized)
+	if resp.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 for oversized CSV upload, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ?`, tenant.ID).Scan(&count); err != nil {
+		t.Fatalf("count tenant customers: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no customers after oversized upload, got %d", count)
 	}
 }
 
