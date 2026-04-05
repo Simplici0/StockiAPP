@@ -14757,7 +14757,7 @@ func main() {
 			Subtitle:             "Separa branding general del negocio y catálogos operativos desde un único panel.",
 			Flash:                flash,
 			Error:                errText,
-			VersionLabel:         "Versión 1.0",
+			VersionLabel:         "Versión 1.0.1",
 			Settings:             settings,
 			Lines:                lines,
 			PaymentMethods:       paymentMethodsCfg,
