@@ -24,5 +24,8 @@ jobs:
             go build -buildvcs=false -o stockiapp_new .
             systemctl stop granempresa
             cp stockiapp_new /srv/granempresa/app/granempresa
+            cp -r templates /srv/granempresa/app/
+            cp -r static /srv/granempresa/app/
+
             systemctl start granempresa
             systemctl status granempresa --no-pager
