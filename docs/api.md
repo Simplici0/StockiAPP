@@ -264,7 +264,7 @@ Respuesta:
 
 Devuelve los usuarios asignables del tenant autenticado para `owner_user_id`.
 
-Solo administrador del tenant por sesión web. Las API keys operativas responden `403` en esta ruta.
+Disponible para administración tenant-scoped por sesión web admin o por API key operativa tenant-scoped.
 
 Ejemplo:
 
@@ -354,7 +354,7 @@ Reglas:
 
 Actualiza el `id` visible de un producto existente.
 
-Solo admin por sesión web. Las API keys operativas responden `403`.
+Disponible para administración tenant-scoped por sesión web admin o por API key operativa tenant-scoped.
 
 Payload:
 
@@ -432,7 +432,7 @@ Respuesta:
 
 Ajusta inventario y, si aplica, precio o retoma del producto.
 
-Solo personal autorizado por sesión web (`staff`/`admin`). Las API keys operativas responden `403` en esta ruta.
+Disponible para personal autorizado del tenant. Con sesión web requiere `staff`/`admin`; con API key operativa tenant-scoped también está permitido.
 
 Payload:
 

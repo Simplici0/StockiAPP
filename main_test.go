@@ -688,6 +688,30 @@ func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handle
 	mux.HandleFunc("/api/users", handleAPIUsers(db, usersCols))
 	mux.HandleFunc("/api/users/", handleAPIUserRoutes(db, usersCols))
 	mux.HandleFunc("/api/products/", handleAPIProductRoutes(db))
+	mux.HandleFunc("/api/settings/owners", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil || !(isAdminRole(currentUser.Role) || isAPIKeyRole(currentUser.Role)) {
+			writeAPIError(w, http.StatusForbidden, "Solo administrador puede consultar owners asignables.", nil)
+			return
+		}
+		users, err := apiAssignableUsersForRequest(db, r)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los usuarios asignables.", nil)
+			return
+		}
+		items := make([]map[string]any, 0, len(users))
+		for _, user := range users {
+			items = append(items, map[string]any{
+				"id":       user.ID,
+				"username": user.Username,
+			})
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
+	})
 	mux.HandleFunc("/api/inventory/adjust", handleAPIInventoryAdjust(db, nil))
 	mux.HandleFunc("/api/productos/precio", func(w http.ResponseWriter, r *http.Request) {
 		productID := strings.TrimSpace(r.URL.Query().Get("id"))
@@ -888,7 +912,7 @@ func TestCreateManagedUserSupportsTelegramIDAndTenantScope(t *testing.T) {
 }
 
 func TestAPIUpdateProductIDUsesTenantScopedVisibleIdentifier(t *testing.T) {
-	db, handler, tenant, _ := setupTenantWriteAPIHarness(t)
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
 	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
 	sessionToken := createTestSession(t, db, tenantAdmin)
@@ -965,9 +989,9 @@ func TestAPIUpdateProductIDUsesTenantScopedVisibleIdentifier(t *testing.T) {
 		t.Fatalf("expected 400 on duplicate id, got %d body=%s", collisionResp.Code, collisionResp.Body.String())
 	}
 
-	resp := performSessionAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", sessionToken, map[string]any{
+	resp := performAPIJSONRequest(t, handler, http.MethodPatch, "/api/products/P-OLD", token, map[string]any{
 		"id": "P-NEW",
-	}, "https://example.com")
+	})
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
@@ -2824,7 +2848,7 @@ func TestAPIAuthFromRequestPrefersBearerOverSession(t *testing.T) {
 	}
 }
 
-func TestAPIKeyCannotAccessAdminRoutesButSessionAdminCan(t *testing.T) {
+func TestAPIKeyCanAccessOwnersButNotUsers(t *testing.T) {
 	db, handler, _, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
 
@@ -2834,8 +2858,12 @@ func TestAPIKeyCannotAccessAdminRoutesButSessionAdminCan(t *testing.T) {
 	}
 
 	apiKeyOwnersResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/settings/owners", token, nil)
-	if apiKeyOwnersResp.Code != http.StatusForbidden {
-		t.Fatalf("expected API key owners access to be forbidden, got %d body=%s", apiKeyOwnersResp.Code, apiKeyOwnersResp.Body.String())
+	if apiKeyOwnersResp.Code != http.StatusOK {
+		t.Fatalf("expected API key owners access to succeed, got %d body=%s", apiKeyOwnersResp.Code, apiKeyOwnersResp.Body.String())
+	}
+	apiKeyOwnersBody := decodeAPIResponse(t, apiKeyOwnersResp)
+	if apiKeyOwnersBody["count"] == nil {
+		t.Fatalf("expected owners payload to include count, got %+v", apiKeyOwnersBody)
 	}
 
 	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
@@ -2862,7 +2890,7 @@ func TestAPIKeyCannotAccessAdminRoutesButSessionAdminCan(t *testing.T) {
 	}
 }
 
-func TestAPIKeyRouteAllowlistBlocksInventoryAdjust(t *testing.T) {
+func TestAPIKeyRouteAllowlistAllowsInventoryAdjust(t *testing.T) {
 	db, _, _, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
 
@@ -2875,8 +2903,8 @@ func TestAPIKeyRouteAllowlistBlocksInventoryAdjust(t *testing.T) {
 	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/inventory/adjust", token, map[string]any{
 		"product_id": "P-001",
 	})
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("expected inventory adjust via api key to be forbidden, got %d body=%s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("expected inventory adjust via api key to pass allowlist, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -5778,7 +5806,7 @@ func TestAdjustInventoryProductUpdatesStockAndRetoma(t *testing.T) {
 	}
 }
 
-func TestAPIInventoryAdjustRequiresSessionUser(t *testing.T) {
+func TestAPIInventoryAdjustAllowsAPIKey(t *testing.T) {
 	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
 
@@ -5791,8 +5819,8 @@ func TestAPIInventoryAdjustRequiresSessionUser(t *testing.T) {
 		"retoma_enabled":  true,
 		"retoma_price":    12000,
 	})
-	if apiKeyResp.Code != http.StatusForbidden {
-		t.Fatalf("expected inventory adjust 403 for API key, got %d body=%s", apiKeyResp.Code, apiKeyResp.Body.String())
+	if apiKeyResp.Code != http.StatusOK {
+		t.Fatalf("expected inventory adjust 200 for API key, got %d body=%s", apiKeyResp.Code, apiKeyResp.Body.String())
 	}
 
 	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")

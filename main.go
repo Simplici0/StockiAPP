@@ -1325,13 +1325,19 @@ func apiKeyRequestAllowed(r *http.Request) bool {
 		return true
 	case r.Method == http.MethodGet && path == "/api/settings/lines":
 		return true
+	case r.Method == http.MethodGet && path == "/api/settings/owners":
+		return true
 	case r.Method == http.MethodGet && path == "/api/products":
 		return true
 	case r.Method == http.MethodGet && path == "/api/products/search":
 		return true
+	case (r.Method == http.MethodPatch || r.Method == http.MethodPut) && strings.HasPrefix(path, "/api/products/"):
+		return true
 	case r.Method == http.MethodGet && path == "/api/productos/precio":
 		return true
 	case r.Method == http.MethodGet && path == "/api/inventory":
+		return true
+	case r.Method == http.MethodPost && path == "/api/inventory/adjust":
 		return true
 	case r.Method == http.MethodGet && path == "/api/sales/recent":
 		return true
@@ -12233,7 +12239,7 @@ func handleAPICreditInstallments(db *sql.DB) http.HandlerFunc {
 func handleAPIProductRoutes(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
-		if currentUser == nil || !isAdminRole(currentUser.Role) {
+		if currentUser == nil || !(isAdminRole(currentUser.Role) || isAPIKeyRole(currentUser.Role)) {
 			writeAPIError(w, http.StatusForbidden, "Solo administrador puede editar productos vía API.", nil)
 			return
 		}
@@ -19007,7 +19013,7 @@ func main() {
 			return
 		}
 		currentUser := userFromContext(r)
-		if currentUser == nil || !isAdminRole(currentUser.Role) {
+		if currentUser == nil || !(isAdminRole(currentUser.Role) || isAPIKeyRole(currentUser.Role)) {
 			writeAPIError(w, http.StatusForbidden, "Solo administrador puede consultar owners asignables.", nil)
 			return
 		}
