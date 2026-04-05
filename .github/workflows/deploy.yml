@@ -21,7 +21,8 @@ jobs:
             git fetch origin
             git checkout main
             git pull origin main
-            go build -buildvcs=false -o stockiapp .
-            cp stockiapp /srv/granempresa/app/granempresa
-            systemctl restart granempresa
+            go build -buildvcs=false -o stockiapp_new .
+            systemctl stop granempresa
+            cp stockiapp_new /srv/granempresa/app/granempresa
+            systemctl start granempresa
             systemctl status granempresa --no-pager
