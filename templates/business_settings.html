@@ -446,12 +446,31 @@
                 border: 1px solid var(--border);
                 background: #ffffff;
                 color: var(--secondary);
-                font-size: 16px;
+                font-size: 0;
                 font-weight: 700;
                 flex: 0 0 auto;
+                position: relative;
                 transition:
                     transform 0.18s ease,
                     background 0.18s ease;
+            }
+
+            .settings-accordion-icon::before,
+            .settings-accordion-icon::after {
+                content: "";
+                position: absolute;
+                border-radius: 999px;
+                background: currentColor;
+            }
+
+            .settings-accordion-icon::before {
+                width: 12px;
+                height: 2.5px;
+            }
+
+            .settings-accordion-icon::after {
+                width: 2.5px;
+                height: 12px;
             }
 
             .settings-accordion[open] .settings-accordion-icon {

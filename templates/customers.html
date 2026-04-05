@@ -36,6 +36,30 @@
                 flex: 1 1 320px;
             }
 
+            .customers-search-row .primary,
+            .customers-search-row .search-reset {
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0 18px;
+                border-radius: 16px;
+                font-weight: 700;
+                text-decoration: none;
+                white-space: nowrap;
+            }
+
+            .customers-search-row .search-reset {
+                border: 1px solid rgba(15, 40, 80, 0.12);
+                background: rgba(244, 248, 252, 0.94);
+                color: var(--secondary);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+            }
+
+            .customers-search-row .search-reset:hover {
+                background: rgba(236, 242, 248, 0.98);
+            }
+
             .customers-search-note {
                 margin: 0;
                 font-size: 12.5px;
@@ -50,8 +74,7 @@
 
             .customer-import {
                 display: grid;
-                gap: 14px;
-                padding: 18px;
+                gap: 0;
                 border-radius: 20px;
                 border: 1px solid rgba(15, 40, 80, 0.08);
                 background: linear-gradient(
@@ -62,13 +85,90 @@
                 box-shadow: 0 16px 28px rgba(12, 28, 52, 0.06);
             }
 
-            .customer-import h2 {
+            .customer-import-toggle {
+                width: 100%;
+                border: 0;
+                background: transparent;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                padding: 18px;
+                cursor: pointer;
+                text-align: left;
+            }
+
+            .customer-import-toggle-copy {
+                display: grid;
+                gap: 4px;
+            }
+
+            .customer-import-toggle-copy strong {
+                font-size: 18px;
+                color: var(--secondary);
+            }
+
+            .customer-import-toggle-copy small {
+                color: var(--text-muted);
+                font-size: 13px;
+            }
+
+            .customer-import-toggle-icon {
+                width: 34px;
+                height: 34px;
+                border-radius: 999px;
+                border: 1px solid rgba(15, 40, 80, 0.1);
+                background: rgba(244, 248, 252, 0.92);
+                color: var(--secondary);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 0;
+                font-weight: 700;
+                flex-shrink: 0;
+                position: relative;
+            }
+
+            .customer-import-toggle[aria-expanded="true"] .customer-import-toggle-icon {
+                transform: rotate(45deg);
+            }
+
+            .customer-import-toggle-icon::before,
+            .customer-import-toggle-icon::after {
+                content: "";
+                position: absolute;
+                border-radius: 999px;
+                background: currentColor;
+            }
+
+            .customer-import-toggle-icon::before {
+                width: 14px;
+                height: 2.5px;
+            }
+
+            .customer-import-toggle-icon::after {
+                width: 2.5px;
+                height: 14px;
+            }
+
+            .customer-import-body {
+                display: grid;
+                gap: 14px;
+                padding: 0 18px 18px;
+                border-top: 1px solid rgba(15, 40, 80, 0.08);
+            }
+
+            .customer-import-body[hidden] {
+                display: none;
+            }
+
+            .customer-import-body h2 {
                 margin: 0;
                 font-size: 18px;
                 color: var(--secondary);
             }
 
-            .customer-import p {
+            .customer-import-body p {
                 margin: 0;
                 color: var(--text-muted);
                 font-size: 13px;
@@ -259,7 +359,7 @@
                         />
                     </div>
                     <button class="primary" type="submit">Buscar</button>
-                    <a class="secondary" href="/clientes">Limpiar</a>
+                    <a class="search-reset" href="/clientes">Limpiar</a>
                 </div>
                 <p class="customers-search-note">
                     Esta vista usa la misma base de clientes del API. Sirve para
@@ -268,8 +368,31 @@
             </form>
 
             <section class="customer-import">
+                <button
+                    class="customer-import-toggle"
+                    type="button"
+                    id="customer-import-toggle"
+                    aria-expanded="false"
+                    aria-controls="customer-import-body"
+                >
+                    <span class="customer-import-toggle-copy">
+                        <strong>Importar clientes por CSV</strong>
+                        <small>
+                            Abre este bloque solo cuando vayas a validar o
+                            cargar un archivo.
+                        </small>
+                    </span>
+                    <span class="customer-import-toggle-icon" aria-hidden="true"
+                        >+</span
+                    >
+                </button>
+
+                <div
+                    class="customer-import-body"
+                    id="customer-import-body"
+                    hidden
+                >
                 <div>
-                    <h2>Importar clientes por CSV</h2>
                     <p>
                         Sube un archivo CSV en UTF-8 separado por comas o punto
                         y coma. El import siempre trabaja sobre el tenant
@@ -364,6 +487,7 @@
                         archivo.
                     </span>
                 </div>
+                </div>
             </section>
 
             {{if .Items}}
@@ -432,6 +556,12 @@
         </main>
         <script>
             (() => {
+                const importToggle = document.getElementById(
+                    "customer-import-toggle",
+                );
+                const importBody = document.getElementById(
+                    "customer-import-body",
+                );
                 const fileInput =
                     document.getElementById("customer-csv-file");
                 const downloadButton = document.getElementById(
@@ -452,6 +582,8 @@
                 const result = document.getElementById("customer-csv-result");
 
                 if (
+                    !importToggle ||
+                    !importBody ||
                     !fileInput ||
                     !downloadButton ||
                     !validateButton ||
@@ -467,6 +599,20 @@
                 let currentFile = null;
                 let validatedRows = [];
                 let validationMessages = [];
+
+                const setImportExpanded = (expanded) => {
+                    importToggle.setAttribute(
+                        "aria-expanded",
+                        expanded ? "true" : "false",
+                    );
+                    importBody.hidden = !expanded;
+                };
+
+                importToggle.addEventListener("click", () => {
+                    setImportExpanded(
+                        importToggle.getAttribute("aria-expanded") !== "true",
+                    );
+                });
 
                 const escapeCSV = (value) => {
                     const stringValue = String(value == null ? "" : value);
@@ -776,6 +922,7 @@
                 });
 
                 fileInput.addEventListener("change", (event) => {
+                    setImportExpanded(true);
                     const file = event.target.files[0];
                     currentFile = file || null;
                     validatedRows = [];
@@ -797,6 +944,7 @@
 
                 validateButton.addEventListener("click", () => {
                     if (!currentFile) return;
+                    setImportExpanded(true);
                     if (
                         !String(currentFile.name || "")
                             .toLowerCase()
@@ -881,6 +1029,7 @@
 
                 uploadButton.addEventListener("click", async () => {
                     if (!currentFile || uploadButton.disabled) return;
+                    setImportExpanded(true);
 
                     uploadButton.disabled = true;
                     uploadButton.textContent = "Importando...";
