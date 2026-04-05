@@ -329,6 +329,42 @@
                 color: var(--text-muted);
             }
 
+            [data-theme="dark"] .customers-search,
+            [data-theme="dark"] .customer-import,
+            [data-theme="dark"] .customer-card,
+            [data-theme="dark"] .empty-state {
+                border-color: var(--border);
+                background: linear-gradient(
+                    180deg,
+                    rgba(14, 23, 36, 0.96) 0%,
+                    rgba(10, 18, 29, 0.92) 100%
+                );
+                box-shadow: var(--shadow-xs);
+            }
+
+            [data-theme="dark"] .customers-search-note,
+            [data-theme="dark"] .customer-import-body p,
+            [data-theme="dark"] .customer-doc,
+            [data-theme="dark"] .customer-meta,
+            [data-theme="dark"] .customer-actions small {
+                color: var(--text-muted);
+            }
+
+            [data-theme="dark"] .customer-import-toggle-icon,
+            [data-theme="dark"] .customers-search-row .search-reset,
+            [data-theme="dark"] .metric-tile {
+                background: var(--bg-card-muted);
+                border-color: var(--border);
+                color: var(--text);
+                box-shadow: none;
+            }
+
+            [data-theme="dark"] .status-chip {
+                background: rgba(79, 157, 255, 0.14);
+                border-color: rgba(79, 157, 255, 0.24);
+                color: var(--text);
+            }
+
             @media (max-width: 640px) {
                 .customer-metrics {
                     grid-template-columns: 1fr;

@@ -731,6 +731,115 @@
                 flex-wrap: wrap;
             }
 
+            [data-theme="dark"] .dashboard-toolbar,
+            [data-theme="dark"] .range-popover,
+            [data-theme="dark"] .kpi,
+            [data-theme="dark"] .panel-body,
+            [data-theme="dark"] .summary-block,
+            [data-theme="dark"] .pie-chart,
+            [data-theme="dark"] .legend-item,
+            [data-theme="dark"] .empty-chart,
+            [data-theme="dark"] .user-sale-row,
+            [data-theme="dark"] .state-list a,
+            [data-theme="dark"] .bar-track,
+            [data-theme="dark"] .range-summary {
+                border-color: var(--border);
+                box-shadow: var(--shadow-xs);
+            }
+
+            [data-theme="dark"] .dashboard-toolbar {
+                background: linear-gradient(
+                    135deg,
+                    rgba(15, 24, 38, 0.96) 0%,
+                    rgba(11, 19, 31, 0.92) 100%
+                );
+            }
+
+            [data-theme="dark"] .dashboard-toolbar-kicker,
+            [data-theme="dark"] .panel-kicker {
+                color: var(--primary);
+            }
+
+            [data-theme="dark"] .dashboard-toolbar-copy strong,
+            [data-theme="dark"] .card h2,
+            [data-theme="dark"] .panel-title,
+            [data-theme="dark"] .bar-meta strong,
+            [data-theme="dark"] .user-sale-total,
+            [data-theme="dark"] .summary-title,
+            [data-theme="dark"] .range-summary strong {
+                color: var(--text);
+            }
+
+            [data-theme="dark"] .dashboard-toolbar-copy span,
+            [data-theme="dark"] .panel-subtitle,
+            [data-theme="dark"] .chart-note,
+            [data-theme="dark"] .summary-note,
+            [data-theme="dark"] .bar-meta,
+            [data-theme="dark"] .user-sale-left span {
+                color: var(--text-muted);
+            }
+
+            [data-theme="dark"] details.range-picker summary {
+                background: var(--bg-input);
+                border-color: var(--border);
+                color: var(--text-muted);
+            }
+
+            [data-theme="dark"] details.range-picker summary:hover,
+            [data-theme="dark"] details.range-picker[open] summary {
+                background: var(--bg-input-focus);
+                color: var(--text);
+                border-color: var(--border-strong);
+            }
+
+            [data-theme="dark"] .range-popover,
+            [data-theme="dark"] .pie-chart,
+            [data-theme="dark"] .legend-item,
+            [data-theme="dark"] .empty-chart,
+            [data-theme="dark"] .user-sale-row,
+            [data-theme="dark"] .state-list a,
+            [data-theme="dark"] .bar-track,
+            [data-theme="dark"] .range-summary {
+                background: var(--bg-card-muted);
+            }
+
+            [data-theme="dark"] .dashboard-panel summary {
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.04) 0%,
+                    rgba(255, 255, 255, 0) 100%
+                );
+            }
+
+            [data-theme="dark"] .dashboard-panel summary:hover {
+                background: linear-gradient(
+                    180deg,
+                    rgba(255, 255, 255, 0.08) 0%,
+                    rgba(255, 255, 255, 0.02) 100%
+                );
+            }
+
+            [data-theme="dark"] .panel-summary-pill,
+            [data-theme="dark"] .badge {
+                background: rgba(79, 157, 255, 0.14);
+                border-color: rgba(79, 157, 255, 0.24);
+                color: var(--text);
+            }
+
+            [data-theme="dark"] .summary-block,
+            [data-theme="dark"] .panel-body {
+                background: linear-gradient(
+                    180deg,
+                    rgba(14, 23, 36, 0.98) 0%,
+                    rgba(10, 18, 29, 0.94) 100%
+                );
+            }
+
+            [data-theme="dark"] .state-list a:hover {
+                background: rgba(79, 157, 255, 0.12);
+                border-color: rgba(79, 157, 255, 0.22);
+            }
+
             @media (max-width: 720px) {
                 .dashboard-toolbar {
                     padding: 14px;
@@ -1270,6 +1379,23 @@
                 return fallback;
               };
 
+              const themeValue = (name, fallback) => {
+                const value = getComputedStyle(document.documentElement)
+                  .getPropertyValue(name)
+                  .trim();
+                return value || fallback;
+              };
+
+              const dashboardPalette = () => ({
+                chartTrack: themeValue("--chart-track", "#eef2ff"),
+                chartGrid: themeValue("--chart-grid", "rgba(38, 34, 31, 0.1)"),
+                chartAxis: themeValue("--chart-axis", "#d9d2cb"),
+                chartLabel: themeValue("--chart-label", "#6f6a65"),
+                chartText: themeValue("--chart-text", "#26221f"),
+                chartAccent: themeValue("--chart-accent", "#2c6bed"),
+                chartHighlight: themeValue("--chart-highlight", "#e85d3c"),
+              });
+
               const appendTextCell = (row, value, className) => {
                 const cell = document.createElement("td");
                 if (className) cell.className = className;
@@ -1281,12 +1407,13 @@
                const renderDonut = (data) => {
                  if (!pieSvg) return;
                  clearEl(pieSvg);
+                 const palette = dashboardPalette();
 
                  const slices = Array.isArray(data.pie_slices) ? data.pie_slices : [];
                  const total = String(data.pie_total || fmtMoney(0));
                  const longTotal = total.length >= 14;
 
-                 pieSvg.appendChild(el("circle", { cx: 60, cy: 60, r: 45, fill: "none", stroke: "#eef2ff", "stroke-width": 16 }));
+                 pieSvg.appendChild(el("circle", { cx: 60, cy: 60, r: 45, fill: "none", stroke: palette.chartTrack, "stroke-width": 16 }));
                  slices.forEach((s) => {
                    const sliceColor = safeCssColor(s.color);
                    pieSvg.appendChild(el("circle", {
@@ -1301,8 +1428,8 @@
                     transform: "rotate(-90 60 60)"
                    }));
                  });
-                 pieSvg.appendChild(el("text", { x: 60, y: 58, "text-anchor": "middle", "font-size": 12, fill: "#5c647c" }, "Total"));
-                 const totalAttrs = { x: 60, y: 74, "text-anchor": "middle", "font-size": longTotal ? 12 : 14, "font-weight": 700, fill: "#1c1f2a" };
+                 pieSvg.appendChild(el("text", { x: 60, y: 58, "text-anchor": "middle", "font-size": 12, fill: palette.chartLabel }, "Total"));
+                 const totalAttrs = { x: 60, y: 74, "text-anchor": "middle", "font-size": longTotal ? 12 : 14, "font-weight": 700, fill: palette.chartText };
                  if (longTotal) {
                    // Avoid clipping when totals are very large.
                    totalAttrs.textLength = 92;
@@ -1344,6 +1471,7 @@
               const renderTimeline = (data) => {
                 if (!timelineSvg) return;
                 clearEl(timelineSvg);
+                const palette = dashboardPalette();
 
                 const timeline = Array.isArray(data.timeline) ? data.timeline : [];
                 const maxV = Number(data.max_timeline || 0);
@@ -1369,19 +1497,19 @@
                 for (let t = 0; t <= ticks; t++) {
                   const v = (safeMax / ticks) * t;
                   const y = yAt(v);
-                  grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "#26221f", "stroke-width": 1 }));
+                  grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: palette.chartGrid, "stroke-width": 1 }));
                 }
                 timelineSvg.appendChild(grid);
 
                 // Axes.
-                timelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
-                timelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
+                timelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: palette.chartAxis, "stroke-width": 1 }));
+                timelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: palette.chartAxis, "stroke-width": 1 }));
 
                 // Y axis labels (Currency).
                 for (let t = 0; t <= ticks; t++) {
                   const v = (safeMax / ticks) * t;
                   const y = yAt(v);
-                  const label = el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, fmtMoney(v));
+                  const label = el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: palette.chartLabel }, fmtMoney(v));
                   timelineSvg.appendChild(label);
                 }
 
@@ -1390,16 +1518,16 @@
                 labelsIdx.forEach((i) => {
                   const x = xAt(i);
                   const d = timeline[i]?.fecha || "";
-                  timelineSvg.appendChild(el("text", { x, y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: "#6f6a65" }, d));
+                  timelineSvg.appendChild(el("text", { x, y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: palette.chartLabel }, d));
                 });
-                timelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, "Fecha"));
-                timelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: "#6f6a65" }, "Total ($)"));
+                timelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: palette.chartLabel }, "Fecha"));
+                timelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: palette.chartLabel }, "Total ($)"));
 
                 // Line points.
                 const points = timeline.map((p, i) => `${xAt(i).toFixed(1)},${yAt(Number(p.value || 0)).toFixed(1)}`).join(" ");
                 timelineSvg.appendChild(el("polyline", {
                   fill: "none",
-                  stroke: "#2c6bed",
+                  stroke: palette.chartAccent,
                   "stroke-width": 3,
                   "stroke-linecap": "round",
                   "stroke-linejoin": "round",
@@ -1409,7 +1537,7 @@
                 // Dots (subtle).
                 const dots = el("g", { opacity: 0.35 });
                 timeline.forEach((p, i) => {
-                  dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(p.value || 0)), r: 3.2, fill: "#2c6bed" }));
+                  dots.appendChild(el("circle", { cx: xAt(i), cy: yAt(Number(p.value || 0)), r: 3.2, fill: palette.chartAccent }));
                 });
                 timelineSvg.appendChild(dots);
 
@@ -1431,11 +1559,11 @@
                 key.forEach((meta, i) => {
                   const cx = xAt(i);
                   const cy = yAt(Number(timeline[i].value || 0));
-                  timelineSvg.appendChild(el("circle", { cx, cy, r: 5.5, fill: "#e85d3c" }));
+                  timelineSvg.appendChild(el("circle", { cx, cy, r: 5.5, fill: palette.chartHighlight }));
                   const label = `${meta.title}: ${meta.value || fmtMoney(0)}`;
                   const tx = Math.min(W - padR - 6, Math.max(padL + 6, cx + 10));
                   const ty = Math.max(padT + 12, cy - 10);
-                  timelineSvg.appendChild(el("text", { x: tx, y: ty, "font-size": 12, fill: "#26221f", "font-weight": 700 }, label));
+                  timelineSvg.appendChild(el("text", { x: tx, y: ty, "font-size": 12, fill: palette.chartText, "font-weight": 700 }, label));
                 });
 
                };
@@ -1479,6 +1607,7 @@
                const renderUserTimeline = (data) => {
                  if (!userTimelineSvg) return;
                  clearEl(userTimelineSvg);
+                 const palette = dashboardPalette();
                  const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
                  if (userTimelineLegend) userTimelineLegend.innerHTML = "";
                  if (panelSalesUserPill) panelSalesUserPill.textContent = `${series.length} usuarios`;
@@ -1508,20 +1637,20 @@
                  for (let t = 0; t <= 4; t++) {
                    const v = (safeMax / 4) * t;
                    const y = yAt(v);
-                   grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: "#26221f", "stroke-width": 1 }));
-                   userTimelineSvg.appendChild(el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, fmtMoney(v)));
+                   grid.appendChild(el("line", { x1: padL, x2: W - padR, y1: y, y2: y, stroke: palette.chartGrid, "stroke-width": 1 }));
+                   userTimelineSvg.appendChild(el("text", { x: padL - 10, y: y + 4, "text-anchor": "end", "font-size": 11, fill: palette.chartLabel }, fmtMoney(v)));
                  }
                  userTimelineSvg.appendChild(grid);
-                 userTimelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
-                 userTimelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: "#d9d2cb", "stroke-width": 1 }));
+                 userTimelineSvg.appendChild(el("line", { x1: padL, x2: padL, y1: padT, y2: H - padB, stroke: palette.chartAxis, "stroke-width": 1 }));
+                 userTimelineSvg.appendChild(el("line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB, stroke: palette.chartAxis, "stroke-width": 1 }));
 
                  const labelsIdx = pointsLen <= 1 ? [0] : [0, Math.floor((pointsLen - 1) / 2), pointsLen - 1];
                  labelsIdx.forEach((i) => {
                    const d = series[0]?.points?.[i]?.fecha || "";
-                   userTimelineSvg.appendChild(el("text", { x: xAt(i), y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: "#6f6a65" }, d));
+                   userTimelineSvg.appendChild(el("text", { x: xAt(i), y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: palette.chartLabel }, d));
                  });
-                 userTimelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: "#6f6a65" }, "Fecha"));
-                 userTimelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: "#6f6a65" }, "Total ($)"));
+                 userTimelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: palette.chartLabel }, "Fecha"));
+                 userTimelineSvg.appendChild(el("text", { x: padL, y: 12, "text-anchor": "start", "font-size": 11, fill: palette.chartLabel }, "Total ($)"));
 
                  series.forEach((item) => {
                    const points = Array.isArray(item.points) ? item.points : [];
@@ -1635,6 +1764,7 @@
 
                const applyData = (data) => {
                  if (!data || !data.ok) return;
+                 latestData = data;
                  setRangeBadge(data.range_start, data.range_end, data.range_count, data.range_total);
                  renderDonut(data);
                  renderTimeline(data);
@@ -1645,6 +1775,7 @@
                };
 
               let pending = null;
+              let latestData = null;
               const schedule = () => {
                 if (pending) clearTimeout(pending);
                 pending = setTimeout(async () => {
@@ -1669,6 +1800,9 @@
 
                if (startInput) startInput.addEventListener("change", schedule);
                if (endInput) endInput.addEventListener("change", schedule);
+               window.addEventListener("stocki:theme-change", () => {
+                 if (latestData) applyData(latestData);
+               });
                applyPanelState();
                dashboardPanels.forEach((panel) => panel.addEventListener("toggle", savePanelState));
                if (salesTableBody && isAdmin) {

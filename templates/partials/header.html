@@ -5,9 +5,8 @@
       position: sticky;
       top: 0;
       z-index: 100;
-      background:
-        linear-gradient(180deg, rgba(9, 23, 43, 0.98) 0%, rgba(11, 29, 54, 0.96) 100%);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: var(--bg-nav-strong);
+      border-bottom: 1px solid var(--border);
       box-shadow: 0 12px 28px rgba(8, 18, 40, 0.18);
       backdrop-filter: blur(14px);
       transform: translateY(0);
@@ -37,14 +36,14 @@
       flex-shrink: 0;
       padding-right: 18px;
       margin-right: 2px;
-      border-right: 1px solid rgba(255,255,255,0.08);
+      border-right: 1px solid var(--border);
     }
 
     .topbar-logo {
       width: 40px;
       height: 40px;
       border-radius: 12px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(235,242,249,0.96) 100%);
+      background: linear-gradient(180deg, var(--bg-card-strong) 0%, var(--bg-card-muted) 100%);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -63,7 +62,7 @@
     .topbar-name {
       font-size: 14px;
       font-weight: 700;
-      color: #ffffff;
+      color: var(--text-inverse);
       letter-spacing: -0.01em;
       white-space: nowrap;
     }
@@ -105,21 +104,21 @@
       text-decoration: none;
       white-space: nowrap;
       transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
-      border: 1px solid rgba(255,255,255,0.02);
+      border: 1px solid transparent;
     }
 
     .topbar-link:hover {
       color: rgba(255,255,255,0.96);
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.08);
+      background: var(--bg-nav-soft);
+      border-color: var(--border);
       transform: translateY(-1px);
     }
 
     .topbar-link.active {
-      color: #ffffff;
+      color: var(--text-inverse);
       background: linear-gradient(180deg, rgba(14, 165, 201, 0.22) 0%, rgba(14, 165, 201, 0.14) 100%);
       border-color: rgba(14, 165, 201, 0.28);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
     }
 
     .topbar-menu {
@@ -139,7 +138,7 @@
       font-size: 13px;
       font-weight: 650;
       color: rgba(255,255,255,0.68);
-      border: 1px solid rgba(255,255,255,0.02);
+      border: 1px solid transparent;
       cursor: pointer;
       transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
       white-space: nowrap;
@@ -153,15 +152,15 @@
     .topbar-menu[open] summary,
     .topbar-menu.active summary {
       color: rgba(255,255,255,0.96);
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.08);
+      background: var(--bg-nav-soft);
+      border-color: var(--border);
       transform: translateY(-1px);
     }
 
     .topbar-menu.active summary {
       border-color: rgba(14, 165, 201, 0.2);
       background: linear-gradient(180deg, rgba(14, 165, 201, 0.22) 0%, rgba(14, 165, 201, 0.14) 100%);
-      color: #ffffff;
+      color: var(--text-inverse);
     }
 
     .topbar-menu-caret {
@@ -181,9 +180,9 @@
       min-width: 236px;
       padding: 8px;
       border-radius: 16px;
-      border: 1px solid rgba(15, 40, 80, 0.1);
-      background: rgba(255,255,255,0.96);
-      box-shadow: 0 20px 40px rgba(10, 25, 55, 0.16);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-nav-panel);
+      box-shadow: var(--shadow-md);
       backdrop-filter: blur(14px);
       display: none;
       gap: 4px;
@@ -239,7 +238,7 @@
 
     .topbar-menu-panel .menu-sep {
       height: 1px;
-      background: rgba(15, 40, 80, 0.07);
+      background: var(--border);
       margin: 4px 0;
     }
 
@@ -247,7 +246,7 @@
     .topbar-sep {
       width: 1px;
       height: 24px;
-      background: rgba(255,255,255,0.12);
+      background: var(--border);
       margin: 0 6px;
       flex-shrink: 0;
     }
@@ -259,7 +258,42 @@
       gap: 10px;
       flex-shrink: 0;
       padding-left: 16px;
-      border-left: 1px solid rgba(255,255,255,0.08);
+      border-left: 1px solid var(--border);
+    }
+
+    .topbar-theme-toggle {
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-nav-soft);
+      color: rgba(255,255,255,0.9);
+      font-size: 12px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .topbar-theme-toggle:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.18);
+      color: var(--text-inverse);
+    }
+
+    .topbar-theme-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.14);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      background: rgba(255,255,255,0.08);
     }
 
     .topbar-username {
@@ -273,7 +307,7 @@
       min-height: 34px;
       padding: 0 12px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.12);
+      border: 1px solid var(--border);
       background: rgba(255,255,255,0.07);
       color: rgba(255,255,255,0.82);
       font-size: 12px;
@@ -289,7 +323,7 @@
     .topbar-logout:hover {
       background: rgba(255,255,255,0.12);
       border-color: rgba(255,255,255,0.2);
-      color: #ffffff;
+      color: var(--text-inverse);
     }
 
     .topbar-logout-form {
@@ -305,10 +339,10 @@
       flex-direction: column;
       gap: 10px;
       background:
-        linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(244,248,252,0.94) 100%);
-      border: 1px solid rgba(15, 40, 80, 0.08);
+        linear-gradient(135deg, var(--bg-card-strong) 0%, var(--bg-card-muted) 100%);
+      border: 1px solid var(--border);
       border-radius: 18px;
-      box-shadow: 0 22px 36px rgba(12, 28, 52, 0.08);
+      box-shadow: var(--shadow-sm);
       position: relative;
       overflow: hidden;
     }
@@ -380,6 +414,10 @@
       }
 
       .topbar-username {
+        display: none;
+      }
+
+      .topbar-theme-label {
         display: none;
       }
 
@@ -471,11 +509,21 @@
                     </a>
                 </div>
             </details>
-            {{end}} {{end}}
+        {{end}} {{end}}
         </div>
 
         {{if .CurrentUser}}
         <div class="topbar-user">
+            <button
+                class="topbar-theme-toggle"
+                type="button"
+                id="theme-toggle"
+                aria-label="Cambiar tema"
+                title="Cambiar tema"
+            >
+                <span class="topbar-theme-icon" aria-hidden="true">◐</span>
+                <span class="topbar-theme-label">Tema</span>
+            </button>
             <span class="topbar-username">{{.CurrentUser.Username}}</span>
             <form class="topbar-logout-form" method="POST" action="/logout">
                 <button class="topbar-logout" type="submit">Salir</button>
@@ -498,6 +546,7 @@
 </div>
 <script>
     (function () {
+        const themeToggle = document.getElementById("theme-toggle");
         const closeMenus = () => {
             document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
                 menu.open = false;
@@ -549,6 +598,31 @@
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") closeMenus();
         });
+
+        if (themeToggle && window.stockiTheme) {
+            const syncThemeLabel = () => {
+                const theme = window.stockiTheme.get();
+                themeToggle.setAttribute(
+                    "aria-label",
+                    theme === "dark"
+                        ? "Cambiar a modo claro"
+                        : "Cambiar a modo oscuro",
+                );
+                themeToggle.setAttribute(
+                    "title",
+                    theme === "dark"
+                        ? "Cambiar a modo claro"
+                        : "Cambiar a modo oscuro",
+                );
+            };
+
+            syncThemeLabel();
+            window.addEventListener("stocki:theme-change", syncThemeLabel);
+            themeToggle.addEventListener("click", () => {
+                window.stockiTheme.toggle();
+                syncThemeLabel();
+            });
+        }
 
         // ── Hide on scroll ──
         const topbar = document.querySelector(".topbar");

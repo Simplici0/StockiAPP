@@ -18,6 +18,17 @@
       --shadow-soft: 0 8px 18px rgba(18, 23, 38, 0.08);
     }
 
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #07121d;
+      --card: #101b2a;
+      --text: #e8eef7;
+      --muted: #99acc2;
+      --border: rgba(170, 193, 226, 0.14);
+      --shadow-soft: 0 18px 36px rgba(1, 6, 14, 0.34);
+      --primary-soft: rgba(232, 93, 60, 0.14);
+    }
+
     * {
       box-sizing: border-box;
       font-family: "Inter", "Segoe UI", sans-serif;
@@ -468,6 +479,47 @@
     .checkline input {
       width: auto;
       margin: 0;
+    }
+
+    :root[data-theme="dark"] .global-banner {
+      background: linear-gradient(90deg, #b85b1c 0%, #8a3f1b 100%);
+    }
+
+    :root[data-theme="dark"] .page-header,
+    :root[data-theme="dark"] .scope-banner,
+    :root[data-theme="dark"] .user-expand-inner {
+      background: linear-gradient(180deg, rgba(14, 23, 36, 0.98) 0%, rgba(10, 18, 29, 0.94) 100%);
+      border-color: var(--border);
+    }
+
+    :root[data-theme="dark"] th {
+      background: rgba(16, 27, 42, 0.98);
+    }
+
+    :root[data-theme="dark"] .status-pill,
+    :root[data-theme="dark"] .role-pill.tenant {
+      background: rgba(79, 157, 255, 0.14);
+      border-color: rgba(79, 157, 255, 0.24);
+      color: var(--text);
+    }
+
+    :root[data-theme="dark"] .status-pill.inactive,
+    :root[data-theme="dark"] .flash.error {
+      background: rgba(220, 38, 38, 0.16);
+      border-color: rgba(220, 38, 38, 0.24);
+      color: #ffb4b4;
+    }
+
+    :root[data-theme="dark"] .flash {
+      background: rgba(5, 150, 105, 0.16);
+      border-color: rgba(5, 150, 105, 0.24);
+      color: #9be8c7;
+    }
+
+    :root[data-theme="dark"] .role-pill.platform {
+      background: rgba(242, 207, 150, 0.14);
+      border-color: rgba(242, 207, 150, 0.24);
+      color: #f4c77d;
     }
   </style>
   {{template "app_styles" .}}

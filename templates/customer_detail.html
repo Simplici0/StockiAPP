@@ -218,6 +218,31 @@
                 padding: 4px 0;
             }
 
+            [data-theme="dark"] .hero-card,
+            [data-theme="dark"] .section-card,
+            [data-theme="dark"] .timeline-item {
+                border-color: var(--border);
+                background: linear-gradient(
+                    180deg,
+                    rgba(14, 23, 36, 0.96) 0%,
+                    rgba(10, 18, 29, 0.92) 100%
+                );
+                box-shadow: var(--shadow-xs);
+            }
+
+            [data-theme="dark"] .hero-notes,
+            [data-theme="dark"] .metric,
+            [data-theme="dark"] .entity-row {
+                border-color: var(--border);
+                background: var(--bg-card-muted);
+            }
+
+            [data-theme="dark"] .status-chip {
+                background: rgba(79, 157, 255, 0.14);
+                border-color: rgba(79, 157, 255, 0.24);
+                color: var(--text);
+            }
+
             @media (max-width: 980px) {
                 .customer-hero,
                 .section-grid {

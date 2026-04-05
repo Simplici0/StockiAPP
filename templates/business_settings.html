@@ -260,6 +260,68 @@
                 align-items: center;
             }
 
+            [data-theme="dark"] .logo-preview,
+            [data-theme="dark"] .credential-callout,
+            [data-theme="dark"] .tenant-scope-note,
+            [data-theme="dark"] .reset-warning,
+            [data-theme="dark"] .settings-accordion,
+            [data-theme="dark"] .settings-accordion summary,
+            [data-theme="dark"] .platform-block {
+                border-color: var(--border);
+                background: linear-gradient(
+                    180deg,
+                    rgba(14, 23, 36, 0.98) 0%,
+                    rgba(10, 18, 29, 0.94) 100%
+                );
+            }
+
+            [data-theme="dark"] .settings-accordion summary:hover {
+                background: linear-gradient(
+                    180deg,
+                    rgba(18, 31, 48, 0.98) 0%,
+                    rgba(12, 22, 35, 0.94) 100%
+                );
+            }
+
+            [data-theme="dark"] .settings-accordion-title h2 {
+                color: var(--text);
+            }
+
+            [data-theme="dark"] .settings-accordion-title p {
+                color: var(--text-muted);
+            }
+
+            [data-theme="dark"] .logo-frame,
+            [data-theme="dark"] .credential-token,
+            [data-theme="dark"] .onboarding-checklist,
+            [data-theme="dark"] .tenant-summary-card,
+            [data-theme="dark"] .reset-form,
+            [data-theme="dark"] .settings-note,
+            [data-theme="dark"] .settings-accordion-icon {
+                background: var(--bg-card-muted);
+                border-color: var(--border);
+                box-shadow: none;
+            }
+
+            [data-theme="dark"] .settings-accordion-icon::before,
+            [data-theme="dark"] .settings-accordion-icon::after {
+                background: #dfe8f5;
+            }
+
+            [data-theme="dark"] .settings-accordion[open] .settings-accordion-icon {
+                background: rgba(79, 157, 255, 0.14);
+                border-color: rgba(79, 157, 255, 0.24);
+            }
+
+            [data-theme="dark"] .platform-kicker {
+                color: #f3c067;
+            }
+
+            [data-theme="dark"] .reset-warning h4,
+            [data-theme="dark"] .destructive {
+                color: #ff9aae !important;
+            }
+
             .line-card {
                 margin-top: 20px;
                 display: grid;
