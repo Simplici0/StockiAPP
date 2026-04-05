@@ -1136,6 +1136,7 @@
             [data-theme="dark"] .filters-actions button.ghost,
             [data-theme="dark"] .filters-actions a.button.ghost,
             [data-theme="dark"] .actions button.ghost,
+            [data-theme="dark"] .menu > button.ghost,
             [data-theme="dark"] .credit-details-toggle,
             [data-theme="dark"] .modal-close,
             [data-theme="dark"] .credit-kind-track {
@@ -1147,9 +1148,19 @@
             [data-theme="dark"] .filters-actions button.ghost:hover,
             [data-theme="dark"] .filters-actions a.button.ghost:hover,
             [data-theme="dark"] .actions button.ghost:hover,
+            [data-theme="dark"] .menu > button.ghost:hover,
             [data-theme="dark"] .credit-kind-option.active {
                 background: rgba(79, 157, 255, 0.14);
                 border-color: rgba(79, 157, 255, 0.24);
+                color: var(--text);
+            }
+
+            [data-theme="dark"] .menu-panel button {
+                color: var(--text);
+            }
+
+            [data-theme="dark"] .menu-panel button:hover {
+                background: rgba(79, 157, 255, 0.12);
                 color: var(--text);
             }
 

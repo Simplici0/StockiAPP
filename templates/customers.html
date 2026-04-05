@@ -60,12 +60,6 @@
                 background: rgba(236, 242, 248, 0.98);
             }
 
-            .customers-search-note {
-                margin: 0;
-                font-size: 12.5px;
-                color: var(--text-muted);
-            }
-
             .customers-grid {
                 display: grid;
                 gap: 14px;
@@ -100,17 +94,12 @@
 
             .customer-import-toggle-copy {
                 display: grid;
-                gap: 4px;
+                gap: 0;
             }
 
             .customer-import-toggle-copy strong {
                 font-size: 18px;
                 color: var(--secondary);
-            }
-
-            .customer-import-toggle-copy small {
-                color: var(--text-muted);
-                font-size: 13px;
             }
 
             .customer-import-toggle-icon {
@@ -166,13 +155,6 @@
                 margin: 0;
                 font-size: 18px;
                 color: var(--secondary);
-            }
-
-            .customer-import-body p {
-                margin: 0;
-                color: var(--text-muted);
-                font-size: 13px;
-                line-height: 1.5;
             }
 
             .customer-import-actions {
@@ -342,8 +324,6 @@
                 box-shadow: var(--shadow-xs);
             }
 
-            [data-theme="dark"] .customers-search-note,
-            [data-theme="dark"] .customer-import-body p,
             [data-theme="dark"] .customer-doc,
             [data-theme="dark"] .customer-meta,
             [data-theme="dark"] .customer-actions small {
@@ -397,10 +377,6 @@
                     <button class="primary" type="submit">Buscar</button>
                     <a class="search-reset" href="/clientes">Limpiar</a>
                 </div>
-                <p class="customers-search-note">
-                    Esta vista usa la misma base de clientes del API. Sirve para
-                    consulta humana sin abrir otra lógica paralela.
-                </p>
             </form>
 
             <section class="customer-import">
@@ -413,10 +389,6 @@
                 >
                     <span class="customer-import-toggle-copy">
                         <strong>Importar clientes por CSV</strong>
-                        <small>
-                            Abre este bloque solo cuando vayas a validar o
-                            cargar un archivo.
-                        </small>
                     </span>
                     <span class="customer-import-toggle-icon" aria-hidden="true"
                         >+</span
@@ -428,15 +400,6 @@
                     id="customer-import-body"
                     hidden
                 >
-                <div>
-                    <p>
-                        Sube un archivo CSV en UTF-8 separado por comas o punto
-                        y coma. El import siempre trabaja sobre el tenant
-                        autenticado: si el documento ya existe, el cliente se
-                        actualiza; si no existe, se crea.
-                    </p>
-                </div>
-
                 <div class="csv-columns">
                     <span><strong>Obligatorias:</strong> name, phone</span>
                     <span

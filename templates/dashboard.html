@@ -29,30 +29,16 @@
             }
 
             .dashboard-toolbar-copy {
-                display: grid;
-                gap: 4px;
+                display: flex;
+                align-items: center;
                 min-width: min(100%, 420px);
             }
 
-            .dashboard-toolbar-kicker {
-                margin: 0;
-                font-size: 10.5px;
-                text-transform: uppercase;
-                letter-spacing: 0.14em;
-                font-weight: 800;
-                color: #0ea5c9;
-            }
-
             .dashboard-toolbar-copy strong {
-                font-size: 15px;
+                font-size: 16px;
                 line-height: 1.2;
                 color: #0d2b55;
                 letter-spacing: -0.02em;
-            }
-
-            .dashboard-toolbar-copy span {
-                font-size: 12.5px;
-                color: #5f7694;
             }
 
             .dashboard-toolbar-actions {
@@ -192,16 +178,7 @@
 
             .panel-title-wrap {
                 min-width: 0;
-                display: grid;
-                gap: 4px;
-            }
-
-            .panel-kicker {
-                font-size: 11px;
-                text-transform: uppercase;
-                letter-spacing: 0.12em;
-                color: #0ea5c9;
-                font-weight: 800;
+                display: block;
             }
 
             .panel-title {
@@ -211,11 +188,6 @@
                 color: #0d2b55;
                 font-weight: 800;
                 letter-spacing: -0.02em;
-            }
-
-            .panel-subtitle {
-                font-size: 12.5px;
-                color: #5f7694;
             }
 
             .panel-summary-meta {
@@ -350,11 +322,6 @@
                 font-size: 12px;
                 color: #7a93ae;
                 flex-wrap: wrap;
-            }
-
-            .chart-note {
-                font-size: 12px;
-                color: #7a93ae;
             }
 
             .chart-legend {
@@ -647,8 +614,8 @@
 
             .summary-header {
                 display: grid;
-                gap: 4px;
-                margin-bottom: 2px;
+                gap: 0;
+                margin-bottom: 10px;
             }
 
             .summary-title {
@@ -658,11 +625,6 @@
                 letter-spacing: 0.07em;
                 color: #7a93ae;
                 font-weight: 800;
-            }
-
-            .summary-note {
-                font-size: 12px;
-                color: #7a93ae;
             }
 
             /* Sales table details */
@@ -755,11 +717,6 @@
                 );
             }
 
-            [data-theme="dark"] .dashboard-toolbar-kicker,
-            [data-theme="dark"] .panel-kicker {
-                color: var(--primary);
-            }
-
             [data-theme="dark"] .dashboard-toolbar-copy strong,
             [data-theme="dark"] .card h2,
             [data-theme="dark"] .panel-title,
@@ -770,10 +727,6 @@
                 color: var(--text);
             }
 
-            [data-theme="dark"] .dashboard-toolbar-copy span,
-            [data-theme="dark"] .panel-subtitle,
-            [data-theme="dark"] .chart-note,
-            [data-theme="dark"] .summary-note,
             [data-theme="dark"] .bar-meta,
             [data-theme="dark"] .user-sale-left span {
                 color: var(--text-muted);
@@ -863,15 +816,7 @@
         <main class="page-content">
             <div class="dashboard-toolbar">
                 <div class="dashboard-toolbar-copy">
-                    <p class="dashboard-toolbar-kicker">Resumen ejecutivo</p>
-                    <strong
-                        >Lectura rápida del rango seleccionado y accesos
-                        inmediatos para operar.</strong
-                    >
-                    <span
-                        >Usa el filtro de fechas para concentrar el análisis sin
-                        salir del panel.</span
-                    >
+                    <strong>Dashboard</strong>
                 </div>
                 <div class="dashboard-toolbar-actions">
                     <details class="range-picker" id="dash-range">
@@ -916,10 +861,6 @@
                                     </button>
                                 </div>
                             </form>
-                            <div class="chart-note">
-                                El dashboard se actualiza automaticamente al
-                                cambiar el rango.
-                            </div>
                         </div>
                     </details>
                     <a
@@ -940,14 +881,9 @@
                 >
                     <summary>
                         <div class="panel-title-wrap">
-                            <div class="panel-kicker">Dashboard</div>
                             <h2 class="panel-title">
                                 Línea de tiempo (ventas por día)
                             </h2>
-                            <div class="panel-subtitle">
-                                Visualiza la evolución diaria de ventas del
-                                rango seleccionado.
-                            </div>
                         </div>
                         <div class="panel-summary-meta">
                             <span
@@ -964,10 +900,6 @@
                     <div class="panel-body">
                         <section class="panel-section">
                             <div class="card-head">
-                                <div class="chart-note">
-                                    Fecha (X) y total ($) (Y). Valores
-                                    actualizados por rango.
-                                </div>
                                 <div class="kpi">
                                     <div class="kpi-label">Venta total</div>
                                     <div id="kpi-total" class="kpi-value">
@@ -999,9 +931,6 @@
 
                         <details id="timeline-details">
                             <summary>Ver detalle de ventas</summary>
-                            <div class="chart-note" style="margin-top: 6px">
-                                Detalle por venta dentro del rango seleccionado.
-                            </div>
                             <table>
                                 <thead>
                                     <tr>
@@ -1057,14 +986,9 @@
                 >
                     <summary>
                         <div class="panel-title-wrap">
-                            <div class="panel-kicker">Dashboard</div>
                             <h2 class="panel-title">
                                 Línea de tiempo por usuario
                             </h2>
-                            <div class="panel-subtitle">
-                                Compara cómo evolucionan las ventas registradas
-                                por usuario a lo largo del tiempo.
-                            </div>
                         </div>
                         <div class="panel-summary-meta">
                             <span
@@ -1080,10 +1004,6 @@
                     </summary>
                     <div class="panel-body">
                         <section class="panel-section">
-                            <div class="chart-note">
-                                Cada línea representa el total vendido por
-                                usuario en cada día visible.
-                            </div>
                             <svg
                                 id="user-timeline-svg"
                                 class="line-chart"
@@ -1125,12 +1045,7 @@
                 >
                     <summary>
                         <div class="panel-title-wrap">
-                            <div class="panel-kicker">Dashboard</div>
                             <h2 class="panel-title">Resumen</h2>
-                            <div class="panel-subtitle">
-                                Accesos rápidos y comparativos clave del periodo
-                                actual en una sola vista.
-                            </div>
                         </div>
                         <div class="panel-summary-meta">
                             <span class="panel-summary-pill">3 bloques</span>
@@ -1147,10 +1062,6 @@
                                     <h3 class="summary-title">
                                         Conteo por estado
                                     </h3>
-                                    <div class="summary-note">
-                                        Distribución actual del inventario
-                                        visible para el usuario.
-                                    </div>
                                 </div>
                                 <div class="state-list">
                                     {{range .EstadoConteos}}
@@ -1167,10 +1078,6 @@
                                     <h3 class="summary-title">
                                         Ventas por método de pago
                                     </h3>
-                                    <div class="summary-note">
-                                        Participación de cada método dentro del
-                                        total vendido.
-                                    </div>
                                 </div>
                                 <div class="pie-wrap">
                                     <div class="pie-chart">
@@ -1209,10 +1116,6 @@
                                     <h3 class="summary-title">
                                         Ventas por usuario
                                     </h3>
-                                    <div class="summary-note">
-                                        Total vendido por cada usuario en el
-                                        periodo.
-                                    </div>
                                 </div>
                                 <div class="state-list" id="summary-user-list">
                                     {{range .UserTimeline}}
@@ -1244,10 +1147,6 @@
                                     <h3 class="summary-title">
                                         Totales por categoría
                                     </h3>
-                                    <div class="summary-note">
-                                        Comparativo de ventas, créditos y
-                                        retomas según las categorías activas.
-                                    </div>
                                 </div>
                                 <div id="category-bars" class="bar-list">
                                     {{range .CategoryTotals}}
