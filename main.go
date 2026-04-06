@@ -14605,6 +14605,7 @@ func main() {
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/admin_users.html",
+		"templates/manual_page.html",
 		"templates/customers.html",
 		"templates/customer_detail.html",
 		"templates/credit_edits_report.html",
@@ -14899,6 +14900,12 @@ func main() {
 		CurrentUser       *User
 	}
 
+	type manualPageData struct {
+		Title       string
+		FrameURL    string
+		CurrentUser *User
+	}
+
 	settingsForUser := func(user *User) BusinessSettings {
 		if user == nil {
 			return currentBusinessSettings()
@@ -15092,6 +15099,37 @@ func main() {
 		}
 		clearSessionCookie(w, r)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	})
+
+	mux.HandleFunc("/manual", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		data := manualPageData{
+			Title:       "Manual de usuario",
+			FrameURL:    "/manual/contenido",
+			CurrentUser: currentUser,
+		}
+		renderTemplate(w, "manual_page.html", data, "Error al renderizar manual")
+	})
+
+	mux.HandleFunc("/manual/contenido", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		if userFromContext(r) == nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		http.ServeFile(w, r, filepath.Join("docs", "manual-stockiapp.html"))
 	})
 
 	mux.HandleFunc("/clientes", func(w http.ResponseWriter, r *http.Request) {
