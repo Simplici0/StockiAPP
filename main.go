@@ -1216,6 +1216,20 @@ func resetLoginRateLimit(r *http.Request, username string) {
 	}
 }
 
+func resetLoginRateLimitForUsername(username string) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" {
+		return
+	}
+	appLoginRateLimiter.mu.Lock()
+	defer appLoginRateLimiter.mu.Unlock()
+	for key := range appLoginRateLimiter.records {
+		if strings.HasPrefix(key, "user:"+username) {
+			delete(appLoginRateLimiter.records, key)
+		}
+	}
+}
+
 func requestMutatesState(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -12879,6 +12893,8 @@ func handleAPIUserRoutes(db *sql.DB, usersCols map[string]bool) http.HandlerFunc
 				return
 			}
 			_, _ = db.Exec(`DELETE FROM sessions WHERE user_id = ?`, record.ID)
+			resetLoginRateLimit(r, record.Username)
+			resetLoginRateLimitForUsername(record.Username)
 			if err := logAuditEvent(db, currentUser, "user_password_updated", "user", strconv.Itoa(record.ID), "api", withAPIAuditMetadata(r, map[string]any{
 				"user_id":   record.ID,
 				"username":  record.Username,
@@ -16294,6 +16310,8 @@ func main() {
 			return
 		}
 		_, _ = db.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID)
+		resetLoginRateLimit(r, targetRecord.Username)
+		resetLoginRateLimitForUsername(targetRecord.Username)
 		redirectWithMessage(w, r, "/admin/users", "Contraseña actualizada (sesiones cerradas).", "")
 	}))
 

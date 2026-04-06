@@ -1026,13 +1026,31 @@
                                 {{end}}
                             </div>
                             <div
-                                id="user-timeline-empty"
-                                class="empty-chart"
-                                {{if
-                                .UserTimeline}}hidden{{end}}
+                                id="user-timeline-detail"
+                                class="state-list"
                             >
-                                No hay ventas registradas por usuario en el
-                                rango seleccionado.
+                                {{range .UserTimeline}}
+                                <div class="user-sale-row">
+                                    <span class="user-sale-left">
+                                        <span
+                                            class="legend-dot"
+                                            style="background: {{.Color}};"
+                                        ></span>
+                                        <span>{{.UserLabel}}</span>
+                                    </span>
+                                    <span class="user-sale-total"
+                                        >{{.Total}}</span
+                                    >
+                                </div>
+                                {{else}}
+                                <div
+                                    class="empty-chart"
+                                    style="min-height: 60px"
+                                >
+                                    No hay ventas registradas por usuario en el
+                                    rango seleccionado.
+                                </div>
+                                {{end}}
                             </div>
                         </section>
                     </div>
@@ -1187,7 +1205,7 @@
                const timelineDays = document.getElementById("timeline-days");
                const userTimelineSvg = document.getElementById("user-timeline-svg");
                const userTimelineLegend = document.getElementById("user-timeline-legend");
-               const userTimelineEmpty = document.getElementById("user-timeline-empty");
+               const userTimelineDetail = document.getElementById("user-timeline-detail");
                const categoryBars = document.getElementById("category-bars");
                const panelSalesDayPill = document.getElementById("panel-sales-day-pill");
                const panelSalesUserPill = document.getElementById("panel-sales-user-pill");
@@ -1511,11 +1529,9 @@
                  if (userTimelineLegend) userTimelineLegend.innerHTML = "";
                  if (panelSalesUserPill) panelSalesUserPill.textContent = `${series.length} usuarios`;
                  if (!series.length) {
-                   if (userTimelineEmpty) userTimelineEmpty.hidden = false;
                    userTimelineSvg.setAttribute("hidden", "hidden");
                    return;
                  }
-                 if (userTimelineEmpty) userTimelineEmpty.hidden = true;
                  userTimelineSvg.removeAttribute("hidden");
 
                  const pointsLen = Array.isArray(series[0]?.points) ? series[0].points.length : 0;
@@ -1584,6 +1600,44 @@
                      legend.appendChild(total);
                      userTimelineLegend.appendChild(legend);
                   }
+                 });
+               };
+
+               const renderUserTimelineDetail = (data) => {
+                 if (!userTimelineDetail) return;
+                 const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
+                 userTimelineDetail.innerHTML = "";
+                 if (!series.length) {
+                   const empty = document.createElement("div");
+                   empty.className = "empty-chart";
+                   empty.style.minHeight = "60px";
+                   empty.textContent = "No hay ventas registradas por usuario en el rango seleccionado.";
+                   userTimelineDetail.appendChild(empty);
+                   return;
+                 }
+                 series.forEach((item) => {
+                   const row = document.createElement("div");
+                   row.className = "user-sale-row";
+                   const left = document.createElement("span");
+                   left.className = "user-sale-left";
+                   const dot = document.createElement("span");
+                   dot.className = "legend-dot";
+                   dot.style.background = safeCssColor(item.color);
+                   dot.style.borderRadius = "50%";
+                   dot.style.display = "inline-block";
+                   dot.style.width = "8px";
+                   dot.style.height = "8px";
+                   dot.style.flexShrink = "0";
+                   const label = document.createElement("span");
+                   label.textContent = item.user_label || "-";
+                   left.appendChild(dot);
+                   left.appendChild(label);
+                   const total = document.createElement("span");
+                   total.className = "user-sale-total";
+                   total.textContent = item.total || fmtMoney(0);
+                   row.appendChild(left);
+                   row.appendChild(total);
+                   userTimelineDetail.appendChild(row);
                  });
                };
 
@@ -1668,6 +1722,7 @@
                  renderDonut(data);
                  renderTimeline(data);
                  renderUserTimeline(data);
+                 renderUserTimelineDetail(data);
                  renderSummaryUserList(data);
                  renderCategoryBars(data);
                  renderSales(data);

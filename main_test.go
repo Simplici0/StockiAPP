@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestMain(m *testing.M) {
@@ -5698,6 +5700,50 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 	}, "https://example.com")
 	if forbiddenRoleResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when tenant admin tries to create platform admin, got %d body=%s", forbiddenRoleResp.Code, forbiddenRoleResp.Body.String())
+	}
+}
+
+func TestAPIUsersPasswordResetClearsLoginRateLimitForUsername(t *testing.T) {
+	previousLimiter := appLoginRateLimiter
+	appLoginRateLimiter = newLoginRateLimiter()
+	defer func() {
+		appLoginRateLimiter = previousLimiter
+	}()
+
+	db, handler, tenant, sessionToken := setupTenantAdminSessionAPIHarness(t)
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	hashed, err := bcrypt.GenerateFromPassword([]byte("ClaveTemporal123!"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash target password: %v", err)
+	}
+	targetID, err := insertAndReturnID(db, `
+		INSERT INTO users (username, name, email, password_hash, role, tenant_id, created_at, is_active)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+	`, "tenant2.retry", "Tenant Retry", "tenant2.retry@local", string(hashed), roleEmployee, tenant.ID, now)
+	if err != nil {
+		t.Fatalf("insert target user: %v", err)
+	}
+
+	loginReq := httptest.NewRequest(http.MethodPost, "https://example.com/login", nil)
+	username := "tenant2.retry"
+	for i := 0; i < loginRateMaxFailures; i++ {
+		registerLoginFailure(loginReq, username, time.Now())
+	}
+	if retryAfter, allowed := loginRequestAllowed(loginReq, username, time.Now()); allowed || retryAfter <= 0 {
+		t.Fatalf("expected user to be rate limited before reset, got allowed=%v retry_after=%s", allowed, retryAfter)
+	}
+
+	resp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(int(targetID))+"/password", sessionToken, map[string]any{
+		"password": "NuevaClave123!",
+	}, "https://example.com")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 resetting password, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	if retryAfter, allowed := loginRequestAllowed(loginReq, username, time.Now()); !allowed || retryAfter != 0 {
+		t.Fatalf("expected login rate limit to be cleared after password reset, got allowed=%v retry_after=%s", allowed, retryAfter)
 	}
 }
 
