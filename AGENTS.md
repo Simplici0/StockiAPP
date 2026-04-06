@@ -356,6 +356,7 @@ Endpoints generales ya disponibles:
 Regla:
 - no duplicar endpoints ya existentes
 - si un contrato necesita ampliarse para n8n/agentes, ajustar el handler existente antes de crear otro
+- las API keys operativas pueden usar `GET /api/users`, `GET /api/settings/owners`, `PUT/PATCH /api/products/{id}` y `POST /api/inventory/adjust`; siguen cerradas las rutas de detalle/escritura sensible de usuarios y cualquier `/api/users/{id}` para API key
 
 Endpoints agente ya disponibles:
 - `GET /api/agent/business`

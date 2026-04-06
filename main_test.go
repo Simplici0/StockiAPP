@@ -2848,13 +2848,31 @@ func TestAPIAuthFromRequestPrefersBearerOverSession(t *testing.T) {
 	}
 }
 
-func TestAPIKeyCanAccessOwnersButNotUsers(t *testing.T) {
-	db, handler, _, token := setupTenantWriteAPIHarness(t)
+func TestAPIKeyCanListUsersAndOwnersButNotUserDetailOrWrites(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
 	defer db.Close()
 
 	apiKeyUsersResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users", token, nil)
-	if apiKeyUsersResp.Code != http.StatusForbidden {
-		t.Fatalf("expected API key users access to be forbidden, got %d body=%s", apiKeyUsersResp.Code, apiKeyUsersResp.Body.String())
+	if apiKeyUsersResp.Code != http.StatusOK {
+		t.Fatalf("expected API key users access to succeed, got %d body=%s", apiKeyUsersResp.Code, apiKeyUsersResp.Body.String())
+	}
+	apiKeyUsersBody := decodeAPIResponse(t, apiKeyUsersResp)
+	items, ok := apiKeyUsersBody["items"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("expected API key users payload to include tenant items, got %+v", apiKeyUsersBody)
+	}
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("unexpected user payload item: %#v", raw)
+		}
+		tenantID, ok := item["tenant_id"].(float64)
+		if !ok || int(tenantID) != tenant.ID {
+			t.Fatalf("expected only tenant-scoped users, got %+v", item)
+		}
+		if username, _ := item["username"].(string); username == "admin" {
+			t.Fatalf("expected default tenant admin to stay hidden from tenant-scoped api key list")
+		}
 	}
 
 	apiKeyOwnersResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/settings/owners", token, nil)
@@ -2867,6 +2885,11 @@ func TestAPIKeyCanAccessOwnersButNotUsers(t *testing.T) {
 	}
 
 	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	apiKeyUserDetailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/users/"+strconv.Itoa(tenantAdmin.ID), token, nil)
+	if apiKeyUserDetailResp.Code != http.StatusForbidden {
+		t.Fatalf("expected API key user detail access to stay forbidden, got %d body=%s", apiKeyUserDetailResp.Code, apiKeyUserDetailResp.Body.String())
+	}
+
 	sessionToken := createTestSession(t, db, tenantAdmin)
 
 	csrfBlocked := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users", sessionToken, map[string]any{

@@ -1327,6 +1327,8 @@ func apiKeyRequestAllowed(r *http.Request) bool {
 		return true
 	case r.Method == http.MethodGet && path == "/api/settings/owners":
 		return true
+	case r.Method == http.MethodGet && path == "/api/users":
+		return true
 	case r.Method == http.MethodGet && path == "/api/products":
 		return true
 	case r.Method == http.MethodGet && path == "/api/products/search":
@@ -12608,13 +12610,12 @@ func managedUserAPIItem(record managedUserRecord) map[string]any {
 func handleAPIUsers(db *sql.DB, usersCols map[string]bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
-		if currentUser == nil || !isAdminRole(currentUser.Role) {
-			writeAPIError(w, http.StatusForbidden, "Solo administrador puede operar usuarios.", nil)
-			return
-		}
-
 		switch r.Method {
 		case http.MethodGet:
+			if currentUser == nil || !(isAdminRole(currentUser.Role) || isAPIKeyRole(currentUser.Role)) {
+				writeAPIError(w, http.StatusForbidden, "Solo administrador puede consultar usuarios.", nil)
+				return
+			}
 			items, err := listManagedUsersForTenant(db, currentUser, tenantIDFromRequest(r), usersCols)
 			if err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudieron cargar los usuarios.", nil)
@@ -12626,6 +12627,10 @@ func handleAPIUsers(db *sql.DB, usersCols map[string]bool) http.HandlerFunc {
 			}
 			writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": payloadItems, "count": len(payloadItems)})
 		case http.MethodPost:
+			if currentUser == nil || !isAdminRole(currentUser.Role) {
+				writeAPIError(w, http.StatusForbidden, "Solo administrador puede operar usuarios.", nil)
+				return
+			}
 			var payload struct {
 				Username   string `json:"username"`
 				Name       string `json:"name"`

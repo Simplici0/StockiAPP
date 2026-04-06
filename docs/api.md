@@ -1062,7 +1062,7 @@ Reglas:
 - `telegram_id` está disponible para lectura y edición
 - no se puede dejar un tenant sin al menos un admin activo
 - solo un `platform_admin` puede crear o editar usuarios `platform_admin`
-- las API keys operativas responden `403` en `/api/users*`
+- las API keys operativas pueden usar `GET /api/users`, pero siguen respondiendo `403` en `/api/users/{id}` y rutas mutantes de usuarios
 
 Nota:
 - estas rutas están pensadas para la administración web del tenant; si reproduces requests fuera del browser, reutiliza una sesión admin válida en vez de una API key
@@ -1070,6 +1070,8 @@ Nota:
 ### `GET /api/users`
 
 Lista usuarios visibles del tenant autenticado.
+
+Disponible para sesión admin o API key operativa tenant-scoped. La respuesta sigue limitada al tenant autenticado.
 
 Ejemplo:
 
@@ -1103,6 +1105,8 @@ Respuesta:
 ### `POST /api/users`
 
 Crea un usuario del tenant autenticado usando la misma validación de la UI SSR.
+
+Solo admin por sesión web. Las API keys operativas responden `403`.
 
 Payload mínimo:
 
@@ -1148,6 +1152,8 @@ Respuesta:
 ### `GET /api/users/{id}`
 
 Devuelve el detalle del usuario dentro del tenant autenticado.
+
+Solo admin por sesión web. Las API keys operativas responden `403`.
 
 Ejemplo:
 
