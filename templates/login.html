@@ -298,31 +298,136 @@
               position: fixed;
               top: 18px;
               right: 18px;
-              min-height: 38px;
-              padding: 0 12px;
+              width: 52px;
+              min-width: 52px;
+              height: 32px;
+              padding: 3px;
               border-radius: 999px;
               border: 1px solid rgba(15, 40, 80, 0.12);
-              background: rgba(255, 255, 255, 0.78);
-              color: var(--text);
+              background: rgba(255, 255, 255, 0.76);
               display: inline-flex;
               align-items: center;
-              gap: 8px;
-              font-size: 12px;
-              font-weight: 700;
+              justify-content: flex-start;
               cursor: pointer;
               z-index: 2;
+              box-shadow:
+                0 12px 28px rgba(15, 40, 80, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.72);
+              transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+              backdrop-filter: blur(12px);
+            }
+
+            .theme-toggle:hover {
+              border-color: rgba(15, 40, 80, 0.18);
+              box-shadow:
+                0 14px 32px rgba(15, 40, 80, 0.14),
+                0 0 0 4px rgba(232, 93, 60, 0.08),
+                inset 0 1px 0 rgba(255, 255, 255, 0.82);
+            }
+
+            .theme-toggle:focus-visible {
+              outline: none;
+              box-shadow:
+                0 0 0 4px rgba(232, 93, 60, 0.14),
+                0 14px 32px rgba(15, 40, 80, 0.14),
+                inset 0 1px 0 rgba(255, 255, 255, 0.82);
+            }
+
+            .theme-toggle-thumb {
+              width: 24px;
+              height: 24px;
+              border-radius: 999px;
+              border: 1px solid rgba(15, 40, 80, 0.08);
+              background:
+                radial-gradient(circle at 34% 34%, rgba(255,255,255,0.98) 0%, rgba(244, 247, 252, 0.98) 62%, rgba(216, 226, 241, 0.98) 100%);
+              box-shadow:
+                0 8px 18px rgba(15, 40, 80, 0.16),
+                inset 0 1px 0 rgba(255, 255, 255, 0.92);
+              position: relative;
+              transform: translateX(0);
+              transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+            }
+
+            .theme-toggle-thumb::before,
+            .theme-toggle-thumb::after {
+              content: '';
+              position: absolute;
+              border-radius: 999px;
+              transition: opacity 0.18s ease, transform 0.18s ease;
+            }
+
+            .theme-toggle-thumb::before {
+              width: 9px;
+              height: 9px;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) scale(1);
+              background: rgba(255, 211, 89, 0.96);
+              box-shadow: 0 0 0 4px rgba(255, 211, 89, 0.18);
+              opacity: 1;
+            }
+
+            .theme-toggle-thumb::after {
+              width: 11px;
+              height: 11px;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) scale(0.7);
+              background: rgba(172, 200, 255, 0.96);
+              box-shadow: 4px -2px 0 0 rgba(12, 21, 34, 0.88);
+              opacity: 0;
             }
 
             :root[data-theme="dark"] .theme-toggle {
-              border-color: rgba(170, 193, 226, 0.14);
-              background: rgba(12, 21, 34, 0.78);
-              color: var(--text);
+              border-color: rgba(170, 193, 226, 0.16);
+              background: rgba(12, 21, 34, 0.8);
+              box-shadow:
+                0 16px 34px rgba(1, 6, 14, 0.28),
+                inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            }
+
+            :root[data-theme="dark"] .theme-toggle:hover {
+              border-color: rgba(170, 193, 226, 0.22);
+              box-shadow:
+                0 18px 36px rgba(1, 6, 14, 0.32),
+                0 0 0 4px rgba(79, 167, 255, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            }
+
+            :root[data-theme="dark"] .theme-toggle-thumb {
+              transform: translateX(20px);
+              border-color: rgba(170, 193, 226, 0.18);
+              background:
+                radial-gradient(circle at 34% 34%, rgba(233, 242, 255, 0.98) 0%, rgba(208, 223, 247, 0.98) 58%, rgba(170, 193, 226, 0.98) 100%);
+            }
+
+            :root[data-theme="dark"] .theme-toggle-thumb::before {
+              transform: translate(-50%, -50%) scale(0.7);
+              opacity: 0;
+            }
+
+            :root[data-theme="dark"] .theme-toggle-thumb::after {
+              transform: translate(-50%, -50%) scale(1);
+              opacity: 1;
+            }
+
+            @media (max-width: 640px) {
+              .theme-toggle {
+                top: 14px;
+                right: 14px;
+              }
             }
         </style>
     </head>
     <body>
-        <button class="theme-toggle" type="button" id="login-theme-toggle">
-            ◐ <span>Tema</span>
+        <button
+            class="theme-toggle"
+            type="button"
+            id="login-theme-toggle"
+            aria-label="Cambiar tema"
+            title="Cambiar tema"
+        >
+            <span class="theme-toggle-thumb" aria-hidden="true"></span>
         </button>
         <div class="card">
             <div class="brand">
@@ -360,6 +465,20 @@
             (function () {
                 var toggle = document.getElementById("login-theme-toggle");
                 if (!toggle) return;
+                var syncLabel = function () {
+                    var current = document.documentElement.getAttribute("data-theme");
+                    var isDark = current === "dark";
+                    toggle.setAttribute("aria-pressed", isDark ? "true" : "false");
+                    toggle.setAttribute(
+                        "aria-label",
+                        isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"
+                    );
+                    toggle.setAttribute(
+                        "title",
+                        isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"
+                    );
+                };
+                syncLabel();
                 toggle.addEventListener("click", function () {
                     var root = document.documentElement;
                     var next =
@@ -371,6 +490,7 @@
                     try {
                         window.localStorage.setItem("stocki.theme", next);
                     } catch (_) {}
+                    syncLabel();
                 });
             })();
         </script>
