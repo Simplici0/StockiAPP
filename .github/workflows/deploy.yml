@@ -26,6 +26,7 @@ jobs:
             cp stockiapp_new /srv/granempresa/app/granempresa
             cp -r templates /srv/granempresa/app/
             cp -r static /srv/granempresa/app/
+            cp -r docs /srv/granempresa/app/
 
             systemctl start granempresa
             systemctl status granempresa --no-pager

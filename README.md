@@ -50,17 +50,17 @@ cd /srv/granempresa/src
 GOOS=linux GOARCH=amd64 go build -o /srv/granempresa/app/granempresa .
 ```
 
-Copia las plantillas:
+Copia los assets SSR:
 
 ```bash
-sudo -u granempresa rsync -a /srv/granempresa/src/templates /srv/granempresa/app/
+sudo -u granempresa rsync -a /srv/granempresa/src/templates /srv/granempresa/src/static /srv/granempresa/src/docs /srv/granempresa/app/
 ```
 
 ### Opción B: compilar localmente y subir
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o granempresa .
-rsync -av granempresa templates/ granempresa@<IP>:/srv/granempresa/app/
+rsync -av granempresa templates/ static/ docs/ granempresa@<IP>:/srv/granempresa/app/
 ```
 
 ## 5) Configurar systemd
