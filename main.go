@@ -4258,64 +4258,129 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 		total       float64
 	}
 
-	userTimelineArgs := append([]any{startStr, endStr}, visibilityArgs...)
-	userTimelineRows, err := db.Query(`
+	upsertUserTimelineBucket := func(buckets map[string]*userTimelineBucket, label, fecha string, total float64) {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			label = "Sin usuario"
+		}
+		bucket, ok := buckets[label]
+		if !ok {
+			bucket = &userTimelineBucket{
+				label:       label,
+				valueByDate: map[string]float64{},
+			}
+			buckets[label] = bucket
+		}
+		bucket.valueByDate[fecha] += total
+		bucket.total += total
+	}
+	parseDashboardAuditTotal := func(payloadRaw string) float64 {
+		if strings.TrimSpace(payloadRaw) == "" {
+			return 0
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
+			return 0
+		}
+		switch v := payload["total"].(type) {
+		case float64:
+			return v
+		case string:
+			if parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(v), 64); parseErr == nil {
+				return parsed
+			}
+		}
+		return 0
+	}
+	parseDashboardAuditSoldBy := func(payloadRaw string) string {
+		if strings.TrimSpace(payloadRaw) == "" {
+			return ""
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
+			return ""
+		}
+		soldBy, _ := payload["sold_by"].(string)
+		return strings.TrimSpace(soldBy)
+	}
+
+	userBuckets := map[string]*userTimelineBucket{}
+
+	userTimelineSalesArgs := append([]any{startStr, endStr}, visibilityArgs...)
+	userTimelineSalesRows, err := db.Query(`
+		SELECT
+			`+salesDateExpr+` as fecha,
+			TRIM(COALESCE(v.sold_by, '')) as sold_by,
+			COALESCE(SUM(v.precio_final * v.cantidad), 0) as total
+		FROM ventas v
+		LEFT JOIN productos p ON p.sku = v.producto_id
+		WHERE `+salesDateExpr+` BETWEEN ? AND ?
+			AND `+visibilitySQL+`
+			AND NULLIF(TRIM(COALESCE(v.sold_by, '')), '') IS NOT NULL
+		GROUP BY `+salesDateExpr+`, TRIM(COALESCE(v.sold_by, ''))
+		ORDER BY sold_by ASC, fecha ASC
+	`, userTimelineSalesArgs...)
+	if err != nil {
+		return dashboardDataResponse{}, err
+	}
+	defer userTimelineSalesRows.Close()
+
+	for userTimelineSalesRows.Next() {
+		var (
+			fecha  string
+			soldBy string
+			total  float64
+		)
+		if err := userTimelineSalesRows.Scan(&fecha, &soldBy, &total); err != nil {
+			return dashboardDataResponse{}, err
+		}
+		if total <= 0 {
+			continue
+		}
+		upsertUserTimelineBucket(userBuckets, soldBy, fecha, total)
+	}
+	if err := userTimelineSalesRows.Err(); err != nil {
+		return dashboardDataResponse{}, err
+	}
+
+	userTimelineAuditArgs := append([]any{startStr, endStr}, visibilityArgs...)
+	userTimelineAuditRows, err := db.Query(`
 		SELECT
 			`+sqlDatePrefixExpr("a.created_at")+` as fecha,
-			COALESCE(NULLIF(TRIM(u.username), ''), 'Sin usuario') as user_label,
+			COALESCE(NULLIF(TRIM(u.username), ''), '') as user_label,
 			COALESCE(a.payload_json, '{}') as payload_json
 		FROM audit_events a
 		LEFT JOIN users u ON u.id = a.user_id
-		LEFT JOIN productos p ON p.sku = a.entity_id
+		LEFT JOIN productos p ON p.sku = a.entity_id OR p.id = a.entity_id
 		WHERE a.event_type = 'sale_registered'
 			AND `+sqlDatePrefixExpr("a.created_at")+` BETWEEN ? AND ?
 			AND `+visibilitySQL+`
 		ORDER BY user_label ASC, fecha ASC
-	`, userTimelineArgs...)
+	`, userTimelineAuditArgs...)
 	if err != nil {
 		return dashboardDataResponse{}, err
 	}
-	defer userTimelineRows.Close()
+	defer userTimelineAuditRows.Close()
 
-	userBuckets := map[string]*userTimelineBucket{}
-	for userTimelineRows.Next() {
+	for userTimelineAuditRows.Next() {
 		var (
 			fecha      string
 			userLabel  string
 			payloadRaw string
 		)
-		if err := userTimelineRows.Scan(&fecha, &userLabel, &payloadRaw); err != nil {
+		if err := userTimelineAuditRows.Scan(&fecha, &userLabel, &payloadRaw); err != nil {
 			return dashboardDataResponse{}, err
 		}
-		total := 0.0
-		if payloadRaw != "" {
-			var payload map[string]any
-			if err := json.Unmarshal([]byte(payloadRaw), &payload); err == nil {
-				switch v := payload["total"].(type) {
-				case float64:
-					total = v
-				case string:
-					if parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(v), 64); parseErr == nil {
-						total = parsed
-					}
-				}
-			}
+		if parseDashboardAuditSoldBy(payloadRaw) != "" {
+			continue
 		}
+		total := parseDashboardAuditTotal(payloadRaw)
 		if total <= 0 {
 			continue
 		}
-		bucket, ok := userBuckets[userLabel]
-		if !ok {
-			bucket = &userTimelineBucket{
-				label:       userLabel,
-				valueByDate: map[string]float64{},
-			}
-			userBuckets[userLabel] = bucket
-		}
-		bucket.valueByDate[fecha] += total
-		bucket.total += total
+		upsertUserTimelineBucket(userBuckets, userLabel, fecha, total)
 	}
-	if err := userTimelineRows.Err(); err != nil {
+	if err := userTimelineAuditRows.Err(); err != nil {
 		return dashboardDataResponse{}, err
 	}
 

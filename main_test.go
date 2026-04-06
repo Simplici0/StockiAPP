@@ -3328,6 +3328,91 @@ func TestListSalesForUserIsTenantScoped(t *testing.T) {
 	}
 }
 
+func TestBuildDashboardSalesDataPrefersSoldByAndKeepsAuditFallback(t *testing.T) {
+	db, _, tenant, _ := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	now := time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC)
+	nowStr := now.Format(time.RFC3339)
+
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled, fecha_ingreso)
+		VALUES
+			('SKU-DASH-API', ?, 'SKU-DASH-API', 'Producto API', 'Linea', 15000, 0, ?),
+			('SKU-DASH-HIST', ?, 'SKU-DASH-HIST', 'Producto Historico', 'Linea', 22000, 0, ?),
+			('SKU-DASH-NONE', ?, 'SKU-DASH-NONE', 'Producto Sin Usuario', 'Linea', 5000, 0, ?)
+	`, tenant.ID, nowStr, tenant.ID, nowStr, tenant.ID, nowStr); err != nil {
+		t.Fatalf("seed dashboard products: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha)
+		VALUES
+			(?, 'SKU-DASH-API', 1, 15000, 'Efectivo', 'api', 'Agente n8n', '', ?),
+			(?, 'SKU-DASH-HIST', 1, 22000, 'Efectivo', 'web', '', '', ?),
+			(?, 'SKU-DASH-NONE', 1, 5000, 'Efectivo', 'web', '', '', ?)
+	`, tenant.ID, nowStr, tenant.ID, nowStr, tenant.ID, nowStr); err != nil {
+		t.Fatalf("seed dashboard sales: %v", err)
+	}
+
+	apiPayload, err := json.Marshal(map[string]any{
+		"sale_id": 1,
+		"total":   15000.0,
+		"sold_by": "Agente n8n",
+	})
+	if err != nil {
+		t.Fatalf("marshal api payload: %v", err)
+	}
+	historyPayload, err := json.Marshal(map[string]any{
+		"total": 22000.0,
+	})
+	if err != nil {
+		t.Fatalf("marshal history payload: %v", err)
+	}
+	noUserPayload, err := json.Marshal(map[string]any{
+		"total": 5000.0,
+	})
+	if err != nil {
+		t.Fatalf("marshal no-user payload: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO audit_events (tenant_id, event_type, entity_type, entity_id, user_id, source, payload_json, created_at)
+		VALUES
+			(?, 'sale_registered', 'sale', 'SKU-DASH-API', ?, 'api', ?, ?),
+			(?, 'sale_registered', 'sale', 'SKU-DASH-HIST', ?, 'manual', ?, ?),
+			(?, 'sale_registered', 'sale', 'SKU-DASH-NONE', NULL, 'api', ?, ?)
+	`, tenant.ID, tenantAdmin.ID, string(apiPayload), nowStr, tenant.ID, tenantAdmin.ID, string(historyPayload), nowStr, tenant.ID, string(noUserPayload), nowStr); err != nil {
+		t.Fatalf("seed dashboard audit events: %v", err)
+	}
+
+	startDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	endDate := startDate
+	resp, err := buildDashboardSalesData(db, tenantAdmin, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), startDate, endDate)
+	if err != nil {
+		t.Fatalf("buildDashboardSalesData: %v", err)
+	}
+
+	seriesByLabel := make(map[string]dashboardUserTimelineSeries, len(resp.UserTimeline))
+	for _, series := range resp.UserTimeline {
+		seriesByLabel[series.UserLabel] = series
+	}
+
+	if got := seriesByLabel["Agente n8n"].Value; got != 15000 {
+		t.Fatalf("expected sold_by series total 15000, got %+v", seriesByLabel["Agente n8n"])
+	}
+	if got := seriesByLabel[tenantAdmin.Username].Value; got != 22000 {
+		t.Fatalf("expected audit fallback series total 22000, got %+v", seriesByLabel[tenantAdmin.Username])
+	}
+	if got := seriesByLabel["Sin usuario"].Value; got != 5000 {
+		t.Fatalf("expected empty user fallback total 5000, got %+v", seriesByLabel["Sin usuario"])
+	}
+	if got := len(resp.UserTimeline); got != 3 {
+		t.Fatalf("expected exactly 3 user timeline series, got %d (%+v)", got, resp.UserTimeline)
+	}
+}
+
 func TestListRetomasForUserIsTenantScoped(t *testing.T) {
 	t.Setenv("ADMIN_USER", "admin")
 	t.Setenv("ADMIN_PASS", "SuperSecreto123")
