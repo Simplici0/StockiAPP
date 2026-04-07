@@ -92,42 +92,64 @@
 
             .actions {
                 display: flex;
-                align-items: stretch;
-                gap: 6px;
+                align-items: center;
+                gap: 8px;
                 flex-wrap: wrap;
             }
 
             .actions input[type="number"] {
-                width: 72px;
-                min-height: 38px;
-                padding: 6px 10px;
+                flex: 0 0 auto;
+                width: 64px;
+                min-height: 34px;
+                padding: 0 8px;
                 font-size: 13px;
-                border-radius: 10px;
+                font-weight: 700;
+                border-radius: 12px;
                 text-align: center;
                 background: var(--bg-card);
-                border-color: var(--border);
+                border: 1px solid var(--border-strong);
                 color: var(--text);
+                line-height: 1;
+                appearance: textfield;
+                -moz-appearance: textfield;
             }
 
-            .actions > button {
-                min-height: 38px;
-                padding: 0 12px;
+            .actions input[type="number"]::-webkit-outer-spin-button,
+            .actions input[type="number"]::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+
+            .actions > button,
+            .actions > a.button {
+                flex: 0 0 auto;
+                min-height: 34px;
+                padding: 0 14px;
                 font-size: 12.5px;
+                font-weight: 700;
+                border-radius: 14px;
+                line-height: 1;
+                justify-content: center;
             }
 
+            .actions button.primary,
+            .actions button.secondary,
             .actions button.ghost {
-                min-height: 38px;
-                padding: 0 12px;
-                border-color: transparent;
-                background: transparent;
-                color: var(--secondary);
-                font-size: 12.5px;
+                box-shadow: none;
             }
 
-            .actions button.ghost:hover {
+            .actions button.secondary,
+            .actions button.ghost {
                 background: var(--bg-card-muted);
+                border: 1px solid var(--border-strong);
+                color: var(--secondary);
+            }
+
+            .actions button.secondary:hover,
+            .actions button.ghost:hover {
+                background: var(--bg-card);
                 color: var(--text);
-                border-color: var(--border-strong);
+                border-color: var(--primary-strong);
             }
 
             /* KPI summary strip — oculto en esta versión */
@@ -489,7 +511,7 @@
                 overflow: visible;
             }
 
-            button.ghost {
+            .menu > button.ghost {
                 width: 38px;
                 min-width: 38px;
                 height: 38px;
@@ -501,7 +523,7 @@
                 font-size: 18px;
             }
 
-            button.ghost:hover {
+            .menu > button.ghost:hover {
                 background: var(--bg-card-muted);
                 color: var(--text);
                 border-color: var(--border-strong);
@@ -762,6 +784,14 @@
                 margin-top: 5px;
                 font-size: 12px;
                 color: #7a93ae;
+            }
+
+            .modal .customer-lookup-results {
+                position: static;
+                top: auto;
+                left: auto;
+                right: auto;
+                margin-top: 8px;
             }
 
             .modal-grid {
@@ -2220,11 +2250,6 @@
                                         data-customer-status
                                     ></div>
                                 </div>
-                            </div>
-                            <div class="customer-lookup-helper">
-                                Si no eliges un cliente existente, la retoma crea
-                                o reutiliza el cliente con los datos capturados
-                                dentro de este tenant.
                             </div>
 
                             <div class="modal-row">
