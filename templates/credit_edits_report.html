@@ -42,7 +42,7 @@
     .report-table th,
     .report-table td {
       padding: 12px 14px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-strong);
       text-align: left;
       vertical-align: top;
       font-size: 13.5px;
@@ -52,7 +52,7 @@
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: var(--text-muted);
+      color: var(--secondary);
     }
 
     .report-credit {
@@ -88,8 +88,8 @@
       min-height: 28px;
       padding: 0 10px;
       border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--bg-card-muted);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-card);
       font-size: 12px;
       font-weight: 700;
       white-space: nowrap;
@@ -103,7 +103,8 @@
       padding: 24px;
       border: 1px dashed var(--border-strong);
       border-radius: 18px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, var(--bg-card-muted) 100%);
+      background: var(--bg-card);
+      box-shadow: var(--shadow-xs);
     }
   </style>
   {{template "app_styles" .}}

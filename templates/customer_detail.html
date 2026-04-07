@@ -20,13 +20,9 @@
             .hero-card,
             .section-card {
                 border-radius: 20px;
-                border: 1px solid rgba(15, 40, 80, 0.08);
-                background: linear-gradient(
-                    180deg,
-                    rgba(255, 255, 255, 0.97) 0%,
-                    rgba(248, 250, 252, 0.94) 100%
-                );
-                box-shadow: 0 16px 28px rgba(12, 28, 52, 0.06);
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card);
+                box-shadow: var(--shadow-xs);
                 padding: 20px;
             }
 
@@ -62,8 +58,8 @@
                 margin-top: 14px;
                 padding: 14px;
                 border-radius: 16px;
-                background: var(--bg-card-muted);
-                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: var(--bg-card);
+                border: 1px solid var(--border-strong);
                 font-size: 13px;
             }
 
@@ -76,12 +72,9 @@
             .metric {
                 padding: 14px;
                 border-radius: 16px;
-                background: linear-gradient(
-                    180deg,
-                    rgba(255, 255, 255, 0.95) 0%,
-                    rgba(242, 246, 250, 0.92) 100%
-                );
-                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: var(--bg-card);
+                border: 1px solid var(--border-strong);
+                box-shadow: var(--shadow-xs);
                 display: grid;
                 gap: 6px;
             }
@@ -105,11 +98,12 @@
                 min-height: 30px;
                 padding: 0 10px;
                 border-radius: 999px;
-                border: 1px solid rgba(14, 165, 201, 0.18);
-                background: rgba(236, 254, 255, 0.96);
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card);
                 color: var(--secondary);
                 font-size: 12px;
                 font-weight: 700;
+                box-shadow: var(--shadow-xs);
                 white-space: nowrap;
             }
 
@@ -133,10 +127,11 @@
             .entity-row {
                 padding: 14px 16px;
                 border-radius: 16px;
-                background: var(--bg-card-muted);
-                border: 1px solid rgba(15, 40, 80, 0.08);
+                background: var(--bg-card);
+                border: 1px solid var(--border-strong);
                 display: grid;
                 gap: 6px;
+                box-shadow: var(--shadow-xs);
             }
 
             .entity-row strong {

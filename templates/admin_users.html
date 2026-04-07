@@ -7,26 +7,32 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f7f5f2;
+      --bg: #f8fafc;
       --card: #ffffff;
-      --text: #26221f;
-      --muted: #6f6a65;
-      --primary: #e85d3c;
-      --primary-strong: #cf4528;
-      --primary-soft: #fff1e6;
-      --border: #e6dfd8;
-      --shadow-soft: 0 8px 18px rgba(18, 23, 38, 0.08);
+      --card-muted: #f1f5f9;
+      --text: #1e293b;
+      --muted: #475569;
+      --primary: #0284c7;
+      --primary-strong: #0369a1;
+      --primary-soft: #eff6ff;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --danger: #dc2626;
+      --shadow-soft: 0 8px 18px rgba(15, 23, 42, 0.08);
     }
 
     :root[data-theme="dark"] {
       color-scheme: dark;
-      --bg: #07121d;
-      --card: #101b2a;
-      --text: #e8eef7;
+      --bg: #060e20;
+      --card: #16213e;
+      --card-muted: #0f1930;
+      --text: #dee5ff;
       --muted: #99acc2;
-      --border: rgba(170, 193, 226, 0.14);
+      --border: rgba(170, 193, 226, 0.16);
+      --border-strong: rgba(170, 193, 226, 0.24);
+      --danger: #ffb4b4;
       --shadow-soft: 0 18px 36px rgba(1, 6, 14, 0.34);
-      --primary-soft: rgba(232, 93, 60, 0.14);
+      --primary-soft: rgba(79, 157, 255, 0.14);
     }
 
     * {
@@ -41,12 +47,13 @@
     }
 
     .global-banner {
-      background: #f47a24;
-      padding: 10px 32px;
+      background: var(--card-muted);
+      padding: 8px 32px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 16px;
+      border-bottom: 1px solid var(--border);
     }
 
     .banner-logos {
@@ -60,8 +67,8 @@
       min-width: 76px;
       padding: 0 10px;
       border-radius: 999px;
-      border: 1px dashed rgba(255, 255, 255, 0.7);
-      color: #ffffff;
+      border: 1px dashed var(--border);
+      color: var(--text);
       font-size: 11px;
       font-weight: 600;
       display: flex;
@@ -69,11 +76,11 @@
       justify-content: center;
       letter-spacing: 0.04em;
       text-transform: uppercase;
-      background: rgba(255, 255, 255, 0.2);
+      background: var(--card);
     }
 
     .page-header {
-      padding: 18px 32px 16px;
+      padding: 16px 32px 14px;
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -121,8 +128,8 @@
     .table-wrap {
       overflow-x: auto;
       border-radius: 18px;
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow-soft);
+      border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow-xs);
       background: var(--card);
     }
 
@@ -141,8 +148,8 @@
     }
 
     th {
-      background: #f9f7f4;
-      color: var(--muted);
+      background: var(--card-muted);
+      color: var(--secondary);
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
@@ -155,22 +162,23 @@
       border-radius: 999px;
       font-size: 12px;
       font-weight: 600;
-      background: #e9f7f1;
-      color: #1f7a5f;
-      border: 1px solid #bfe7d6;
+      background: var(--bg-card);
+      color: var(--secondary);
+      border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow-xs);
     }
 
     .status-pill.inactive {
-      background: #ffecef;
-      color: #b73a3a;
-      border: 1px solid #f5c6cf;
+      background: var(--bg-card-muted);
+      color: var(--danger);
+      border: 1px solid rgba(220, 38, 38, 0.2);
     }
 
     .flash {
       margin-bottom: 16px;
-      background: #eaf7f1;
-      color: #1f6b4f;
-      border: 1px solid #c7e6d7;
+      background: rgba(5, 150, 105, 0.1);
+      color: #047857;
+      border: 1px solid rgba(5, 150, 105, 0.2);
       padding: 12px 16px;
       border-radius: 12px;
       font-size: 14px;
@@ -178,18 +186,18 @@
     }
 
     .flash.error {
-      background: #ffecef;
-      color: #b73a3a;
-      border-color: #f5c6cf;
+      background: rgba(220, 38, 38, 0.1);
+      color: var(--danger);
+      border-color: rgba(220, 38, 38, 0.2);
     }
 
     .scope-banner {
       margin-bottom: 16px;
       padding: 16px 18px;
       border-radius: 18px;
-      border: 1px solid var(--border);
-      background: linear-gradient(180deg, #ffffff 0%, #f8f5f2 100%);
-      box-shadow: var(--shadow-soft);
+      border: 1px solid var(--border-strong);
+      background: var(--card);
+      box-shadow: var(--shadow-xs);
       display: grid;
       gap: 8px;
     }
@@ -218,21 +226,22 @@
       border-radius: 999px;
       font-size: 12px;
       font-weight: 700;
-      border: 1px solid var(--border);
-      background: #f4f0eb;
+      border: 1px solid var(--border-strong);
+      background: var(--card);
       color: var(--text);
+      box-shadow: var(--shadow-xs);
     }
 
     .role-pill.platform {
-      background: #fff2de;
-      border-color: #f2cf96;
-      color: #8a5510;
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.24);
+      color: #b45309;
     }
 
     .role-pill.tenant {
-      background: #edf3ff;
-      border-color: #c5d7fb;
-      color: #305ca8;
+      background: rgba(79, 157, 255, 0.12);
+      border-color: rgba(79, 157, 255, 0.24);
+      color: #2563eb;
     }
 
     .section-kicker {
@@ -256,8 +265,9 @@
       gap: 6px;
       padding: 12px 14px;
       border-radius: 14px;
-      border: 1px solid var(--border);
-      background: #ffffff;
+      border: 1px solid var(--border-strong);
+      background: var(--card);
+      box-shadow: var(--shadow-xs);
     }
 
     .role-legend-item p {
@@ -286,9 +296,9 @@
     .card {
       background: var(--card);
       border-radius: 18px;
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-strong);
       padding: 18px;
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--shadow-xs);
       margin-bottom: 16px;
     }
 
@@ -304,12 +314,12 @@
 
     label {
       display: block;
-      font-size: 12px;
+      font-size: 11.5px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.07em;
       margin-bottom: 6px;
-      color: var(--muted);
-      font-weight: 700;
+      color: var(--text);
+      font-weight: 800;
     }
 
     input,
@@ -317,17 +327,24 @@
       width: 100%;
       padding: 10px 12px;
       border-radius: 12px;
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-strong);
       font-size: 14px;
-      background: #ffffff;
+      background: var(--card);
+      color: var(--text);
       margin-bottom: 12px;
+    }
+
+    input::placeholder,
+    select::placeholder {
+      color: var(--muted);
+      opacity: 1;
     }
 
     input:focus,
     select:focus {
       outline: none;
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(232, 93, 60, 0.16);
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.16);
     }
 
     .row {
@@ -345,7 +362,7 @@
     }
 
     button {
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-strong);
       padding: 10px 14px;
       border-radius: 12px;
       font-weight: 700;
@@ -360,6 +377,7 @@
       background: var(--primary);
       border-color: var(--primary);
       color: #ffffff;
+      box-shadow: 0 8px 18px rgba(2, 132, 199, 0.18);
     }
 
     button.primary:hover {
@@ -368,8 +386,8 @@
     }
 
     button.danger {
-      background: #d64545;
-      border-color: #d64545;
+      background: var(--danger);
+      border-color: var(--danger);
       color: #ffffff;
     }
 
@@ -399,12 +417,12 @@
 
     .user-expand td {
       padding: 0 !important;
-      border-bottom: 2px solid var(--border);
+      border-bottom: 2px solid var(--border-strong);
     }
 
     .user-expand-inner {
       padding: 20px 20px 20px;
-      background: linear-gradient(180deg, #f9f7f5 0%, #ffffff 100%);
+      background: var(--card-muted);
       display: grid;
       gap: 16px;
     }
@@ -419,7 +437,7 @@
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--muted);
+      color: var(--secondary);
       padding-bottom: 6px;
       border-bottom: 1px solid var(--border);
     }
@@ -482,18 +500,19 @@
     }
 
     :root[data-theme="dark"] .global-banner {
-      background: linear-gradient(90deg, #b85b1c 0%, #8a3f1b 100%);
+      background: var(--card-muted);
+      border-bottom-color: var(--border);
     }
 
     :root[data-theme="dark"] .page-header,
     :root[data-theme="dark"] .scope-banner,
     :root[data-theme="dark"] .user-expand-inner {
-      background: linear-gradient(180deg, rgba(14, 23, 36, 0.98) 0%, rgba(10, 18, 29, 0.94) 100%);
+      background: var(--card-muted);
       border-color: var(--border);
     }
 
     :root[data-theme="dark"] .role-legend-item {
-      background: linear-gradient(180deg, rgba(14, 23, 36, 0.98) 0%, rgba(10, 18, 29, 0.94) 100%);
+      background: var(--card);
       border-color: var(--border);
       box-shadow: var(--shadow-soft);
     }
@@ -503,7 +522,7 @@
     }
 
     :root[data-theme="dark"] th {
-      background: rgba(16, 27, 42, 0.98);
+      background: var(--card-muted);
     }
 
     :root[data-theme="dark"] .status-pill,
@@ -536,6 +555,17 @@
       background: rgba(242, 207, 150, 0.14);
       border-color: rgba(242, 207, 150, 0.24);
       color: #f4c77d;
+    }
+
+    :root[data-theme="dark"] input:focus,
+    :root[data-theme="dark"] select:focus {
+      box-shadow: 0 0 0 3px rgba(79, 157, 255, 0.16);
+    }
+
+    :root[data-theme="dark"] .logo-placeholder {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: var(--border);
+      color: var(--text);
     }
   </style>
   {{template "app_styles" .}}

@@ -20441,15 +20441,15 @@ func main() {
 				return
 			}
 		} else if insertedSaleID, err := insertAndReturnID(tx,
-			`INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, sold_by, notas, fecha)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			tenantIDFromUser(currentUser), productSKU, cantidad, func() float64 {
 				precioFinal := precioParsed
 				if valorFinalOk && cantidad > 0 {
 					precioFinal = valorFinalParsed / float64(cantidad)
 				}
 				return precioFinal
-			}(), metodoPago, notas, now,
+			}(), metodoPago, strings.TrimSpace(currentUser.Username), notas, now,
 		); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback venta insert: %v", rollbackErr)
@@ -20464,6 +20464,7 @@ func main() {
 			saleID = int(insertedSaleID)
 		}
 		if saleMode != "credit" {
+			soldBy := strings.TrimSpace(currentUser.Username)
 			precioFinal := precioParsed
 			if valorFinalOk && cantidad > 0 {
 				precioFinal = valorFinalParsed / float64(cantidad)
@@ -20475,6 +20476,7 @@ func main() {
 				"cantidad":    cantidad,
 				"metodo_pago": metodoPago,
 				"total":       precioFinal * float64(cantidad),
+				"sold_by":     soldBy,
 			}); err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					log.Printf("rollback sale audit: %v", rollbackErr)

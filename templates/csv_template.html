@@ -1007,11 +1007,7 @@
                     renderEmptyPreview("Sin archivo validado.");
                     if (validationPill)
                         validationPill.textContent = "Validación pendiente";
-                    validationErrors.innerHTML = "";
-                    const li = document.createElement("li");
-                    li.textContent =
-                        "Selecciona un archivo y valida para ver la vista previa.";
-                    validationErrors.appendChild(li);
+                    validationErrors.replaceChildren();
                 });
             }
 

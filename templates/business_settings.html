@@ -34,19 +34,15 @@
                 padding: 18px;
                 border-radius: 16px;
                 border: 1px dashed var(--border-strong);
-                background: linear-gradient(
-                    180deg,
-                    var(--bg-card-muted) 0%,
-                    #ffffff 100%
-                );
+                background: var(--bg-card);
             }
 
             .logo-frame {
                 width: 72px;
                 height: 72px;
                 border-radius: 18px;
-                border: 1px solid var(--border);
-                background: #ffffff;
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card);
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -88,8 +84,9 @@
             .settings-note {
                 padding: 14px 16px;
                 border-radius: 14px;
-                background: var(--bg-card-muted);
-                border: 1px solid var(--border);
+                background: var(--bg-card);
+                border: 1px solid var(--border-strong);
+                box-shadow: var(--shadow-xs);
             }
 
             .credential-callout {
@@ -97,12 +94,8 @@
                 gap: 10px;
                 padding: 16px 18px;
                 border-radius: 16px;
-                border: 1px solid rgba(16, 42, 76, 0.14);
-                background: linear-gradient(
-                    180deg,
-                    rgba(255, 255, 255, 0.98) 0%,
-                    rgba(237, 246, 255, 0.94) 100%
-                );
+                border: 1px solid var(--border);
+                background: var(--bg-card);
                 box-shadow: var(--shadow-xs);
             }
 
@@ -114,10 +107,11 @@
                 display: block;
                 padding: 12px;
                 border-radius: 12px;
-                background: #f4f8fc;
-                border: 1px solid rgba(15, 40, 80, 0.12);
+                background: var(--bg-card);
+                border: 1px solid var(--border-strong);
                 word-break: break-all;
                 font-size: 12px;
+                box-shadow: var(--shadow-xs);
             }
 
             .onboarding-checklist {
@@ -126,7 +120,7 @@
                 padding: 14px 16px;
                 border-radius: 14px;
                 border: 1px dashed var(--border-strong);
-                background: #ffffff;
+                background: var(--bg-card);
             }
 
             .onboarding-checklist p {
@@ -144,10 +138,11 @@
             .tenant-summary-card {
                 display: grid;
                 gap: 4px;
-                padding: 10px 12px;
+                padding: 12px 13px;
                 border-radius: 12px;
-                border: 1px solid var(--border);
-                background: #ffffff;
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card);
+                box-shadow: var(--shadow-xs);
             }
 
             .tenant-summary-card span {
@@ -162,12 +157,8 @@
             }
 
             .platform-block {
-                border-color: rgba(242, 207, 150, 0.9);
-                background: linear-gradient(
-                    180deg,
-                    #ffffff 0%,
-                    rgba(255, 247, 235, 0.98) 100%
-                );
+                border-color: rgba(242, 207, 150, 0.38);
+                background: var(--bg-card);
             }
 
             .platform-kicker {
@@ -185,11 +176,35 @@
                 padding: 16px 18px;
                 border-radius: 16px;
                 border: 1px dashed var(--border-strong);
-                background: linear-gradient(
-                    180deg,
-                    rgba(255, 255, 255, 0.95) 0%,
-                    var(--bg-card-muted) 100%
-                );
+                background: var(--bg-card);
+            }
+
+            .tenant-control-stack {
+                display: grid;
+                gap: 10px;
+            }
+
+            .tenant-control-row {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .tenant-control-row .actions {
+                gap: 10px;
+            }
+
+            .tenant-control-row .actions form,
+            .tenant-control-row > form.actions {
+                margin: 0;
+            }
+
+            .tenant-control-note {
+                margin: 0;
+                color: var(--text-muted);
+                font-size: 12.5px;
+                line-height: 1.45;
             }
 
             .reset-warning {
@@ -198,12 +213,8 @@
                 margin-top: 16px;
                 padding: 16px 18px;
                 border-radius: 16px;
-                border: 1px solid rgba(217, 75, 99, 0.18);
-                background: linear-gradient(
-                    180deg,
-                    rgba(255, 255, 255, 0.98) 0%,
-                    rgba(255, 241, 245, 0.96) 100%
-                );
+                border: 1px solid rgba(217, 75, 99, 0.22);
+                background: var(--bg-card);
             }
 
             .reset-warning h4 {
@@ -227,8 +238,8 @@
                 gap: 10px;
                 padding: 12px 14px;
                 border-radius: 14px;
-                border: 1px solid rgba(217, 75, 99, 0.15);
-                background: #fff;
+                border: 1px solid rgba(217, 75, 99, 0.18);
+                background: var(--bg-card);
             }
 
             .reset-form h5 {
@@ -241,6 +252,7 @@
                 color: #9f2445 !important;
                 border-color: rgba(217, 75, 99, 0.22) !important;
                 background: rgba(217, 75, 99, 0.08) !important;
+                box-shadow: none !important;
             }
 
             .destructive:hover {
@@ -260,6 +272,12 @@
                 align-items: center;
             }
 
+            @media (max-width: 767px) {
+                .tenant-control-row {
+                    align-items: stretch;
+                }
+            }
+
             [data-theme="dark"] .logo-preview,
             [data-theme="dark"] .credential-callout,
             [data-theme="dark"] .tenant-scope-note,
@@ -268,19 +286,11 @@
             [data-theme="dark"] .settings-accordion summary,
             [data-theme="dark"] .platform-block {
                 border-color: var(--border);
-                background: linear-gradient(
-                    180deg,
-                    rgba(14, 23, 36, 0.98) 0%,
-                    rgba(10, 18, 29, 0.94) 100%
-                );
+                background: var(--bg-card);
             }
 
             [data-theme="dark"] .settings-accordion summary:hover {
-                background: linear-gradient(
-                    180deg,
-                    rgba(18, 31, 48, 0.98) 0%,
-                    rgba(12, 22, 35, 0.94) 100%
-                );
+                background: var(--bg-card-muted);
             }
 
             [data-theme="dark"] .settings-accordion-title h2 {
@@ -305,12 +315,8 @@
 
             [data-theme="dark"] .line-row {
                 border-color: rgba(170, 193, 226, 0.14);
-                background: linear-gradient(
-                    180deg,
-                    rgba(20, 32, 48, 0.96) 0%,
-                    rgba(13, 23, 36, 0.94) 100%
-                );
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+                background: var(--bg-card);
+                box-shadow: none;
             }
 
             [data-theme="dark"] .line-meta strong {
@@ -335,7 +341,7 @@
             }
 
             [data-theme="dark"] .line-row .secondary {
-                background: rgba(255, 255, 255, 0.05);
+                background: var(--bg-card-muted);
                 border-color: rgba(170, 193, 226, 0.14);
                 color: var(--text);
                 box-shadow: none;
@@ -378,12 +384,9 @@
                 align-items: center;
                 padding: 14px 16px;
                 border-radius: 16px;
-                border: 1px solid var(--border);
-                background: linear-gradient(
-                    180deg,
-                    #ffffff 0%,
-                    var(--bg-card-muted) 100%
-                );
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card);
+                box-shadow: var(--shadow-xs);
             }
 
             .line-meta {
@@ -402,12 +405,13 @@
                 min-height: 28px;
                 padding: 0 10px;
                 border-radius: 999px;
-                border: 1px solid var(--border);
-                background: #ffffff;
-                color: var(--text-muted);
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card);
+                color: var(--secondary);
                 font-size: 12px;
                 font-weight: 700;
                 white-space: nowrap;
+                box-shadow: var(--shadow-xs);
             }
 
             .line-status.inactive {
@@ -453,11 +457,8 @@
                 padding: 22px;
                 border-radius: 18px;
                 border: 1px dashed var(--border-strong);
-                background: linear-gradient(
-                    180deg,
-                    rgba(255, 255, 255, 0.9) 0%,
-                    var(--bg-card-muted) 100%
-                );
+                background: var(--bg-card);
+                box-shadow: var(--shadow-xs);
             }
 
             .pill-row {
@@ -473,7 +474,7 @@
 
             .settings-section {
                 display: grid;
-                gap: 18px;
+                gap: 16px;
             }
 
             .settings-section-head {
@@ -492,7 +493,7 @@
             }
 
             .settings-accordion {
-                border: 1px solid var(--border);
+                border: 1px solid var(--border-strong);
                 border-radius: var(--radius-lg);
                 background: var(--bg-card);
                 box-shadow: var(--shadow-xs);
@@ -511,11 +512,7 @@
                 gap: 16px;
                 padding: var(--surface-padding-compact) var(--surface-padding);
                 cursor: pointer;
-                background: linear-gradient(
-                    180deg,
-                    #ffffff 0%,
-                    var(--bg-card-muted) 100%
-                );
+                background: var(--bg-card);
             }
 
             .settings-accordion summary::-webkit-details-marker {
@@ -523,12 +520,12 @@
             }
 
             .settings-accordion summary:hover {
-                background: linear-gradient(180deg, #ffffff 0%, #f2f7fb 100%);
+                background: var(--bg-card-muted);
             }
 
             .settings-accordion-title {
                 display: grid;
-                gap: 4px;
+                gap: 3px;
                 min-width: 0;
             }
 
@@ -538,7 +535,8 @@
 
             .settings-accordion-title p {
                 margin: 0;
-                font-size: 13px;
+                font-size: 12.5px;
+                color: var(--text-muted);
             }
 
             .settings-accordion-icon {
@@ -548,8 +546,8 @@
                 width: 30px;
                 height: 30px;
                 border-radius: 999px;
-                border: 1px solid var(--border);
-                background: #ffffff;
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card);
                 color: var(--secondary);
                 font-size: 0;
                 font-weight: 700;
@@ -605,7 +603,8 @@
 
             .settings-subsection-head p {
                 margin: 0;
-                font-size: 13px;
+                font-size: 12.5px;
+                color: var(--text-muted);
             }
 
             .settings-version {
@@ -644,21 +643,12 @@
                 <section class="settings-section">
                     <div class="settings-section-head">
                         <h2>Configuración</h2>
-                        <p>
-                            Panel consolidado para demo: branding, catálogo,
-                            credenciales e información de empresas en un solo
-                            flujo operativo.
-                        </p>
                     </div>
 
                     <details class="settings-accordion">
                         <summary>
                             <div class="settings-accordion-title">
                                 <h2>General</h2>
-                                <p>
-                                    Branding visible, moneda y formato de fecha
-                                    de tu negocio.
-                                </p>
                             </div>
                             <span
                                 class="settings-accordion-icon"
@@ -676,12 +666,6 @@
                                 >
                                     <div class="settings-subsection-head">
                                         <h3>Branding de tu negocio</h3>
-                                        <p>
-                                            Configura nombre, logo, color
-                                            principal, moneda y formato de fecha
-                                            que verán los usuarios de este
-                                            negocio.
-                                        </p>
                                     </div>
 
                                     <div>
@@ -707,18 +691,7 @@
                                             type="file"
                                             accept=".png,.jpg,.jpeg,.webp"
                                         />
-                                        <p>
-                                            Formatos soportados: PNG, JPG, JPEG
-                                            y WEBP.
-                                        </p>
-                                        <p>
-                                            Recomendado para mejor
-                                            visualización: imagen cuadrada de
-                                            512x512 px (mínimo 256x256 px) y
-                                            peso ideal menor a 300 KB. Si no
-                                            subes uno nuevo, se conserva el
-                                            actual.
-                                        </p>
+                                        <p>PNG, JPG, JPEG o WEBP. Recomendado: cuadrado 512x512 px.</p>
                                     </div>
 
                                     <div>
@@ -788,13 +761,6 @@
                                     <div class="settings-note stack">
                                         <div class="settings-subsection-head">
                                             <h3>Impresión</h3>
-                                            <p>
-                                                Define el ancho térmico por
-                                                defecto para etiquetas, facturas
-                                                y tickets. Las vistas de
-                                                impresión usarán estos valores
-                                                automáticamente.
-                                            </p>
                                         </div>
 
                                         <div class="stack">
@@ -882,13 +848,6 @@
                                     <section class="card stack">
                                         <div class="settings-subsection-head">
                                             <h3>Vista previa general</h3>
-                                            <p>
-                                                Así se verá el branding visible
-                                                de este negocio en la app. El
-                                                logo se muestra en contenedores
-                                                compactos, por eso se recomienda
-                                                formato cuadrado.
-                                            </p>
                                         </div>
 
                                         <div class="logo-preview">
@@ -920,11 +879,7 @@
                                         </div>
 
                                         <div class="settings-note">
-                                            <p>
-                                                El color principal actual
-                                                controla botones, focos, enlaces
-                                                activos y acentos del layout.
-                                            </p>
+                                            <p>Color principal aplicado al shell.</p>
                                         </div>
                                     </section>
                                 </aside>
@@ -937,10 +892,6 @@
                     <summary>
                         <div class="settings-accordion-title">
                             <h2>Inventario</h2>
-                            <p>
-                                Catálogos operativos que controlan productos,
-                                líneas y formas de cobro.
-                            </p>
                         </div>
                         <span class="settings-accordion-icon" aria-hidden="true"
                             >+</span
@@ -950,11 +901,6 @@
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>Líneas de negocio</h3>
-                                <p>
-                                    Administra las categorías operativas
-                                    disponibles al crear productos. Desactivar
-                                    una línea no afecta productos históricos.
-                                </p>
                             </div>
 
                             <form
@@ -1054,10 +1000,6 @@
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>Canales de pago</h3>
-                                <p>
-                                    Define qué métodos aparecen al registrar
-                                    ventas y en qué orden visual se muestran.
-                                </p>
                             </div>
 
                             <form
@@ -1180,9 +1122,8 @@
                         <div class="settings-accordion-title">
                             <h2>Plataforma: empresas</h2>
                             <p>
-                                Onboarding y gestión global de empresas para
-                                demo, separado de la configuración local del
-                                negocio actual.
+                                Gestión global de empresas, separado de la
+                                configuración local del negocio actual.
                             </p>
                         </div>
                         <span class="settings-accordion-icon" aria-hidden="true"
@@ -1421,8 +1362,8 @@
                                             </button>
                                         </div>
                                     </form>
-                                    <div class="stack">
-                                        <div>
+                                    <div class="tenant-control-stack">
+                                        <div class="tenant-control-row">
                                             <span
                                                 class="line-status {{if not .Active}}inactive{{end}}"
                                             >
@@ -1438,52 +1379,54 @@
                                             </p>
                                         </div>
                                         {{else}}
-                                        <form
-                                            class="actions"
-                                            method="POST"
-                                            action="/configuracion/tenants/toggle"
-                                        >
-                                            <input
-                                                type="hidden"
-                                                name="tenant_id"
-                                                value="{{.ID}}"
-                                            />
-                                            <input
-                                                type="hidden"
-                                                name="active"
-                                                value="{{if .Active}}0{{else}}1{{end}}"
-                                            />
-                                            <button
-                                                class="secondary"
-                                                type="submit"
+                                        <div class="tenant-control-row">
+                                            <form
+                                                class="actions"
+                                                method="POST"
+                                                action="/configuracion/tenants/toggle"
                                             >
-                                                {{if
-                                                .Active}}Inactivar{{else}}Activar{{end}}
-                                            </button>
-                                        </form>
-                                        <form
-                                            class="actions"
-                                            method="POST"
-                                            action="/configuracion/tenants/api-key/rotate"
-                                            onsubmit="
-                                                return confirm(
-                                                    'Se invalidará la API key inicial anterior y se generará una nueva. ¿Continuar?',
-                                                );
-                                            "
-                                        >
-                                            <input
-                                                type="hidden"
-                                                name="tenant_id"
-                                                value="{{.ID}}"
-                                            />
-                                            <button
-                                                class="secondary"
-                                                type="submit"
+                                                <input
+                                                    type="hidden"
+                                                    name="tenant_id"
+                                                    value="{{.ID}}"
+                                                />
+                                                <input
+                                                    type="hidden"
+                                                    name="active"
+                                                    value="{{if .Active}}0{{else}}1{{end}}"
+                                                />
+                                                <button
+                                                    class="secondary"
+                                                    type="submit"
+                                                >
+                                                    {{if
+                                                    .Active}}Inactivar{{else}}Activar{{end}}
+                                                </button>
+                                            </form>
+                                            <form
+                                                class="actions"
+                                                method="POST"
+                                                action="/configuracion/tenants/api-key/rotate"
+                                                onsubmit="
+                                                    return confirm(
+                                                        'Se invalidará la API key inicial anterior y se generará una nueva. ¿Continuar?',
+                                                    );
+                                                "
                                             >
-                                                Regenerar API key inicial
-                                            </button>
-                                        </form>
-                                        <p>
+                                                <input
+                                                    type="hidden"
+                                                    name="tenant_id"
+                                                    value="{{.ID}}"
+                                                />
+                                                <button
+                                                    class="secondary"
+                                                    type="submit"
+                                                >
+                                                    Regenerar API key inicial
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <p class="tenant-control-note">
                                             {{if .Active}}Bloquea login, API y
                                             sesiones activas del tenant al
                                             inactivarlo.{{else}}Restaura acceso
@@ -1668,10 +1611,6 @@
                     <summary>
                         <div class="settings-accordion-title">
                             <h2>Usuarios / permisos e integraciones</h2>
-                            <p>
-                                Credenciales para automatizaciones y accesos
-                                técnicos sin depender de la sesión web.
-                            </p>
                         </div>
                         <span class="settings-accordion-icon" aria-hidden="true"
                             >+</span
@@ -1681,31 +1620,20 @@
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>API keys</h3>
-                                <p>
-                                    Crea credenciales para integraciones
-                                    externas. El token solo se muestra al
-                                    momento de crearlo y luego se guarda
-                                    únicamente como hash.
-                                </p>
-                                <p>
-                                    La API key inicial del tenant queda
-                                    reservada y se regenera desde el bloque de
-                                    empresas / tenants.
-                                </p>
+                                <p>Crea credenciales para integraciones externas.</p>
                             </div>
 
                             {{if .CreatedAPIToken}}
                             <div class="credential-callout">
                                 <p>
-                                    <strong>Token generado:</strong> guarda este
-                                    valor ahora. No volverá a mostrarse.
+                                    <strong>Token generado:</strong> guárdalo ahora.
                                 </p>
                                 <code class="credential-token"
                                     >{{.CreatedAPIToken}}</code
                                 >
                                 <div class="onboarding-checklist">
                                     <p>
-                                        Validación rápida:
+                                        Prueba rápida:
                                         <code
                                             >curl -H "Authorization: Bearer
                                             TOKEN"
@@ -1731,7 +1659,7 @@
                                             name="name"
                                             type="text"
                                             value="{{.NewAPIKeyName}}"
-                                            placeholder="Ej. n8n-produccion"
+                                            placeholder="Ej. n8n"
                                         />
                                     </div>
                                     <div class="actions">
@@ -1767,14 +1695,11 @@
                                             {{if
                                             .IsInitial}}readonly{{end}}
                                         />
-                                        <p>
-                                            {{if .IsInitial}}
-                                            <span class="line-status"
-                                                >Inicial del tenant</span
-                                            >
-                                            · {{end}} Creada: {{.CreatedAt}} ·
-                                            Actualizada: {{.UpdatedAt}}
-                                        </p>
+                                            <p>
+                                                {{if .IsInitial}}
+                                            <span class="line-status">Inicial del tenant</span>
+                                            · {{end}} Creada: {{.CreatedAt}} · Actualizada: {{.UpdatedAt}}
+                                            </p>
                                     </div>
                                     <div>
                                         <span
@@ -1788,21 +1713,7 @@
                                         {{if .IsInitial}}
                                         <div class="settings-note">
                                             <p>
-                                                {{if eq $.CurrentUser.Role
-                                                "platform_admin"}}Usa la acción
-                                                <strong
-                                                    >Regenerar API key
-                                                    inicial</strong
-                                                >
-                                                en Empresas / tenants para
-                                                invalidarla y emitir una nueva.
-                                                {{else}}La API key inicial no se
-                                                renombra ni se desactiva desde
-                                                este bloque. Si necesitas una
-                                                nueva, solicita la regeneración
-                                                a un
-                                                <code>platform_admin</code
-                                                >.{{end}}
+                                                {{if eq $.CurrentUser.Role "platform_admin"}}La API key inicial se regenera desde Empresas / tenants.{{else}}La API key inicial no se administra desde este bloque.{{end}}
                                             </p>
                                         </div>
                                         {{else}}
@@ -1831,11 +1742,7 @@
                             {{else}}
                             <div class="empty-state">
                                 <h2>Sin API keys configuradas</h2>
-                                <p>
-                                    Crea la primera key para permitir
-                                    integraciones con n8n, scripts o agentes sin
-                                    depender de cookies de sesión.
-                                </p>
+                                <p>Crea la primera key para integraciones externas.</p>
                             </div>
                             {{end}}
                         </section>
@@ -1846,10 +1753,6 @@
                     <summary>
                         <div class="settings-accordion-title">
                             <h2>Ajustes avanzados</h2>
-                            <p>
-                                Controla qué operaciones nuevas están
-                                habilitadas sin alterar el historial existente.
-                            </p>
                         </div>
                         <span class="settings-accordion-icon" aria-hidden="true"
                             >+</span
@@ -1859,11 +1762,6 @@
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>Tipos de movimiento</h3>
-                                <p>
-                                    Controla qué operaciones nuevas están
-                                    visibles y disponibles en la app. Desactivar
-                                    una opción no afecta el historial existente.
-                                </p>
                             </div>
 
                             {{if .MovementSettings}}
@@ -1916,11 +1814,7 @@
                             {{else}}
                             <div class="empty-state">
                                 <h2>Sin tipos de movimiento</h2>
-                                <p>
-                                    No se encontraron configuraciones de
-                                    movimientos. La app usará venta, cambio y
-                                    retoma por defecto al reiniciar.
-                                </p>
+                                <p>La app usará los movimientos por defecto.</p>
                             </div>
                             {{end}}
                         </section>

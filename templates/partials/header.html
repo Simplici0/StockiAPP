@@ -6,9 +6,8 @@
       top: 0;
       z-index: 100;
       background: var(--bg-nav-strong);
-      border-bottom: 1px solid var(--border);
-      box-shadow: 0 12px 28px rgba(8, 18, 40, 0.18);
-      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border-strong);
+      box-shadow: var(--shadow-xs);
       transform: translateY(0);
       transition: transform 0.22s ease;
     }
@@ -18,52 +17,51 @@
     }
 
     .topbar-inner {
-      width: min(1280px, calc(100% - (var(--page-gutter) * 2)));
+      width: var(--shell-width);
       margin: 0 auto;
       display: flex;
       align-items: center;
-      gap: 10px;
-      min-height: 62px;
-      padding: 10px 0;
+      gap: 8px;
+      min-height: 56px;
+      padding: 8px 0;
     }
 
     /* Marca */
     .topbar-brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       text-decoration: none;
       flex-shrink: 0;
-      padding-right: 18px;
+      padding-right: 14px;
       margin-right: 2px;
       border-right: 1px solid var(--border);
     }
 
     .topbar-logo {
-      width: 40px;
-      height: 40px;
-      border-radius: 12px;
+      width: 36px;
+      height: 36px;
+      border-radius: 11px;
+      border: 1px solid var(--border-strong);
       background: linear-gradient(180deg, var(--bg-card-strong) 0%, var(--bg-card-muted) 100%);
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.85),
-        0 10px 20px rgba(4, 12, 26, 0.22);
+      box-shadow: var(--shadow-xs);
     }
 
     .topbar-logo img {
-      height: 26px;
+      height: 22px;
       width: auto;
       display: block;
     }
 
     .topbar-name {
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--text-inverse);
-      letter-spacing: -0.01em;
+      font-size: 13px;
+      font-weight: 760;
+      color: var(--secondary);
+      letter-spacing: -0.02em;
       white-space: nowrap;
     }
 
@@ -73,7 +71,7 @@
       align-items: center;
       gap: 4px;
       flex: 1;
-      padding: 0 4px 0 0;
+      padding: 0 2px 0 0;
       overflow: visible;
       scrollbar-width: none;
     }
@@ -84,7 +82,7 @@
       gap: 4px;
       flex-shrink: 0;
       margin-left: auto;
-      padding-right: 10px;
+      padding-right: 8px;
     }
 
     .topbar-nav::-webkit-scrollbar {
@@ -95,12 +93,12 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0 14px;
-      min-height: 36px;
+      padding: 0 12px;
+      min-height: 32px;
       border-radius: 999px;
-      font-size: 13px;
-      font-weight: 650;
-      color: rgba(255,255,255,0.68);
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text-muted);
       text-decoration: none;
       white-space: nowrap;
       transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
@@ -108,17 +106,17 @@
     }
 
     .topbar-link:hover {
-      color: rgba(255,255,255,0.96);
+      color: var(--secondary);
       background: var(--bg-nav-soft);
-      border-color: var(--border);
+      border-color: var(--border-strong);
       transform: translateY(-1px);
     }
 
     .topbar-link.active {
-      color: var(--text-inverse);
-      background: linear-gradient(180deg, rgba(14, 165, 201, 0.22) 0%, rgba(14, 165, 201, 0.14) 100%);
-      border-color: rgba(14, 165, 201, 0.28);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+      color: var(--secondary);
+      background: var(--bg-card);
+      border-color: var(--primary-strong);
+      box-shadow: var(--shadow-xs);
     }
 
     .topbar-menu {
@@ -132,12 +130,12 @@
       align-items: center;
       gap: 6px;
       justify-content: center;
-      padding: 0 14px;
-      min-height: 36px;
+      padding: 0 12px;
+      min-height: 32px;
       border-radius: 999px;
-      font-size: 13px;
-      font-weight: 650;
-      color: rgba(255,255,255,0.68);
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text-muted);
       border: 1px solid transparent;
       cursor: pointer;
       transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
@@ -151,16 +149,16 @@
     .topbar-menu summary:hover,
     .topbar-menu[open] summary,
     .topbar-menu.active summary {
-      color: rgba(255,255,255,0.96);
+      color: var(--secondary);
       background: var(--bg-nav-soft);
-      border-color: var(--border);
+      border-color: var(--border-strong);
       transform: translateY(-1px);
     }
 
     .topbar-menu.active summary {
-      border-color: rgba(14, 165, 201, 0.2);
-      background: linear-gradient(180deg, rgba(14, 165, 201, 0.22) 0%, rgba(14, 165, 201, 0.14) 100%);
-      color: var(--text-inverse);
+      border-color: var(--primary-strong);
+      background: var(--bg-card);
+      color: var(--secondary);
     }
 
     .topbar-menu-caret {
@@ -183,7 +181,7 @@
       border: 1px solid var(--border-strong);
       background: var(--bg-nav-panel);
       box-shadow: var(--shadow-md);
-      backdrop-filter: blur(14px);
+      backdrop-filter: none;
       display: none;
       gap: 4px;
       z-index: 120;
@@ -257,31 +255,31 @@
       align-items: center;
       gap: 10px;
       flex-shrink: 0;
-      padding-left: 16px;
+      padding-left: 12px;
       border-left: 1px solid var(--border);
     }
 
     .topbar-theme-toggle {
-      width: 52px;
-      min-width: 52px;
-      height: 32px;
-      padding: 3px;
+      width: 50px;
+      min-width: 50px;
+      height: 30px;
+      padding: 2px;
       border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--bg-nav-soft);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-card);
       display: inline-flex;
       align-items: center;
       justify-content: flex-start;
       cursor: pointer;
       transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+      box-shadow: var(--shadow-xs);
     }
 
     .topbar-theme-toggle:hover {
-      background: rgba(255,255,255,0.12);
-      border-color: rgba(255,255,255,0.18);
+      background: var(--bg-card-muted);
+      border-color: var(--border-strong);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.06),
+        var(--shadow-xs),
         0 0 0 4px rgba(79, 157, 255, 0.08);
     }
 
@@ -289,7 +287,7 @@
       outline: none;
       box-shadow:
         0 0 0 4px var(--focus-ring),
-        inset 0 1px 0 rgba(255,255,255,0.06);
+        var(--shadow-xs);
     }
 
     .topbar-theme-thumb {
@@ -336,9 +334,62 @@
       transform: scale(0.7);
     }
 
+    :root[data-theme="dark"] .topbar {
+      box-shadow: 0 10px 24px rgba(8, 18, 40, 0.12);
+    }
+
+    :root[data-theme="dark"] .topbar-logo {
+      border-color: rgba(170, 193, 226, 0.18);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.08),
+        0 10px 22px rgba(4, 12, 26, 0.28);
+    }
+
+    :root[data-theme="dark"] .topbar-name {
+      color: var(--text);
+    }
+
+    :root[data-theme="dark"] .topbar-link.active,
+    :root[data-theme="dark"] .topbar-menu.active summary {
+      color: var(--text-inverse);
+    }
+
+    :root[data-theme="dark"] .topbar-link,
+    :root[data-theme="dark"] .topbar-menu summary,
+    :root[data-theme="dark"] .topbar-username {
+      color: rgba(255,255,255,0.68);
+    }
+
+    :root[data-theme="dark"] .topbar-link:hover,
+    :root[data-theme="dark"] .topbar-menu summary:hover,
+    :root[data-theme="dark"] .topbar-menu[open] summary {
+      color: rgba(255,255,255,0.96);
+      border-color: var(--border);
+    }
+
+    :root[data-theme="dark"] .topbar-link.active,
+    :root[data-theme="dark"] .topbar-menu.active summary {
+      background: var(--primary-soft);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+
     :root[data-theme="dark"] .topbar-theme-toggle {
       background: rgba(79, 157, 255, 0.12);
       border-color: rgba(79, 157, 255, 0.22);
+    }
+
+    :root[data-theme="dark"] .topbar-theme-toggle:hover {
+      background: rgba(79, 157, 255, 0.16);
+      border-color: rgba(79, 157, 255, 0.28);
+      box-shadow:
+        0 10px 24px rgba(4, 12, 26, 0.24),
+        0 0 0 4px rgba(79, 157, 255, 0.1);
+    }
+
+    :root[data-theme="dark"] .topbar-theme-toggle:focus-visible {
+      box-shadow:
+        0 0 0 4px rgba(79, 157, 255, 0.16),
+        0 10px 24px rgba(4, 12, 26, 0.24);
     }
 
     :root[data-theme="dark"] .topbar-theme-thumb {
@@ -358,21 +409,33 @@
       transform: scale(1);
     }
 
+    :root[data-theme="dark"] .topbar-logout {
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.82);
+      border-color: var(--border);
+    }
+
+    :root[data-theme="dark"] .topbar-logout:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.2);
+      color: var(--text-inverse);
+    }
+
     .topbar-username {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      color: rgba(255,255,255,0.62);
+      color: var(--text-muted);
       white-space: nowrap;
     }
 
     .topbar-logout {
-      min-height: 34px;
-      padding: 0 12px;
+      min-height: 32px;
+      padding: 0 11px;
       border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.07);
-      color: rgba(255,255,255,0.82);
-      font-size: 12px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-card);
+      color: var(--secondary);
+      font-size: 11.5px;
       font-weight: 700;
       cursor: pointer;
       text-decoration: none;
@@ -383,9 +446,9 @@
     }
 
     .topbar-logout:hover {
-      background: rgba(255,255,255,0.12);
-      border-color: rgba(255,255,255,0.2);
-      color: var(--text-inverse);
+      background: var(--secondary-soft);
+      border-color: var(--border-strong);
+      color: var(--secondary);
     }
 
     .topbar-logout-form {
@@ -403,8 +466,8 @@
       }
 
       .topbar-inner {
-        min-height: 54px;
-        padding: 8px 0;
+        min-height: 52px;
+        padding: 6px 0;
       }
 
       .topbar-name {
@@ -454,24 +517,20 @@
                 <div class="topbar-menu-panel">
                     <a href="/productos/new">
                         <span>Nuevo producto</span>
-                        <small>Alta manual de productos</small>
                     </a>
                     <a href="/csv/template" target="_blank" rel="noreferrer">
                         <span>Importar</span>
-                        <small>Plantilla y carga de productos</small>
                     </a>
                     {{if pageCanLoan .}}
                     <div class="menu-sep"></div>
                     <a href="/prestamos/producto">
                         <span>Ver préstamos</span>
-                        <small>Reporte de préstamos físicos</small>
                     </a>
                     {{end}}
                     {{if pageCanCredit .}}
                     <div class="menu-sep"></div>
                     <button id="credit-manage-open" class="menu-item" type="button">
                         <span>Editar créditos</span>
-                        <small>Gestión de créditos activos</small>
                     </button>
                     {{end}}
                 </div>
@@ -484,23 +543,18 @@
                 <div class="topbar-menu-panel">
                     <a href="/configuracion">
                         <span>Configuración</span>
-                        <small>Branding, catálogos y movimientos</small>
                     </a>
                     <a href="/admin/users">
                         <span>Usuarios</span>
-                        <small>Accesos y administración</small>
                     </a>
                     <a href="/auditoria">
                         <span>Auditoría</span>
-                        <small>Trazabilidad de eventos</small>
                     </a>
                     <a href="/manual">
                         <span>Manual de usuario</span>
-                        <small>Guía operativa web y Telegram</small>
                     </a>
                     <a href="/csv/export" target="_blank" rel="noreferrer">
                         <span>Exportar</span>
-                        <small>Descargas operativas</small>
                     </a>
                 </div>
             </details>
