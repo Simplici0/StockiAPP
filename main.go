@@ -1476,6 +1476,22 @@ func postgresDSNWithSearchPath(dsn, schema string) (string, error) {
 	return parsed.String(), nil
 }
 
+func postgresDSNWithSessionTimeZone(dsn, timezone string) (string, error) {
+	if strings.TrimSpace(dsn) == "" || strings.TrimSpace(timezone) == "" {
+		return dsn, nil
+	}
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return "", err
+	}
+	query := parsed.Query()
+	if strings.TrimSpace(query.Get("timezone")) == "" && strings.TrimSpace(query.Get("TimeZone")) == "" {
+		query.Set("timezone", timezone)
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
 func syncPostgresIdentitySequence(db *sql.DB, table, column string) error {
 	table = sanitizePostgresIdentifier(table)
 	column = sanitizePostgresIdentifier(column)
@@ -14048,6 +14064,11 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		return nil, fmt.Errorf("DB_DSN o DATABASE_URL es obligatorio")
 	}
 
+	dsn, err := postgresDSNWithSessionTimeZone(dsn, appTimeLocation.String())
+	if err != nil {
+		return nil, err
+	}
+
 	db, err := sql.Open(postgresDriverName, dsn)
 	if err != nil {
 		return nil, err
@@ -18967,7 +18988,6 @@ func main() {
 				http.Error(w, "Error al leer historial", http.StatusInternalServerError)
 				return
 			}
-			m.Fecha = formatDateWithSettings(m.Fecha)
 			movs = append(movs, m)
 		}
 		if err := rows.Err(); err != nil {

@@ -143,6 +143,87 @@ func TestLoadDatabaseConfigRequiresDSN(t *testing.T) {
 	}
 }
 
+func openConfiguredPostgresTestDB(t *testing.T, label string) *sql.DB {
+	t.Helper()
+
+	cfg, err := loadDatabaseConfig()
+	if err != nil {
+		t.Fatalf("loadDatabaseConfig: %v", err)
+	}
+
+	schemaName := "test_" + sanitizePostgresIdentifier(label) + "_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	adminDB, err := sql.Open(postgresDriverName, cfg.DSN)
+	if err != nil {
+		t.Fatalf("open admin db: %v", err)
+	}
+	if _, err := adminDB.Exec(`CREATE SCHEMA IF NOT EXISTS ` + quotePostgresIdentifier(schemaName)); err != nil {
+		_ = adminDB.Close()
+		t.Fatalf("create schema %s: %v", schemaName, err)
+	}
+	dsn, err := postgresDSNWithSearchPath(cfg.DSN, schemaName)
+	if err != nil {
+		_ = adminDB.Close()
+		t.Fatalf("postgresDSNWithSearchPath: %v", err)
+	}
+	db, err := initPostgresDB(dsn, nil)
+	if err != nil {
+		_ = adminDB.Close()
+		t.Fatalf("initPostgresDB: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = db.Close()
+		if _, err := adminDB.Exec(`DROP SCHEMA IF EXISTS ` + quotePostgresIdentifier(schemaName) + ` CASCADE`); err != nil {
+			t.Fatalf("drop schema %s: %v", schemaName, err)
+		}
+		_ = adminDB.Close()
+	})
+
+	return db
+}
+
+func TestParseFlexibleTimeMisreadsUTCTextWithoutOffset(t *testing.T) {
+	rawUTC := "2025-01-15 19:00:00"
+	parsed, ok := parseFlexibleTime(rawUTC)
+	if !ok {
+		t.Fatalf("parseFlexibleTime(%q) = false", rawUTC)
+	}
+	got := parsed.Format(time.RFC3339)
+	want := "2025-01-15T19:00:00-05:00"
+	if got != want {
+		t.Fatalf("unexpected parsed value\nwant: %s\ngot:  %s", want, got)
+	}
+}
+
+func TestInitPostgresDBSetsSessionTimeZoneToBogota(t *testing.T) {
+	db := openConfiguredPostgresTestDB(t, "session_timezone")
+
+	var sessionTZ string
+	if err := db.QueryRow(`SHOW TIME ZONE`).Scan(&sessionTZ); err != nil {
+		t.Fatalf("show time zone: %v", err)
+	}
+	if sessionTZ != appTimeLocation.String() {
+		t.Fatalf("expected session timezone %q, got %q", appTimeLocation.String(), sessionTZ)
+	}
+
+	var rawCurrentTimestamp string
+	if err := db.QueryRow(`SELECT CURRENT_TIMESTAMP::timestamp(0)::text`).Scan(&rawCurrentTimestamp); err != nil {
+		t.Fatalf("select current_timestamp text: %v", err)
+	}
+	parsed, ok := parseFlexibleTime(rawCurrentTimestamp)
+	if !ok {
+		t.Fatalf("parseFlexibleTime(%q) = false", rawCurrentTimestamp)
+	}
+	now := time.Now().In(appTimeLocation)
+	diff := now.Sub(parsed.In(appTimeLocation))
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > 2*time.Minute {
+		t.Fatalf("expected parsed timestamp close to Bogota now; raw=%q parsed=%s now=%s diff=%s", rawCurrentTimestamp, parsed.Format(time.RFC3339), now.Format(time.RFC3339), diff)
+	}
+}
+
 func TestSeedAdminUserSkipsWithoutExplicitCredentials(t *testing.T) {
 	db := openIsolatedPostgresTestDB(t, "seed_admin_user_requires_env")
 	defer db.Close()
