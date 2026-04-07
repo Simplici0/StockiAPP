@@ -3880,6 +3880,43 @@
               return diffDays >= 0 && diffDays <= 45;
             };
 
+            const productMatchesStatusFilter = (product, statusValue) => {
+              if (statusValue === "all") return true;
+              if (!product || typeof product !== "object") return false;
+
+              const productStatusClass = String(
+                product.statusClass || "",
+              ).toLowerCase();
+
+              if (productStatusClass === statusValue) {
+                return true;
+              }
+
+              if (!Array.isArray(product.units) || product.units.length === 0) {
+                return false;
+              }
+
+              return product.units.some((unit) => {
+                const unitClassValue = String(
+                  unit?.statusClass || "",
+                ).toLowerCase();
+                switch (statusValue) {
+                  case "damaged":
+                    return unitClassValue === "damaged";
+                  case "loaned":
+                    return unitClassValue === "loaned";
+                  case "reserved":
+                    return unitClassValue === "reserved";
+                  case "swapped":
+                    return unitClassValue === "swapped";
+                  case "sold":
+                    return unitClassValue === "sold";
+                  default:
+                    return false;
+                }
+              });
+            };
+
             const applyFilters = () => {
               if (!statusFilter || !lineFilter || !searchFilter || !expiryToggle) {
                 console.warn("Filtros no disponibles: faltan controles de filtro en el DOM.");
@@ -3892,7 +3929,7 @@
 
               const filtered = products.filter((product) => {
                 const matchesSearch = !query || String(product.searchText || "").includes(query);
-                const matchesStatus = statusValue === "all" || product.statusClass === statusValue;
+                const matchesStatus = productMatchesStatusFilter(product, statusValue);
                 const matchesLine = lineValue === "all" || normalizeLine(product.line) === lineValue;
                 const matchesExpiry =
                   !expiryOnly ||
@@ -6183,7 +6220,9 @@
 
             const openEditModal = (product) => {
                 if (!product) return;
-                const isAdmin = currentUserRole === "admin";
+                const isAdmin =
+                    currentUserRole === "admin" ||
+                    currentUserRole === "platform_admin";
                 editContext = { productId: product.id, isAdmin };
                 setEditError("");
 
