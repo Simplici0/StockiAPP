@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -864,6 +865,7 @@ func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handle
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "id": resolvedID, "sku": resolvedSKU, "precio_venta": salePrice})
 	})
 	mux.HandleFunc("/api/agent/customers/search", handleAPIAgentCustomerSearch(db))
+	mux.HandleFunc("/api/agent/product-loans", handleAPIAgentProductLoans(db))
 	mux.HandleFunc("/api/agent/invoices", handleAPIAgentInvoices(db))
 	mux.HandleFunc("/api/credits", handleAPICredits(db))
 	mux.HandleFunc("/api/credits/edited", handleAPICreditsEditedReport(db))
@@ -5302,6 +5304,145 @@ func TestAPIAgentCustomerSearchReturnsCompactTenantScopedResults(t *testing.T) {
 	}
 	if tenantCustomerCount != 1 {
 		t.Fatalf("expected 1 tenant customer, got %d", tenantCustomerCount)
+	}
+}
+
+func TestAPIAgentProductLoansListsActiveTenantScopedUnits(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	now := "2026-04-10T11:16:00-05:00"
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, precio_venta, retoma_enabled)
+		VALUES
+			('SKU-AGENT-LOAN-1', ?, 'AGENT-LOAN-1', 'Préstamos', 'Camisa prestada', 45000, 0),
+			('SKU-AGENT-LOAN-2', ?, 'AGENT-LOAN-2', 'Préstamos', 'Chaqueta prestada', 65000, 0),
+			('SKU-AGENT-LOAN-X', 1, 'AGENT-LOAN-X', 'Préstamos', 'Producto externo', 55000, 0)
+	`, tenant.ID, tenant.ID); err != nil {
+		t.Fatalf("insert loan products: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO customers (tenant_id, name, phone, document_type, document_number, address, city, notes, created_at, updated_at)
+		VALUES
+			(?, 'Laura Prestamo', '3007770001', 'CC', 'LP-1', '', 'Bogota', '', ?, ?),
+			(?, 'Mario Prestamo', '3007770002', 'CC', 'MP-1', '', 'Medellin', '', ?, ?),
+			(1, 'Cliente Externo', '3007779999', 'CC', 'EXT-1', '', 'Cali', '', ?, ?)
+	`, tenant.ID, now, now, tenant.ID, now, now, now, now); err != nil {
+		t.Fatalf("insert loan customers: %v", err)
+	}
+
+	var customerLauraID, customerMarioID, customerOtherTenantID int
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = ? AND document_number = 'LP-1'`, tenant.ID).Scan(&customerLauraID); err != nil {
+		t.Fatalf("customer Laura id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = ? AND document_number = 'MP-1'`, tenant.ID).Scan(&customerMarioID); err != nil {
+		t.Fatalf("customer Mario id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM customers WHERE tenant_id = 1 AND document_number = 'EXT-1'`).Scan(&customerOtherTenantID); err != nil {
+		t.Fatalf("customer other tenant id: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO product_loans (
+			tenant_id, product_id, customer_id, quantity, borrower_name, borrower_phone,
+			borrower_document_type, borrower_document_number, borrower_address, borrower_city,
+			notes, status, loaned_at, due_at, created_by
+		) VALUES
+			(?, 'SKU-AGENT-LOAN-1', ?, 1, 'Laura Prestamo', '3007770001', 'CC', 'LP-1', '', 'Bogota', 'prestamo activo', 'active', ?, '2026-04-20', 1),
+			(?, 'SKU-AGENT-LOAN-2', ?, 1, 'Mario Prestamo', '3007770002', 'CC', 'MP-1', '', 'Medellin', 'prestamo activo 2', 'active', '2026-04-09T15:00:00-05:00', '2026-04-25', 1),
+			(?, 'SKU-AGENT-LOAN-1', ?, 1, 'Laura Prestamo', '3007770001', 'CC', 'LP-1', '', 'Bogota', 'prestamo cerrado', 'returned', '2026-04-08T10:00:00-05:00', '2026-04-18', 1),
+			(1, 'SKU-AGENT-LOAN-X', ?, 1, 'Cliente Externo', '3007779999', 'CC', 'EXT-1', '', 'Cali', 'otro tenant', 'active', '2026-04-07T09:00:00-05:00', '2026-04-17', 1)
+	`, tenant.ID, customerLauraID, now, tenant.ID, customerMarioID, tenant.ID, customerLauraID, customerOtherTenantID); err != nil {
+		t.Fatalf("insert product loans: %v", err)
+	}
+
+	var loanLauraID, loanMarioID, loanClosedID, loanOtherTenantID int
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = ? AND product_id = 'SKU-AGENT-LOAN-1' AND status = 'active'`, tenant.ID).Scan(&loanLauraID); err != nil {
+		t.Fatalf("loan Laura id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = ? AND product_id = 'SKU-AGENT-LOAN-2' AND status = 'active'`, tenant.ID).Scan(&loanMarioID); err != nil {
+		t.Fatalf("loan Mario id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = ? AND product_id = 'SKU-AGENT-LOAN-1' AND status = 'returned'`, tenant.ID).Scan(&loanClosedID); err != nil {
+		t.Fatalf("loan closed id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM product_loans WHERE tenant_id = 1 AND product_id = 'SKU-AGENT-LOAN-X'`).Scan(&loanOtherTenantID); err != nil {
+		t.Fatalf("loan other tenant id: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO product_loan_units (tenant_id, product_loan_id, unit_id)
+		VALUES
+			(?, ?, 'UNIT-LOAN-001'),
+			(?, ?, 'UNIT-LOAN-002'),
+			(?, ?, 'UNIT-LOAN-003'),
+			(1, ?, 'UNIT-LOAN-004')
+	`, tenant.ID, loanLauraID, tenant.ID, loanMarioID, tenant.ID, loanClosedID, loanOtherTenantID); err != nil {
+		t.Fatalf("insert product loan units: %v", err)
+	}
+
+	resp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/agent/product-loans", token, nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 product loans, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAPIResponse(t, resp)
+	if int(body["count"].(float64)) != 2 {
+		t.Fatalf("expected 2 active tenant unit rows, got %+v", body)
+	}
+	items := body["items"].([]any)
+	byUnit := make(map[string]map[string]any, len(items))
+	for _, raw := range items {
+		item := raw.(map[string]any)
+		byUnit[item["unit_serial"].(string)] = item
+	}
+	if _, ok := byUnit["UNIT-LOAN-003"]; ok {
+		t.Fatalf("closed loan unit should not be listed: %+v", byUnit)
+	}
+	if _, ok := byUnit["UNIT-LOAN-004"]; ok {
+		t.Fatalf("cross-tenant loan unit should not be listed: %+v", byUnit)
+	}
+	lauraItem, ok := byUnit["UNIT-LOAN-001"]
+	if !ok {
+		t.Fatalf("missing Laura loan item: %+v", byUnit)
+	}
+	if int(lauraItem["loan_id"].(float64)) != loanLauraID {
+		t.Fatalf("unexpected loan_id for Laura item: %+v", lauraItem)
+	}
+	if lauraItem["customer_name"] != "Laura Prestamo" || lauraItem["customer_phone"] != "3007770001" {
+		t.Fatalf("unexpected Laura customer fields: %+v", lauraItem)
+	}
+	if lauraItem["product_sku"] != "SKU-AGENT-LOAN-1" || lauraItem["product_name"] != "Camisa prestada" {
+		t.Fatalf("unexpected Laura product fields: %+v", lauraItem)
+	}
+	if lauraItem["fecha_inicio"] != now || lauraItem["estado"] != "active" {
+		t.Fatalf("unexpected Laura loan timing/status: %+v", lauraItem)
+	}
+
+	filterPath := fmt.Sprintf("/api/agent/product-loans?customer_id=%d", customerMarioID)
+	filterResp := performAPIJSONRequest(t, handler, http.MethodGet, filterPath, token, nil)
+	if filterResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 filtered product loans, got %d body=%s", filterResp.Code, filterResp.Body.String())
+	}
+	filterBody := decodeAPIResponse(t, filterResp)
+	if int(filterBody["count"].(float64)) != 1 {
+		t.Fatalf("expected 1 filtered loan item, got %+v", filterBody)
+	}
+	filterItem := filterBody["items"].([]any)[0].(map[string]any)
+	if filterItem["unit_serial"] != "UNIT-LOAN-002" || filterItem["customer_name"] != "Mario Prestamo" {
+		t.Fatalf("unexpected filtered loan item: %+v", filterItem)
+	}
+
+	var auditCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM audit_events
+		WHERE tenant_id = ? AND event_type = 'product_loans_listed' AND source = 'api'
+	`, tenant.ID).Scan(&auditCount); err != nil {
+		t.Fatalf("count product_loans_listed audit events: %v", err)
+	}
+	if auditCount != 2 {
+		t.Fatalf("expected 2 product_loans_listed audit events, got %d", auditCount)
 	}
 }
 

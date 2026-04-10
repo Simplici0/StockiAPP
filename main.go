@@ -1393,6 +1393,8 @@ func apiKeyRequestAllowed(r *http.Request) bool {
 		return true
 	case r.Method == http.MethodGet && path == "/api/agent/inventory":
 		return true
+	case r.Method == http.MethodGet && path == "/api/agent/product-loans":
+		return true
 	default:
 		return false
 	}
@@ -4940,6 +4942,16 @@ func productLoanStatusClass(status productLoanStatus) string {
 	default:
 		return "loaned"
 	}
+}
+
+func formatDateTimeForAPI(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if parsed, ok := parseFlexibleTime(raw); ok {
+		return parsed.In(appTimeLocation).Format(time.RFC3339)
+	}
+	return raw
 }
 
 func creditDebtTotal(installmentsTotal int, installmentValue float64) float64 {
@@ -12688,6 +12700,104 @@ func handleAPIAgentCustomerSearch(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleAPIAgentProductLoans(db *sql.DB) http.HandlerFunc {
+	type apiAgentProductLoanItem struct {
+		LoanID        int    `json:"loan_id"`
+		CustomerName  string `json:"customer_name"`
+		CustomerPhone string `json:"customer_phone"`
+		ProductSKU    string `json:"product_sku"`
+		ProductName   string `json:"product_name"`
+		UnitSerial    string `json:"unit_serial"`
+		FechaInicio   string `json:"fecha_inicio"`
+		Estado        string `json:"estado"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+
+		tenantID := tenantIDFromRequest(r)
+		customerIDRaw := strings.TrimSpace(r.URL.Query().Get("customer_id"))
+		customerID := 0
+		if customerIDRaw != "" {
+			parsed, err := strconv.Atoi(customerIDRaw)
+			if err != nil || parsed <= 0 {
+				writeAPIError(w, http.StatusBadRequest, "customer_id inválido.", nil)
+				return
+			}
+			customerID = parsed
+		}
+
+		query := `
+			SELECT
+				pl.id,
+				COALESCE(c.name, pl.borrower_name, ''),
+				COALESCE(c.phone, pl.borrower_phone, ''),
+				COALESCE(pl.product_id, ''),
+				COALESCE(NULLIF(p.nombre, ''), pl.product_id, ''),
+				COALESCE(plu.unit_id, ''),
+				COALESCE(pl.loaned_at, ''),
+				COALESCE(pl.status, 'active')
+			FROM product_loans pl
+			INNER JOIN product_loan_units plu
+				ON plu.product_loan_id = pl.id AND plu.tenant_id = pl.tenant_id
+			LEFT JOIN customers c
+				ON c.id = pl.customer_id AND c.tenant_id = pl.tenant_id
+			LEFT JOIN productos p
+				ON p.sku = pl.product_id AND p.tenant_id = pl.tenant_id
+			WHERE pl.tenant_id = ? AND COALESCE(pl.status, 'active') = 'active'
+		`
+		args := []any{tenantID}
+		if customerID > 0 {
+			query += ` AND pl.customer_id = ?`
+			args = append(args, customerID)
+		}
+		query += ` ORDER BY pl.loaned_at DESC, pl.id DESC, plu.id ASC`
+
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudieron consultar los préstamos de producto.", nil)
+			return
+		}
+		defer rows.Close()
+
+		items := make([]apiAgentProductLoanItem, 0, 32)
+		for rows.Next() {
+			var (
+				item      apiAgentProductLoanItem
+				loanedAt  string
+				statusRaw string
+			)
+			if err := rows.Scan(&item.LoanID, &item.CustomerName, &item.CustomerPhone, &item.ProductSKU, &item.ProductName, &item.UnitSerial, &loanedAt, &statusRaw); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer los préstamos de producto.", nil)
+				return
+			}
+			item.FechaInicio = formatDateTimeForAPI(loanedAt)
+			item.Estado = string(normalizeProductLoanStatus(statusRaw))
+			items = append(items, item)
+		}
+		if err := rows.Err(); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudieron procesar los préstamos de producto.", nil)
+			return
+		}
+
+		if err := logAuditEvent(db, userFromContext(r), "product_loans_listed", "product_loan", strconv.Itoa(tenantID), "api", withAPIAuditMetadata(r, map[string]any{
+			"customer_id": customerID,
+			"count":       len(items),
+		})); err != nil {
+			log.Printf("audit product_loans_listed: %v", err)
+		}
+
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":    true,
+			"items": items,
+			"count": len(items),
+		})
+	}
+}
+
 func managedUserAPIItem(record managedUserRecord) map[string]any {
 	return map[string]any{
 		"id":          record.ID,
@@ -19252,6 +19362,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/agent/customers/search", handleAPIAgentCustomerSearch(db))
+	mux.HandleFunc("/api/agent/product-loans", handleAPIAgentProductLoans(db))
 	mux.HandleFunc("/api/agent/credits", handleAPIAgentCredits(db))
 
 	mux.HandleFunc("/api/agent/products/price", func(w http.ResponseWriter, r *http.Request) {

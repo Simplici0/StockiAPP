@@ -1961,6 +1961,46 @@ Consulta rápida de disponibilidad con formato compacto para automatización.
 
 También permite encontrar productos por locación.
 
+### `GET /api/agent/product-loans?customer_id=`
+
+Lista préstamos físicos activos del tenant actual.
+
+Notas:
+- devuelve una fila por unidad prestada activa
+- `customer_id` es opcional y permite filtrar por cliente
+- `fecha_inicio` se devuelve en RFC3339 ya normalizado a `America/Bogota`
+- `estado` puede ser `active`, `returned`, `paid` o `cancelled`
+- no recibe `tenant_id`; el tenant se resuelve por Bearer token o API key
+- registra auditoría con `source = "api"`
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" \
+  "https://login.stockiapp.co/api/agent/product-loans?customer_id=42"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "items": [
+    {
+      "loan_id": 12,
+      "customer_name": "Laura Prestamo",
+      "customer_phone": "3007770001",
+      "product_sku": "SKU-AGENT-LOAN-1",
+      "product_name": "Camisa prestada",
+      "unit_serial": "UNIT-LOAN-001",
+      "fecha_inicio": "2026-04-10T11:16:00-05:00",
+      "estado": "active"
+    }
+  ]
+}
+```
+
 ### `POST /api/agent/credits`
 
 Wrapper pensado para agente/n8n.
