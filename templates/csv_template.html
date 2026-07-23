@@ -407,7 +407,8 @@
                     <p>
                         Regla de importación: por cada fila se crea o encuentra
                         el producto por <strong>ID</strong>, se actualizan sus
-                        datos vigentes, incluida la <strong>locación</strong>, y
+                        datos vigentes, incluida la <strong>locación</strong> y la
+                        <strong>talla</strong> cuando aplique, y
                         se crean <strong>N unidades DISPONIBLE</strong> según
                         <strong>cantidad</strong>. Si la <strong>línea</strong>
                         no existe todavía en este tenant, StockiAPP la crea
@@ -447,7 +448,7 @@
                                 >
                             </div>
                         </div>
-                        <div class="upload-preview" id="upload-preview">
+                        <div class="upload-preview" id="upload-preview" tabindex="0" aria-label="Vista previa del CSV. Desliza horizontalmente para ver todas las columnas.">
                             <table>
                                 <thead>
                                     <tr>
@@ -455,6 +456,8 @@
                                         <th>ID</th>
                                         <th>Línea</th>
                                         <th>Nombre</th>
+                                        <th>Requiere talla</th>
+                                        <th>Talla</th>
                                         <th>Locación</th>
                                         <th>Cantidad</th>
                                         <th>Precio venta</th>
@@ -470,7 +473,7 @@
                                 <tbody id="upload-preview-body">
                                     <tr>
                                         <td
-                                            colspan="13"
+                                            colspan="16"
                                             style="
                                                 text-align: center;
                                                 color: var(--muted);
@@ -564,6 +567,8 @@
                         "id",
                         "linea",
                         "nombre",
+                        "talla_requerida",
+                        "talla",
                         "location",
                         "cantidad",
                         "precio_venta",
@@ -584,6 +589,8 @@
                             "ID-001",
                             "Nutrición",
                             "Proteína Balance 500g",
+                            "true",
+                            "M",
                             "Estante A-03",
                             "5",
                             "135000",
@@ -603,6 +610,8 @@
                             "ID-002",
                             "Dermocosmética",
                             "Crema Regeneradora",
+                            "false",
+                            "",
                             "Mostrador B-01",
                             "12",
                             "99000",
@@ -675,6 +684,8 @@
                     const id = get("id");
                     const linea = get("linea");
                     const nombre = get("nombre");
+                    const tallaRequerida = get("talla_requerida");
+                    const talla = get("talla");
                     const location = get("location") || get("ubicacion");
                     const cantidadRaw = get("cantidad");
                     const cantidad = cantidadRaw === "-" ? "0" : cantidadRaw;
@@ -695,6 +706,25 @@
                     if (!id) errors.push("ID obligatorio.");
                     if (!linea) errors.push("Línea obligatoria.");
                     if (!nombre) errors.push("Nombre obligatorio.");
+
+                    if (tallaRequerida) {
+                        const tallaRequeridaValue = tallaRequerida.toLowerCase();
+                        if (
+                            tallaRequeridaValue !== "true" &&
+                            tallaRequeridaValue !== "false"
+                        ) {
+                            errors.push(
+                                "talla_requerida debe ser true/false.",
+                            );
+                        } else if (tallaRequeridaValue === "true" && !talla) {
+                            errors.push(
+                                "talla es obligatoria si talla_requerida es true.",
+                            );
+                        }
+                    }
+                    if ([...talla].length > 80) {
+                        errors.push("talla no puede superar 80 caracteres.");
+                    }
 
                     const cantidadNum = Number(cantidad);
                     if (
@@ -812,6 +842,8 @@
                         id,
                         linea,
                         nombre,
+                        tallaRequerida,
+                        talla,
                         location,
                         cantidad,
                         precioVenta,
@@ -856,7 +888,7 @@
                 uploadPreviewBody.replaceChildren();
                 const tr = document.createElement("tr");
                 const td = document.createElement("td");
-                td.colSpan = 14;
+                td.colSpan = 16;
                 td.style.textAlign = "center";
                 td.style.color = "var(--muted)";
                 td.textContent = message;
@@ -878,6 +910,8 @@
                         row.id || "-",
                         row.linea || "-",
                         row.nombre || "-",
+                        row.tallaRequerida || "-",
+                        row.talla || "-",
                         row.location || "-",
                         row.cantidad === "" ? "-" : row.cantidad,
                         row.precioVenta || "-",

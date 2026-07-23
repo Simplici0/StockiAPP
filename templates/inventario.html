@@ -264,6 +264,10 @@
                 opacity: 0.45;
             }
 
+            .mobile-product-meta {
+                display: none;
+            }
+
             .fifo-note {
                 font-size: 11.5px;
                 color: var(--text-muted);
@@ -1441,6 +1445,242 @@
                     flex: 1 1 100%;
                 }
             }
+
+            @media (max-width: 767px) {
+                .filters {
+                    gap: 16px;
+                    padding: 0;
+                    border: 0;
+                    border-radius: 0;
+                    background: transparent;
+                    box-shadow: none;
+                }
+
+                .filters-actions {
+                    width: fit-content;
+                    padding: 0;
+                    border: 0;
+                }
+
+                .filters-actions .credit-launch {
+                    flex: 0 0 auto;
+                    width: auto;
+                    min-height: 44px;
+                    padding: 0 16px;
+                    border-radius: 12px;
+                    background: var(--primary);
+                    border-color: var(--primary-strong);
+                    color: var(--text-inverse);
+                    box-shadow: 0 8px 18px var(--primary-shadow);
+                }
+
+                .filters-row {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 12px;
+                    align-items: end;
+                }
+
+                .filter-group,
+                .filter-group.search-group {
+                    min-width: 0;
+                    width: 100%;
+                    flex: none;
+                }
+
+                .filter-group.search-group {
+                    grid-column: 1 / -1;
+                    order: -1;
+                }
+
+                .filter-group label {
+                    margin-bottom: 0;
+                    font-size: 11px;
+                    letter-spacing: 0.07em;
+                }
+
+                .filter-group input,
+                .filter-group select {
+                    min-height: 48px;
+                    padding-inline: 12px;
+                }
+
+                .table-wrap {
+                    border-radius: 16px;
+                }
+
+                .table-scroll {
+                    overflow: visible;
+                }
+
+                .inventory-table {
+                    min-width: 0;
+                }
+
+                .inventory-table thead {
+                    display: none;
+                }
+
+                .inventory-table tbody#productTable {
+                    display: grid;
+                    gap: 12px;
+                    padding: 12px;
+                }
+
+                .inventory-table tbody > tr.inventory-row {
+                    display: grid;
+                    grid-template-columns: minmax(0, 1fr) auto;
+                    gap: 12px;
+                    padding: 14px;
+                    border: 1px solid var(--border-strong);
+                    border-radius: 14px;
+                    background: var(--bg-card);
+                    box-shadow: var(--shadow-xs);
+                }
+
+                .inventory-table tbody > tr.inventory-row > td {
+                    display: block;
+                    min-width: 0;
+                    padding: 0;
+                    border: 0;
+                    background: transparent;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td[hidden] {
+                    display: none;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td:nth-child(1) {
+                    grid-column: 1;
+                    grid-row: 1;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td:nth-child(2) {
+                    display: none;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td:nth-child(3) {
+                    grid-column: 1 / -1;
+                    grid-row: 3;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td:nth-child(4) {
+                    grid-column: 1 / -1;
+                    grid-row: 2;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td:nth-child(5) {
+                    display: none;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td:nth-child(6) {
+                    grid-column: 1 / -1;
+                    grid-row: 4;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td:nth-child(7) {
+                    grid-column: 2;
+                    grid-row: 1;
+                }
+
+                .inventory-table .product-name {
+                    min-height: 24px;
+                    font-size: 16px;
+                    line-height: 1.22;
+                }
+
+                .inventory-table .desktop-product-meta { display: none; }
+                .inventory-table .mobile-product-meta { display: block; }
+
+                .inventory-table .value-cell {
+                    min-width: 0;
+                    gap: 4px;
+                }
+
+                .inventory-table .actions {
+                    display: grid;
+                    grid-template-columns: 64px repeat(2, minmax(0, 1fr));
+                    gap: 8px;
+                    width: 100%;
+                }
+
+                .inventory-table .actions input[type="number"],
+                .inventory-table .actions > button,
+                .inventory-table .actions > a.button {
+                    width: 100%;
+                    min-height: 44px;
+                    margin: 0;
+                    font-size: 14px;
+                }
+
+                .inventory-table .actions input[type="number"] {
+                    font-size: 16px;
+                }
+
+                .inventory-table .actions > button:only-child {
+                    grid-column: 1 / -1;
+                }
+
+                .inventory-table .menu {
+                    justify-content: flex-end;
+                }
+
+                .inventory-table .menu > button.ghost {
+                    width: 44px;
+                    min-width: 44px;
+                    min-height: 44px;
+                    height: 44px;
+                    font-size: 16px;
+                }
+
+                .menu-panel.open {
+                    right: 12px !important;
+                    bottom: 12px;
+                    left: 12px !important;
+                    top: auto !important;
+                    min-width: 0;
+                    max-height: min(60dvh, 440px);
+                    padding: 10px;
+                    overflow-y: auto;
+                    border-radius: 18px;
+                    box-shadow: var(--shadow-md);
+                }
+
+                .menu-panel.open::before {
+                    content: "Más acciones";
+                    padding: 4px 6px 8px;
+                    color: var(--text-soft);
+                    font-size: 11px;
+                    font-weight: 800;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                }
+
+                .menu-panel.open button {
+                    min-height: 44px;
+                    font-size: 14px;
+                }
+
+                .inventory-table tbody > tr.units-row:not([hidden]) {
+                    display: block !important;
+                    margin: -4px 8px 8px;
+                }
+
+                .inventory-table tbody > tr.units-row > td {
+                    display: block;
+                    padding: 14px;
+                    border: 1px solid var(--border-strong);
+                    border-radius: 0 0 14px 14px;
+                }
+
+                .inventory-table .units-panel {
+                    overflow-x: auto;
+                }
+
+                .inventory-table .units-table {
+                    min-width: 560px;
+                }
+            }
         </style>
         {{template "app_styles" .}}
     </head>
@@ -1514,7 +1754,7 @@
             <main>
                 <div class="table-wrap">
                     <div class="table-scroll">
-                        <table>
+                        <table class="inventory-table">
                             <thead>
                                 <tr>
                                     <th>Producto</th>
@@ -3515,6 +3755,29 @@
                                 <div>
                                     <label class="checkline">
                                         <input
+                                            id="edit-talla-requerida"
+                                            name="talla_requerida"
+                                            type="checkbox"
+                                        />
+                                        Este producto requiere talla
+                                    </label>
+                                </div>
+                                <div id="edit-talla-wrap">
+                                    <label for="edit-talla">Talla</label>
+                                    <input
+                                        id="edit-talla"
+                                        name="talla"
+                                        type="text"
+                                        maxlength="80"
+                                        placeholder="Ej: S, M, L, 38"
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="modal-row">
+                                <div>
+                                    <label class="checkline">
+                                        <input
                                             id="edit-retoma-enabled"
                                             name="retoma_enabled"
                                             type="checkbox"
@@ -3638,6 +3901,8 @@
                 name: "{{js .Name}}",
                 line: "{{js .Line}}",
                 location: "{{js .Location}}",
+                tallaRequerida: {{if .TallaRequerida}}true{{else}}false{{end}},
+                talla: "{{js .Talla}}",
                 debtorName: "{{js .DebtorName}}",
                 debtorPhone: "{{js .DebtorPhone}}",
                 debtorDocumentNumber: "{{js .DebtorDocumentNumber}}",
@@ -3982,16 +4247,24 @@
                 const productTotalPaid = esc(formatCOP(product.totalPaid || 0));
                 const productInstallmentValue = esc(formatCOP(product.installmentValue || 0));
                 const row = document.createElement("tr");
+                row.className = "inventory-row";
                 const isCredit = product.entryType === "credit";
                 const isPhysicalLoan = product.entryType === "loan";
+                const hasVisibleValue =
+                  isCredit ||
+                  isPhysicalLoan ||
+                  Number(product.salePrice || 0) > 0 ||
+                  (product.entryType === "product" && product.retomaEnabled);
                 row.innerHTML = `
-                  <td>
+                  <td data-label="Producto">
                     <div class="product-name" data-product="${productId}">
                       ${productName}
                       ${product.ageAlert ? `<span class="age-pill" title="En stock ${esc(product.ageMonths)} meses (fecha ingreso: ${productIngreso})">+6 meses</span>` : ``}
                     </div>
-                    <div class="fifo-note">${isCredit ? `Crédito ${productId} · Producto ${productBaseId}` : isPhysicalLoan ? `Préstamo ${productId} · Producto ${productBaseId}` : `ID ${productId} · ${esc(product.available)} disponibles`}</div>
+                    <div class="fifo-note desktop-product-meta">${isCredit ? `Crédito ${productId} · Producto ${productBaseId}` : isPhysicalLoan ? `Préstamo ${productId} · Producto ${productBaseId}` : `ID ${productId} · ${esc(product.available)} disponibles`}</div>
+                    <div class="fifo-note mobile-product-meta">${isCredit ? `Crédito ${productId} · ${productLine}` : isPhysicalLoan ? `Préstamo ${productId} · ${productLine}` : `ID ${productId} · ${productLine} · ${esc(product.available)} disponibles`}</div>
                     ${product.entryType === "product" && product.location ? `<div class="fifo-note">Locación · ${productLocation}</div>` : ``}
+                    ${product.entryType === "product" && product.talla ? `<div class="fifo-note">Talla · ${esc(product.talla)}</div>` : ``}
                     ${isCredit
                       ? `<button type="button" class="credit-details-toggle" data-credit-toggle="${productId}" aria-expanded="false">
                           <span class="credit-badge">${product.creditKind === "cash_loan" ? "Préstamo" : "Crédito"}</span>
@@ -4004,13 +4277,15 @@
                           </button>`
                       : ``}
                   </td>
-                  <td>${productLine}</td>
-                  <td>
+                  <td data-label="Línea">${productLine}</td>
+                  <td data-label="Valor" ${hasVisibleValue ? "" : "hidden"}>
                     <div class="value-cell">
-                      <div class="value-line sale">
-                        <span class="value-label">${isCredit ? "Deuda total" : isPhysicalLoan ? "Valor ref." : "Venta"}</span>
-                        <span class="value-amount">${esc(formatCOP(isCredit ? (product.debtTotal || 0) : (product.salePrice || 0)))}</span>
-                      </div>
+                      ${isCredit || isPhysicalLoan || Number(product.salePrice || 0) > 0
+                        ? `<div class="value-line sale">
+                            <span class="value-label">${isCredit ? "Deuda total" : isPhysicalLoan ? "Valor ref." : "Venta"}</span>
+                            <span class="value-amount">${esc(formatCOP(isCredit ? (product.debtTotal || 0) : (product.salePrice || 0)))}</span>
+                          </div>`
+                        : ``}
                       ${isCredit
                         ? `<div class="value-line sale">
                             <span class="value-label">Deuda actual</span>
@@ -4038,12 +4313,12 @@
                         : ``}
                     </div>
                   </td>
-                  <td><span class="status ${esc(product.statusClass || "")}">${esc(statusLabel(product.statusLabel))}</span></td>
-                  <td>
+                  <td data-label="Estado"><span class="status ${esc(product.statusClass || "")}">${esc(statusLabel(product.statusLabel))}</span></td>
+                  <td data-label="Stock">
                     <strong>${esc(isPhysicalLoan ? product.units.length : product.available)}</strong>
                     ${isPhysicalLoan ? `<div class="fifo-note">Prestadas</div>` : ``}
                   </td>
-                  <td>
+                  <td data-label="Acciones">
                     <div class="actions">
                       ${isCredit
                         ? `{{if .CanCredit}}<button class="primary" data-action="installment" data-product="${productId}">Registrar pago</button>{{end}}`
@@ -4063,9 +4338,9 @@
                       `}
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Más acciones">
                     <div class="menu">
-                      <button class="ghost" data-menu="${productId}">⋮</button>
+                      <button class="ghost" data-menu="${productId}" aria-label="Más acciones">⋮</button>
                       <div class="menu-panel" id="menu-${productId}">
                         ${isCredit ? `
                         {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}
@@ -4626,6 +4901,11 @@
             const editName = document.getElementById("edit-name");
             const editLine = document.getElementById("edit-line");
             const editLocation = document.getElementById("edit-location");
+            const editTallaRequerida = document.getElementById(
+                "edit-talla-requerida",
+            );
+            const editTallaWrap = document.getElementById("edit-talla-wrap");
+            const editTalla = document.getElementById("edit-talla");
             const editRetomaEnabled = document.getElementById(
                 "edit-retoma-enabled",
             );
@@ -6218,6 +6498,17 @@
             if (editRetomaEnabled)
                 editRetomaEnabled.addEventListener("change", syncEditRetoma);
 
+            const syncEditTalla = () => {
+                if (!editTallaRequerida || !editTallaWrap || !editTalla) return;
+                editTallaWrap.hidden = !editTallaRequerida.checked;
+                editTalla.disabled =
+                    !editTallaRequerida.checked || !editContext?.isAdmin;
+                editTalla.required = editTallaRequerida.checked;
+                if (!editTallaRequerida.checked) editTalla.value = "";
+            };
+            if (editTallaRequerida)
+                editTallaRequerida.addEventListener("change", syncEditTalla);
+
             const openEditModal = (product) => {
                 if (!product) return;
                 const isAdmin =
@@ -6257,6 +6548,14 @@
                 if (editLocation) {
                     editLocation.value = product.location || "";
                 }
+                if (editTallaRequerida) {
+                    editTallaRequerida.checked = !!product.tallaRequerida;
+                    editTallaRequerida.disabled = !isAdmin;
+                }
+                if (editTalla) {
+                    editTalla.value = product.talla || "";
+                    editTalla.disabled = !isAdmin || !product.tallaRequerida;
+                }
                 if (editOwner) {
                     editOwner.innerHTML =
                         '<option value="">Sin asignar</option>';
@@ -6283,6 +6582,7 @@
                 if (editNotes) editNotes.value = product.notes || "";
                 if (editSubmit) editSubmit.disabled = false;
                 syncEditRetoma();
+                syncEditTalla();
                 openModal(editModal, `${product.name} · ID ${product.id}`);
                 if (editSKU) editSKU.focus();
             };
@@ -7633,6 +7933,14 @@
                         setEditError("Valor de retoma inválido.");
                         return;
                     }
+                    if (
+                        editContext.isAdmin &&
+                        editTallaRequerida?.checked &&
+                        !String(editTalla?.value || "").trim()
+                    ) {
+                        setEditError("Ingresa la talla del producto.");
+                        return;
+                    }
 
                     if (editSubmit) editSubmit.disabled = true;
                     setEditError("");
@@ -7649,6 +7957,13 @@
                             body.set("retoma_price", String(parsedRetomaPrice));
                         }
                         if (editContext.isAdmin) {
+                            if (editTallaRequerida?.checked) {
+                                body.set("talla_requerida", "1");
+                            }
+                            body.set(
+                                "talla",
+                                String(editTalla?.value || "").trim(),
+                            );
                             body.set(
                                 "nombre",
                                 String(editName?.value || "").trim(),

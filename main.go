@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -116,18 +117,62 @@ type productLabelItem struct {
 }
 
 type productLabelsPageData struct {
-	Title       string
-	Subtitle    string
-	Size        string
-	WidthMM     int
-	HeightMM    int
-	PaperDPI    int
-	PaperClass  string
-	Items       []productLabelItem
-	CanLoan     bool
-	CanCredit   bool
-	CurrentUser *User
-	Settings    BusinessSettings
+	Title         string
+	Subtitle      string
+	Size          string
+	WidthMM       int
+	HeightMM      int
+	PaperWidthMM  int
+	PaperHeightMM int
+	Columns       int
+	GapMM         int
+	PaperDPI      int
+	PaperClass    string
+	Items         []productLabelItem
+	Rows          [][]productLabelItem
+	AutoPrint     bool
+	CanLoan       bool
+	CanCredit     bool
+	CurrentUser   *User
+	Settings      BusinessSettings
+}
+
+type productLabelBatchProduct struct {
+	ID        string
+	Name      string
+	Line      string
+	Price     string
+	CopiesKey string
+}
+
+type productLabelsBatchPageData struct {
+	Title        string
+	Subtitle     string
+	Products     []productLabelBatchProduct
+	DefaultSize  string
+	CurrentUser  *User
+	Settings     BusinessSettings
+	MaxLabels    int
+	MaxCopies    int
+	SizeOptions  []labelPaperOption
+	DefaultGapMM int
+}
+
+type labelPaperOption struct {
+	Value string
+	Label string
+}
+
+type labelPrintProfile struct {
+	Size          string
+	LabelWidthMM  int
+	LabelHeightMM int
+	PaperWidthMM  int
+	PaperHeightMM int
+	Columns       int
+	GapMM         int
+	DPI           int
+	PaperClass    string
 }
 
 type invoiceItemData struct {
@@ -220,6 +265,8 @@ type productOption struct {
 	Name              string
 	Line              string
 	Location          string
+	TallaRequerida    bool
+	Talla             string
 	CreditEnabled     bool
 	DebtorName        string
 	InstallmentsTotal int
@@ -322,6 +369,20 @@ func productCSVColumnIndex(headerRow []string) (map[string]int, error) {
 		}
 	}
 	return index, nil
+}
+
+func normalizedProductSize(required bool, size string) (string, error) {
+	size = strings.TrimSpace(size)
+	if !required {
+		return "", nil
+	}
+	if size == "" {
+		return "", requestError{Status: http.StatusBadRequest, Message: "La talla es obligatoria cuando el producto la requiere."}
+	}
+	if len([]rune(size)) > 80 {
+		return "", requestError{Status: http.StatusBadRequest, Message: "La talla no puede superar 80 caracteres."}
+	}
+	return size, nil
 }
 
 func normalizeCustomerCSVHeader(value string) string {
@@ -439,6 +500,8 @@ type inventoryProduct struct {
 	Name                  string
 	Line                  string
 	Location              string
+	TallaRequerida        bool
+	Talla                 string
 	CreditEnabled         bool
 	InterestPercent       float64
 	DebtorName            string
@@ -486,6 +549,8 @@ type productEditRecord struct {
 	Name              string
 	Line              string
 	Location          string
+	TallaRequerida    int
+	Talla             string
 	CreditEnabled     int
 	DebtorName        string
 	InstallmentsTotal int
@@ -1661,7 +1726,7 @@ func seedProductosIfMissing(db *sql.DB, defaults []productOption) error {
 
 func loadProductosForTenant(db *sql.DB, tenantID int) ([]productOption, error) {
 	rows, err := db.Query(`
-		SELECT sku, COALESCE(NULLIF(id, ''), sku), nombre, linea, COALESCE(location, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
+		SELECT sku, COALESCE(NULLIF(id, ''), sku), nombre, linea, COALESCE(location, ''), COALESCE(talla_requerida, 0), COALESCE(talla, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(anotaciones, ''), COALESCE(fecha_ingreso, ''), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, owner_user_id
 		FROM productos
 		WHERE tenant_id = ?
 		ORDER BY COALESCE(NULLIF(id, ''), sku), sku
@@ -1674,13 +1739,15 @@ func loadProductosForTenant(db *sql.DB, tenantID int) ([]productOption, error) {
 	products := []productOption{}
 	for rows.Next() {
 		var p productOption
+		var tallaRequerida int
 		var creditEnabled int
 		var retomaEnabled int
 		var retomaPrice sql.NullFloat64
 		var ownerUserID sql.NullInt64
-		if err := rows.Scan(&p.SKU, &p.ID, &p.Name, &p.Line, &p.Location, &creditEnabled, &p.DebtorName, &p.InstallmentsTotal, &p.InstallmentsPaid, &p.TotalValue, &p.InstallmentValue, &p.Notes, &p.FechaIngreso, &p.SalePrice, &retomaEnabled, &retomaPrice, &ownerUserID); err != nil {
+		if err := rows.Scan(&p.SKU, &p.ID, &p.Name, &p.Line, &p.Location, &tallaRequerida, &p.Talla, &creditEnabled, &p.DebtorName, &p.InstallmentsTotal, &p.InstallmentsPaid, &p.TotalValue, &p.InstallmentValue, &p.Notes, &p.FechaIngreso, &p.SalePrice, &retomaEnabled, &retomaPrice, &ownerUserID); err != nil {
 			return nil, err
 		}
+		p.TallaRequerida = tallaRequerida == 1
 		p.CreditEnabled = creditEnabled == 1
 		p.RetomaEnabled = retomaEnabled == 1
 		p.HasRetomaPrice = retomaPrice.Valid
@@ -2070,7 +2137,7 @@ func productAccessibleBySKU(db *sql.DB, user *User, sku string) (bool, error) {
 func loadProductEditRecord(db *sql.DB, tenantID int, productID string) (productEditRecord, error) {
 	var record productEditRecord
 	err := db.QueryRow(`
-		SELECT sku, id, nombre, linea, COALESCE(location, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, COALESCE(anotaciones, ''), owner_user_id
+		SELECT sku, id, nombre, linea, COALESCE(location, ''), COALESCE(talla_requerida, 0), COALESCE(talla, ''), COALESCE(credit_enabled, 0), COALESCE(debtor_name, ''), COALESCE(installments_total, 0), COALESCE(installments_paid, 0), COALESCE(total_value, 0), COALESCE(installment_value, 0), COALESCE(precio_venta, 0), COALESCE(retoma_enabled, 0), retoma_price, COALESCE(anotaciones, ''), owner_user_id
 		FROM productos
 		WHERE tenant_id = ? AND id = ?
 		LIMIT 1
@@ -2080,6 +2147,8 @@ func loadProductEditRecord(db *sql.DB, tenantID int, productID string) (productE
 		&record.Name,
 		&record.Line,
 		&record.Location,
+		&record.TallaRequerida,
+		&record.Talla,
 		&record.CreditEnabled,
 		&record.DebtorName,
 		&record.InstallmentsTotal,
@@ -8075,14 +8144,16 @@ func agentProductItem(product productOption, counts productInventoryCounts, incl
 	}
 
 	item := map[string]any{
-		"id":             product.ID,
-		"name":           product.Name,
-		"line":           product.Line,
-		"location":       product.Location,
-		"sale_price":     product.SalePrice,
-		"retoma_enabled": product.RetomaEnabled,
-		"retoma_price":   retomaPrice,
-		"available":      counts.Available,
+		"id":              product.ID,
+		"name":            product.Name,
+		"line":            product.Line,
+		"location":        product.Location,
+		"talla_requerida": product.TallaRequerida,
+		"talla":           product.Talla,
+		"sale_price":      product.SalePrice,
+		"retoma_enabled":  product.RetomaEnabled,
+		"retoma_price":    retomaPrice,
+		"available":       counts.Available,
 		"status": func() string {
 			if counts.Available > 0 {
 				return "available"
@@ -9100,6 +9171,367 @@ func labelSizeDimensions(size string) (normalized string, widthMM, heightMM int)
 	}
 }
 
+const (
+	maxLabelBatchLabels = 500
+	maxLabelBatchCopies = 50
+	defaultLabelGapMM   = 2
+)
+
+func labelPaperOptions() []labelPaperOption {
+	return []labelPaperOption{
+		{Value: "57mm", Label: "57 × 30 mm"},
+		{Value: "58mm", Label: "58 × 40 mm"},
+		{Value: "80mm", Label: "80 × 50 mm"},
+	}
+}
+
+func labelPrintProfileFor(size string, columns, gapMM int) labelPrintProfile {
+	normalized, labelWidthMM, labelHeightMM := labelSizeDimensions(size)
+	_, _, dpi, paperClass := thermalPaperDimensions(normalized)
+	if columns != 2 {
+		columns = 1
+	}
+	if gapMM < 0 || gapMM > 10 {
+		gapMM = defaultLabelGapMM
+	}
+	paperWidthMM := labelWidthMM
+	if columns == 2 {
+		paperWidthMM = labelWidthMM*2 + gapMM
+	}
+	return labelPrintProfile{
+		Size:          normalized,
+		LabelWidthMM:  labelWidthMM,
+		LabelHeightMM: labelHeightMM,
+		PaperWidthMM:  paperWidthMM,
+		PaperHeightMM: labelHeightMM,
+		Columns:       columns,
+		GapMM:         gapMM,
+		DPI:           dpi,
+		PaperClass:    paperClass,
+	}
+}
+
+func labelRows(items []productLabelItem, columns int) [][]productLabelItem {
+	if columns != 2 {
+		columns = 1
+	}
+	rows := make([][]productLabelItem, 0, (len(items)+columns-1)/columns)
+	for start := 0; start < len(items); start += columns {
+		end := start + columns
+		if end > len(items) {
+			end = len(items)
+		}
+		rows = append(rows, items[start:end])
+	}
+	return rows
+}
+
+func productLabelsPageDataFor(items []productLabelItem, profile labelPrintProfile, currentUser *User, settings BusinessSettings) productLabelsPageData {
+	return productLabelsPageData{
+		Title:         "Etiquetas de producto",
+		Subtitle:      "Documento preparado para impresión térmica y PDF.",
+		Size:          profile.Size,
+		WidthMM:       profile.LabelWidthMM,
+		HeightMM:      profile.LabelHeightMM,
+		PaperWidthMM:  profile.PaperWidthMM,
+		PaperHeightMM: profile.PaperHeightMM,
+		Columns:       profile.Columns,
+		GapMM:         profile.GapMM,
+		PaperDPI:      profile.DPI,
+		PaperClass:    profile.PaperClass,
+		Items:         items,
+		Rows:          labelRows(items, profile.Columns),
+		CurrentUser:   currentUser,
+		Settings:      settings,
+	}
+}
+
+func parseLabelBatchCopies(r *http.Request, productIDs []string) (map[string]int, int, error) {
+	copiesByID := make(map[string]int, len(productIDs))
+	total := 0
+	seen := make(map[string]struct{}, len(productIDs))
+	for _, rawID := range productIDs {
+		productID := strings.TrimSpace(rawID)
+		if productID == "" {
+			continue
+		}
+		if _, exists := seen[productID]; exists {
+			continue
+		}
+		seen[productID] = struct{}{}
+		copies := 1
+		if raw := strings.TrimSpace(r.FormValue("copies_" + productID)); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 || parsed > maxLabelBatchCopies {
+				return nil, 0, requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("Las copias para %s deben estar entre 1 y %d.", productID, maxLabelBatchCopies)}
+			}
+			copies = parsed
+		}
+		if total+copies > maxLabelBatchLabels {
+			return nil, 0, requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("El lote supera el máximo de %d etiquetas.", maxLabelBatchLabels)}
+		}
+		copiesByID[productID] = copies
+		total += copies
+	}
+	if len(copiesByID) == 0 {
+		return nil, 0, requestError{Status: http.StatusBadRequest, Message: "Selecciona al menos un producto."}
+	}
+	return copiesByID, total, nil
+}
+
+func expandProductLabelItems(items []productLabelItem, productIDs []string, copiesByID map[string]int) []productLabelItem {
+	byID := make(map[string]productLabelItem, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	expanded := make([]productLabelItem, 0)
+	seen := make(map[string]struct{}, len(productIDs))
+	for _, rawID := range productIDs {
+		productID := strings.TrimSpace(rawID)
+		if _, exists := seen[productID]; exists {
+			continue
+		}
+		seen[productID] = struct{}{}
+		item, allowed := byID[productID]
+		if !allowed {
+			continue
+		}
+		for copyIndex := 0; copyIndex < copiesByID[productID]; copyIndex++ {
+			expanded = append(expanded, item)
+		}
+	}
+	return expanded
+}
+
+type labelPDFImage struct {
+	Width  int
+	Height int
+	Data   []byte
+}
+
+type labelPDFWriter struct {
+	objects [][]byte
+}
+
+func (w *labelPDFWriter) addObject(body []byte) int {
+	w.objects = append(w.objects, body)
+	return len(w.objects)
+}
+
+func (w *labelPDFWriter) setObject(id int, body []byte) {
+	if id <= 0 || id > len(w.objects) {
+		return
+	}
+	w.objects[id-1] = body
+}
+
+func millimetersToPoints(mm int) float64 {
+	return float64(mm) * 72 / 25.4
+}
+
+func pdfEscapeText(raw string) string {
+	var escaped strings.Builder
+	for _, r := range strings.TrimSpace(raw) {
+		if r == '(' || r == ')' || r == '\\' {
+			escaped.WriteByte('\\')
+		}
+		if r >= 32 && r <= 255 {
+			escaped.WriteByte(byte(r))
+		} else if r == '\n' || r == '\r' || r == '\t' {
+			escaped.WriteByte(' ')
+		} else {
+			escaped.WriteByte('?')
+		}
+	}
+	return escaped.String()
+}
+
+func pdfTextLine(buffer *bytes.Buffer, x, y, size float64, value string) {
+	value = pdfEscapeText(value)
+	if value == "" {
+		return
+	}
+	fmt.Fprintf(buffer, "BT /F1 %.2f Tf 0 g 1 0 0 1 %.2f %.2f Tm (%s) Tj ET\n", size, x, y, value)
+}
+
+func pdfLabelNameLines(name string, maxRunes int) []string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return []string{"Producto"}
+	}
+	words := strings.Fields(name)
+	lines := make([]string, 0, 2)
+	current := ""
+	for _, word := range words {
+		candidate := strings.TrimSpace(current + " " + word)
+		if utf8.RuneCountInString(candidate) > maxRunes && current != "" {
+			lines = append(lines, current)
+			current = word
+			if len(lines) == 2 {
+				break
+			}
+			continue
+		}
+		current = candidate
+	}
+	if current != "" && len(lines) < 2 {
+		lines = append(lines, current)
+	}
+	if len(lines) == 0 {
+		return []string{"Producto"}
+	}
+	return lines
+}
+
+func decodeLabelPDFImage(uri template.URL) (labelPDFImage, error) {
+	raw := string(uri)
+	comma := strings.IndexByte(raw, ',')
+	if comma < 0 {
+		return labelPDFImage{}, fmt.Errorf("código de barras inválido")
+	}
+	pngBytes, err := base64.StdEncoding.DecodeString(raw[comma+1:])
+	if err != nil {
+		return labelPDFImage{}, err
+	}
+	decoded, err := png.Decode(bytes.NewReader(pngBytes))
+	if err != nil {
+		return labelPDFImage{}, err
+	}
+	bounds := decoded.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return labelPDFImage{}, fmt.Errorf("código de barras sin dimensiones")
+	}
+	rgb := make([]byte, 0, width*height*3)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, _ := decoded.At(x, y).RGBA()
+			rgb = append(rgb, byte(r>>8), byte(g>>8), byte(b>>8))
+		}
+	}
+	var compressed bytes.Buffer
+	writer, err := flate.NewWriter(&compressed, flate.BestSpeed)
+	if err != nil {
+		return labelPDFImage{}, err
+	}
+	if _, err := writer.Write(rgb); err != nil {
+		return labelPDFImage{}, err
+	}
+	if err := writer.Close(); err != nil {
+		return labelPDFImage{}, err
+	}
+	return labelPDFImage{Width: width, Height: height, Data: compressed.Bytes()}, nil
+}
+
+func labelPDFImageObject(image labelPDFImage) []byte {
+	var body bytes.Buffer
+	fmt.Fprintf(&body, "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n", image.Width, image.Height, len(image.Data))
+	body.Write(image.Data)
+	body.WriteString("\nendstream")
+	return body.Bytes()
+}
+
+func labelPDFStreamObject(content []byte) []byte {
+	return []byte(fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content))
+}
+
+func productLabelsPDF(items []productLabelItem, profile labelPrintProfile, businessName string) ([]byte, error) {
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no hay etiquetas para exportar")
+	}
+	writer := &labelPDFWriter{}
+	catalogID := writer.addObject(nil)
+	pagesID := writer.addObject(nil)
+	fontID := writer.addObject([]byte("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"))
+	imageIDs := make(map[string]int, len(items))
+	for _, item := range items {
+		if _, exists := imageIDs[item.ID]; exists {
+			continue
+		}
+		image, err := decodeLabelPDFImage(item.BarcodeDataURI)
+		if err != nil {
+			return nil, err
+		}
+		imageIDs[item.ID] = writer.addObject(labelPDFImageObject(image))
+	}
+
+	paperWidth := millimetersToPoints(profile.PaperWidthMM)
+	paperHeight := millimetersToPoints(profile.PaperHeightMM)
+	labelWidth := millimetersToPoints(profile.LabelWidthMM)
+	pad := millimetersToPoints(3)
+	gap := millimetersToPoints(profile.GapMM)
+	compact := profile.LabelHeightMM <= 30
+	if compact {
+		pad = millimetersToPoints(2)
+	}
+	pageIDs := make([]int, 0, len(labelRows(items, profile.Columns)))
+	for _, row := range labelRows(items, profile.Columns) {
+		var content bytes.Buffer
+		for column, item := range row {
+			x := float64(column) * (labelWidth + gap)
+			businessSize, nameSize, priceLabelSize, priceValueSize, priceLabelY, barcodeHeight, barcodeY, codeY := 6.5, 8.3, 6.2, 11.5, paperHeight-pad-36, millimetersToPoints(12), millimetersToPoints(7), millimetersToPoints(3)
+			nameLines := pdfLabelNameLines(item.Name, 26)
+			if compact {
+				businessSize = 5.4
+				nameSize = 7.0
+				priceLabelSize = 5.4
+				priceValueSize = 9.5
+				priceLabelY = paperHeight - pad - 24
+				barcodeHeight = millimetersToPoints(7)
+				barcodeY = millimetersToPoints(5)
+				codeY = 2.5 * 72 / 25.4
+				if len(nameLines) > 1 {
+					nameLines = nameLines[:1]
+				}
+			}
+			pdfTextLine(&content, x+pad, paperHeight-pad-6, businessSize, strings.ToUpper(strings.TrimSpace(businessName)))
+			for lineIndex, line := range nameLines {
+				pdfTextLine(&content, x+pad, paperHeight-pad-17-float64(lineIndex)*8, nameSize, line)
+			}
+			pdfTextLine(&content, x+pad, priceLabelY, priceLabelSize, "PRECIO")
+			pdfTextLine(&content, x+pad+27, priceLabelY, priceValueSize, item.Price)
+			barcodeWidth := labelWidth - pad*2
+			fmt.Fprintf(&content, "q %.2f 0 0 %.2f %.2f %.2f cm /I%d Do Q\n", barcodeWidth, barcodeHeight, x+pad, barcodeY, imageIDs[item.ID])
+			pdfTextLine(&content, x+pad, codeY, 7.2, item.ID)
+		}
+		contentID := writer.addObject(labelPDFStreamObject(content.Bytes()))
+		var xObjects strings.Builder
+		seenImages := map[string]struct{}{}
+		for _, item := range row {
+			if _, seen := seenImages[item.ID]; seen {
+				continue
+			}
+			seenImages[item.ID] = struct{}{}
+			fmt.Fprintf(&xObjects, "/I%d %d 0 R ", imageIDs[item.ID], imageIDs[item.ID])
+		}
+		pageBody := fmt.Sprintf("<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /Font << /F1 %d 0 R >> /XObject << %s>> >> /Contents %d 0 R >>", pagesID, paperWidth, paperHeight, fontID, xObjects.String(), contentID)
+		pageIDs = append(pageIDs, writer.addObject([]byte(pageBody)))
+	}
+	var kids strings.Builder
+	for _, pageID := range pageIDs {
+		fmt.Fprintf(&kids, "%d 0 R ", pageID)
+	}
+	writer.setObject(pagesID, []byte(fmt.Sprintf("<< /Type /Pages /Kids [ %s] /Count %d >>", kids.String(), len(pageIDs))))
+	writer.setObject(catalogID, []byte(fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R >>", pagesID)))
+
+	var document bytes.Buffer
+	document.WriteString("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+	offsets := make([]int, len(writer.objects)+1)
+	for index, object := range writer.objects {
+		offsets[index+1] = document.Len()
+		fmt.Fprintf(&document, "%d 0 obj\n", index+1)
+		document.Write(object)
+		document.WriteString("\nendobj\n")
+	}
+	xrefOffset := document.Len()
+	fmt.Fprintf(&document, "xref\n0 %d\n0000000000 65535 f \n", len(writer.objects)+1)
+	for index := 1; index < len(offsets); index++ {
+		fmt.Fprintf(&document, "%010d 00000 n \n", offsets[index])
+	}
+	fmt.Fprintf(&document, "trailer\n<< /Size %d /Root %d 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(writer.objects)+1, catalogID, xrefOffset)
+	return document.Bytes(), nil
+}
+
 func barcodeDataURI(value string, width, height int) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -9128,16 +9560,14 @@ func productLabelItemsForUser(db *sql.DB, currentUser *User, productIDs []string
 	_ = normalizedSize
 	seen := map[string]struct{}{}
 	items := make([]productLabelItem, 0, len(productIDs))
-	barcodeWidth := 280
-	barcodeHeight := 72
-	switch {
-	case widthMM >= 80:
-		barcodeWidth = 360
-		barcodeHeight = 92
-	case widthMM <= 57:
-		barcodeWidth = 220
-		barcodeHeight = 54
+	_, _, dpi, _ := thermalPaperDimensions(normalizedSize)
+	printableWidthMM := max(24, widthMM-8)
+	barcodeWidth := int(math.Ceil(float64(printableWidthMM*dpi) / 25.4))
+	barcodeHeightMM := 12
+	if heightMM <= 30 {
+		barcodeHeightMM = 8
 	}
+	barcodeHeight := int(math.Ceil(float64(barcodeHeightMM*dpi) / 25.4))
 
 	for _, rawID := range productIDs {
 		productID := strings.TrimSpace(rawID)
@@ -13826,6 +14256,8 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 		{name: "retoma_enabled", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "retoma_price", definition: "REAL"},
 		{name: "location", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "talla_requerida", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "talla", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "credit_enabled", definition: "INTEGER NOT NULL DEFAULT 0"},
 		{name: "debtor_name", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "installments_total", definition: "INTEGER NOT NULL DEFAULT 0"},
@@ -14206,6 +14638,8 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		linea TEXT NOT NULL,
 		nombre TEXT NOT NULL,
 		location TEXT NOT NULL DEFAULT '',
+		talla_requerida INTEGER NOT NULL DEFAULT 0,
+		talla TEXT NOT NULL DEFAULT '',
 		credit_enabled INTEGER NOT NULL DEFAULT 0,
 		debtor_name TEXT NOT NULL DEFAULT '',
 		installments_total INTEGER NOT NULL DEFAULT 0,
@@ -14755,6 +15189,7 @@ func main() {
 		"templates/invoice_new.html",
 		"templates/invoice_document.html",
 		"templates/product_labels.html",
+		"templates/product_labels_batch.html",
 		"templates/cambio_new.html",
 		"templates/cambio_confirm.html",
 		"templates/csv_template.html",
@@ -15012,6 +15447,8 @@ func main() {
 		Nombre            string
 		Linea             string
 		Location          string
+		TallaRequerida    bool
+		Talla             string
 		OwnerUserID       string
 		PrecioVenta       string
 		RetomaEnabled     bool
@@ -16599,7 +17036,7 @@ func main() {
 		if strings.TrimSpace(sizeParam) == "" {
 			sizeParam = settingsForUser(currentUser).LabelPaperWidth
 		}
-		items, widthMM, heightMM, err := productLabelItemsForUser(db, currentUser, productIDs, sizeParam)
+		items, _, _, err := productLabelItemsForUser(db, currentUser, productIDs, sizeParam)
 		if err != nil {
 			var reqErr requestError
 			if errors.As(err, &reqErr) {
@@ -16609,33 +17046,129 @@ func main() {
 			http.Error(w, "No se pudieron generar las etiquetas.", http.StatusInternalServerError)
 			return
 		}
-		size, _, _ := labelSizeDimensions(sizeParam)
-		_, _, dpi, paperClass := thermalPaperDimensions(sizeParam)
-		data := productLabelsPageData{
-			Title:       "Etiquetas de producto",
-			Subtitle:    "Etiquetas térmicas ajustadas para impresoras de 80, 58 y 57 mm.",
-			Size:        size,
-			WidthMM:     widthMM,
-			HeightMM:    heightMM,
-			PaperDPI:    dpi,
-			PaperClass:  paperClass,
-			Items:       items,
-			CurrentUser: currentUser,
-			Settings:    settingsForUser(currentUser),
-		}
-		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
-		if err != nil {
-			http.Error(w, "No se pudieron cargar los movimientos disponibles.", http.StatusInternalServerError)
-			return
-		}
-		data.CanLoan = movementEnabled(movementEnabledMap, "prestamo")
-		data.CanCredit = movementEnabled(movementEnabledMap, "credito")
+		data := productLabelsPageDataFor(items, labelPrintProfileFor(sizeParam, 1, 0), currentUser, settingsForUser(currentUser))
 		var rendered bytes.Buffer
 		if err := tmpl.ExecuteTemplate(&rendered, "product_labels.html", data); err != nil {
 			http.Error(w, "Error al renderizar etiquetas", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(rendered.Bytes())
+	})
+
+	mux.HandleFunc("/productos/etiquetas/masivas", func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		products, err := loadVisibleProductsForUser(db, currentUser)
+		if err != nil {
+			http.Error(w, "No se pudieron cargar los productos.", http.StatusInternalServerError)
+			return
+		}
+		batchProducts := make([]productLabelBatchProduct, 0, len(products))
+		for _, product := range products {
+			visibleID := strings.TrimSpace(product.ID)
+			if visibleID == "" {
+				continue
+			}
+			batchProducts = append(batchProducts, productLabelBatchProduct{
+				ID:        visibleID,
+				Name:      product.Name,
+				Line:      product.Line,
+				Price:     formatCurrency(product.SalePrice),
+				CopiesKey: "copies_" + visibleID,
+			})
+		}
+		settings := settingsForUser(currentUser)
+		renderTemplate(w, "product_labels_batch.html", productLabelsBatchPageData{
+			Title:        "Etiquetas masivas",
+			Subtitle:     "Selecciona productos y prepara un lote para impresora térmica o PDF.",
+			Products:     batchProducts,
+			DefaultSize:  normalizePaperWidth(settings.LabelPaperWidth, "58mm"),
+			CurrentUser:  currentUser,
+			Settings:     settings,
+			MaxLabels:    maxLabelBatchLabels,
+			MaxCopies:    maxLabelBatchCopies,
+			SizeOptions:  labelPaperOptions(),
+			DefaultGapMM: defaultLabelGapMM,
+		}, "Error al renderizar etiquetas masivas")
+	})
+
+	mux.HandleFunc("/productos/etiquetas/lote", func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "No se pudo leer el lote de etiquetas.", http.StatusBadRequest)
+			return
+		}
+		productIDs := r.Form["id"]
+		copiesByID, _, err := parseLabelBatchCopies(r, productIDs)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "No se pudo preparar el lote.", http.StatusBadRequest)
+			return
+		}
+		columns, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("columns")))
+		gapMM, err := strconv.Atoi(strings.TrimSpace(r.FormValue("gap_mm")))
+		if err != nil || gapMM < 0 || gapMM > 10 {
+			gapMM = defaultLabelGapMM
+		}
+		size := normalizePaperWidth(r.FormValue("size"), settingsForUser(currentUser).LabelPaperWidth)
+		profile := labelPrintProfileFor(size, columns, gapMM)
+		baseItems, _, _, err := productLabelItemsForUser(db, currentUser, productIDs, profile.Size)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "No se pudieron generar las etiquetas.", http.StatusInternalServerError)
+			return
+		}
+		items := expandProductLabelItems(baseItems, productIDs, copiesByID)
+		if len(items) == 0 {
+			http.Error(w, "No hay productos accesibles para imprimir.", http.StatusNotFound)
+			return
+		}
+		settings := settingsForUser(currentUser)
+		if strings.EqualFold(strings.TrimSpace(r.FormValue("output")), "pdf") {
+			pdf, err := productLabelsPDF(items, profile, settings.BusinessName)
+			if err != nil {
+				http.Error(w, "No se pudo generar el PDF de etiquetas.", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "etiquetas-"+time.Now().Format("20060102-150405")+".pdf"))
+			w.Header().Set("Content-Length", strconv.Itoa(len(pdf)))
+			_, _ = w.Write(pdf)
+			return
+		}
+		data := productLabelsPageDataFor(items, profile, currentUser, settings)
+		data.AutoPrint = true
+		var rendered bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&rendered, "product_labels.html", data); err != nil {
+			http.Error(w, "Error al renderizar etiquetas", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(rendered.Bytes())
 	})
 
@@ -16669,6 +17202,8 @@ func main() {
 		}
 		linea := strings.TrimSpace(r.FormValue("linea"))
 		location := strings.TrimSpace(r.FormValue("location"))
+		tallaRequerida := r.FormValue("talla_requerida") != ""
+		tallaRaw := r.FormValue("talla")
 		isCreditProduct := r.FormValue("credit_enabled") != ""
 		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		cantidadRaw := strings.TrimSpace(r.FormValue("cantidad"))
@@ -16711,6 +17246,10 @@ func main() {
 			} else {
 				errors["linea"] = "Línea obligatoria."
 			}
+		}
+		talla, tallaErr := normalizedProductSize(tallaRequerida, tallaRaw)
+		if tallaErr != nil {
+			errors["talla"] = tallaErr.(requestError).Message
 		}
 		precioVenta := 0
 		if precioVentaRaw != "" {
@@ -16818,6 +17357,8 @@ func main() {
 				Nombre:            nombre,
 				Linea:             linea,
 				Location:          location,
+				TallaRequerida:    tallaRequerida,
+				Talla:             strings.TrimSpace(tallaRaw),
 				OwnerUserID:       ownerUserIDRaw,
 				PrecioVenta:       precioVentaRaw,
 				RetomaEnabled:     retomaEnabled,
@@ -16859,9 +17400,9 @@ func main() {
 		}
 		if _, err := tx.Exec(`
 				UPDATE productos
-			SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?, location = ?
+			SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?, location = ?, talla_requerida = ?, talla = ?
 			WHERE tenant_id = ? AND sku = ?
-		`, float64(precioVenta), boolToInt(retomaEnabled), retomaPrice, boolToInt(isCreditProduct), debtorName, installmentsTotal, 0, float64(totalValue), float64(installmentValue), location, tenantIDFromRequest(r), internalSKU); err != nil {
+		`, float64(precioVenta), boolToInt(retomaEnabled), retomaPrice, boolToInt(isCreditProduct), debtorName, installmentsTotal, 0, float64(totalValue), float64(installmentValue), location, boolToInt(tallaRequerida), talla, tenantIDFromRequest(r), internalSKU); err != nil {
 			http.Error(w, "No se pudo guardar el precio del producto", http.StatusInternalServerError)
 			return
 		}
@@ -16870,15 +17411,17 @@ func main() {
 			return
 		}
 		if err := logAuditEvent(tx, userFromContext(r), "product_created", "product", internalSKU, "manual", map[string]any{
-			"sku":            internalSKU,
-			"id":             sku,
-			"name":           nombre,
-			"line":           linea,
-			"retoma_enabled": retomaEnabled,
-			"retoma_price":   retomaPrice,
-			"owner_user_id":  ownerUserID,
-			"location":       location,
-			"cantidad":       cantidad,
+			"sku":             internalSKU,
+			"id":              sku,
+			"name":            nombre,
+			"line":            linea,
+			"retoma_enabled":  retomaEnabled,
+			"retoma_price":    retomaPrice,
+			"owner_user_id":   ownerUserID,
+			"location":        location,
+			"talla_requerida": tallaRequerida,
+			"talla":           talla,
+			"cantidad":        cantidad,
 		}); err != nil {
 			http.Error(w, "No se pudo registrar la auditoría del producto", http.StatusInternalServerError)
 			return
@@ -16939,6 +17482,8 @@ func main() {
 				products[idx].Name = nombre
 				products[idx].Line = linea
 				products[idx].Location = location
+				products[idx].TallaRequerida = tallaRequerida
+				products[idx].Talla = talla
 				products[idx].CreditEnabled = isCreditProduct
 				products[idx].DebtorName = debtorName
 				products[idx].InstallmentsTotal = installmentsTotal
@@ -16970,6 +17515,8 @@ func main() {
 				Name:              nombre,
 				Line:              linea,
 				Location:          location,
+				TallaRequerida:    tallaRequerida,
+				Talla:             talla,
 				CreditEnabled:     isCreditProduct,
 				DebtorName:        debtorName,
 				InstallmentsTotal: installmentsTotal,
@@ -17019,6 +17566,8 @@ func main() {
 					"name":               product.Name,
 					"line":               product.Line,
 					"location":           product.Location,
+					"talla_requerida":    product.TallaRequerida,
+					"talla":              product.Talla,
 					"credit_enabled":     product.CreditEnabled,
 					"debtor_name":        product.DebtorName,
 					"installments_total": product.InstallmentsTotal,
@@ -17050,6 +17599,8 @@ func main() {
 			Name           string `json:"name"`
 			Line           string `json:"line"`
 			Location       string `json:"location"`
+			TallaRequerida bool   `json:"talla_requerida"`
+			Talla          string `json:"talla"`
 			OwnerUserID    *int   `json:"owner_user_id"`
 			Quantity       int    `json:"quantity"`
 			SalePrice      int    `json:"sale_price"`
@@ -17065,6 +17616,7 @@ func main() {
 		payload.Name = strings.TrimSpace(payload.Name)
 		payload.Line = strings.TrimSpace(payload.Line)
 		payload.Location = strings.TrimSpace(payload.Location)
+		payload.Talla = strings.TrimSpace(payload.Talla)
 		payload.FechaCaducidad = strings.TrimSpace(payload.FechaCaducidad)
 		activeLines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), true)
 		if err != nil {
@@ -17099,6 +17651,10 @@ func main() {
 		}
 		if payload.SalePrice < 0 {
 			fields["sale_price"] = "Precio inválido."
+		}
+		talla, tallaErr := normalizedProductSize(payload.TallaRequerida, payload.Talla)
+		if tallaErr != nil {
+			fields["talla"] = tallaErr.(requestError).Message
 		}
 		var retomaPrice sql.NullFloat64
 		if payload.RetomaEnabled {
@@ -17171,7 +17727,7 @@ func main() {
 			}
 			return
 		}
-		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, owner_user_id = ?, location = ? WHERE tenant_id = ? AND sku = ?`, float64(payload.SalePrice), boolToInt(payload.RetomaEnabled), retomaPrice, ownerUserID, payload.Location, tenantIDFromUser(currentUser), sku); err != nil {
+		if _, err := tx.Exec(`UPDATE productos SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, owner_user_id = ?, location = ?, talla_requerida = ?, talla = ? WHERE tenant_id = ? AND sku = ?`, float64(payload.SalePrice), boolToInt(payload.RetomaEnabled), retomaPrice, ownerUserID, payload.Location, boolToInt(payload.TallaRequerida), talla, tenantIDFromUser(currentUser), sku); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo guardar el producto.", nil)
 			return
 		}
@@ -17187,16 +17743,18 @@ func main() {
 			}
 		}
 		if err := logAuditEvent(tx, currentUser, "product_created", "product", sku, "api", withAPIAuditMetadata(r, map[string]any{
-			"sku":            sku,
-			"id":             productID,
-			"name":           payload.Name,
-			"line":           payload.Line,
-			"sale_price":     payload.SalePrice,
-			"retoma_enabled": payload.RetomaEnabled,
-			"retoma_price":   retomaPrice,
-			"owner_user_id":  ownerUserID,
-			"location":       payload.Location,
-			"cantidad":       payload.Quantity,
+			"sku":             sku,
+			"id":              productID,
+			"name":            payload.Name,
+			"line":            payload.Line,
+			"sale_price":      payload.SalePrice,
+			"retoma_enabled":  payload.RetomaEnabled,
+			"retoma_price":    retomaPrice,
+			"owner_user_id":   ownerUserID,
+			"location":        payload.Location,
+			"talla_requerida": payload.TallaRequerida,
+			"talla":           talla,
+			"cantidad":        payload.Quantity,
 		})); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo registrar la auditoría.", nil)
 			return
@@ -17216,7 +17774,7 @@ func main() {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo confirmar la transacción.", nil)
 			return
 		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "id": productID, "sku": sku, "location": payload.Location, "message": "Producto creado correctamente."})
+		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "id": productID, "sku": sku, "location": payload.Location, "talla_requerida": payload.TallaRequerida, "talla": talla, "message": "Producto creado correctamente."})
 	})
 	mux.HandleFunc("/api/products/", handleAPIProductRoutes(db))
 
@@ -17565,6 +18123,8 @@ func main() {
 				Name:              product.Name,
 				Line:              product.Line,
 				Location:          product.Location,
+				TallaRequerida:    product.TallaRequerida,
+				Talla:             product.Talla,
 				CreditEnabled:     product.CreditEnabled,
 				DebtorName:        product.DebtorName,
 				InstallmentsTotal: product.InstallmentsTotal,
@@ -18085,6 +18645,8 @@ func main() {
 		newName := strings.TrimSpace(r.FormValue("nombre"))
 		newLine := strings.TrimSpace(r.FormValue("linea"))
 		locationValue := strings.TrimSpace(r.FormValue("location"))
+		tallaRequeridaValue := r.FormValue("talla_requerida") != ""
+		tallaValue := r.FormValue("talla")
 		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		priceValue := strings.TrimSpace(r.FormValue("precio_venta"))
 		retomaEnabled := r.FormValue("retoma_enabled") != ""
@@ -18146,6 +18708,8 @@ func main() {
 		finalName := previous.Name
 		finalLine := previous.Line
 		finalLocation := locationValue
+		finalTallaRequerida := previous.TallaRequerida == 1
+		finalTalla := previous.Talla
 		finalOwner := previous.OwnerUserID
 		finalCreditEnabled := previous.CreditEnabled == 1
 		finalDebtorName := previous.DebtorName
@@ -18180,6 +18744,13 @@ func main() {
 				writeJSONError(http.StatusBadRequest, "Selecciona una línea válida.")
 				return
 			}
+			parsedTalla, tallaErr := normalizedProductSize(tallaRequeridaValue, tallaValue)
+			if tallaErr != nil {
+				writeJSONError(http.StatusBadRequest, tallaErr.(requestError).Message)
+				return
+			}
+			finalTallaRequerida = tallaRequeridaValue
+			finalTalla = parsedTalla
 			finalOwner = sql.NullInt64{}
 			if ownerUserIDRaw != "" {
 				assignableUsers, err := loadAssignableUsersForTenant(db, tenantIDFromUser(currentUser))
@@ -18259,9 +18830,9 @@ func main() {
 		if isAdminRole(currentUser.Role) {
 			if _, err := tx.Exec(`
 				UPDATE productos
-				SET nombre = ?, linea = ?, location = ?, owner_user_id = ?, precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?
+				SET nombre = ?, linea = ?, location = ?, talla_requerida = ?, talla = ?, owner_user_id = ?, precio_venta = ?, retoma_enabled = ?, retoma_price = ?, anotaciones = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = ?, total_value = ?, installment_value = ?
 				WHERE tenant_id = ? AND sku = ?
-			`, finalName, finalLine, finalLocation, finalOwner, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, boolToInt(finalCreditEnabled), finalDebtorName, finalInstallmentsTotal, finalInstallmentsPaid, finalTotalValue, finalInstallmentValue, tenantIDFromUser(currentUser), previous.SKU); err != nil {
+			`, finalName, finalLine, finalLocation, boolToInt(finalTallaRequerida), finalTalla, finalOwner, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, boolToInt(finalCreditEnabled), finalDebtorName, finalInstallmentsTotal, finalInstallmentsPaid, finalTotalValue, finalInstallmentValue, tenantIDFromUser(currentUser), previous.SKU); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el producto.")
 				return
 			}
@@ -18318,6 +18889,14 @@ func main() {
 			if previous.Line != finalLine {
 				payload["previous_line"] = previous.Line
 				payload["new_line"] = finalLine
+			}
+			if (previous.TallaRequerida == 1) != finalTallaRequerida {
+				payload["previous_talla_requerida"] = previous.TallaRequerida == 1
+				payload["new_talla_requerida"] = finalTallaRequerida
+			}
+			if previous.Talla != finalTalla {
+				payload["previous_talla"] = previous.Talla
+				payload["new_talla"] = finalTalla
 			}
 			prevOwner := any(nil)
 			if previous.OwnerUserID.Valid {
@@ -18387,6 +18966,8 @@ func main() {
 					products[idx].Name = finalName
 					products[idx].Line = finalLine
 					products[idx].Location = finalLocation
+					products[idx].TallaRequerida = finalTallaRequerida
+					products[idx].Talla = finalTalla
 					products[idx].CreditEnabled = finalCreditEnabled
 					products[idx].DebtorName = finalDebtorName
 					products[idx].InstallmentsTotal = finalInstallmentsTotal
@@ -21138,6 +21719,8 @@ func main() {
 			linea := get(row, "linea")
 			nombre := get(row, "nombre")
 			anotaciones := get(row, "anotaciones")
+			tallaRequeridaRaw := get(row, "talla_requerida")
+			tallaRaw := get(row, "talla")
 			location := get(row, "location")
 			if location == "" {
 				location = get(row, "ubicacion")
@@ -21162,6 +21745,21 @@ func main() {
 			precioVenta, err := parseCSVFloat(get(row, "precio_venta"))
 			if err != nil {
 				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: "Precio venta inválido."})
+				continue
+			}
+
+			tallaRequerida := false
+			if tallaRequeridaRaw != "" {
+				parsed, err := parseCSVBool(tallaRequeridaRaw)
+				if err != nil {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: "talla_requerida debe ser true/false."})
+					continue
+				}
+				tallaRequerida = parsed
+			}
+			talla, tallaErr := normalizedProductSize(tallaRequerida, tallaRaw)
+			if tallaErr != nil {
+				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: tallaErr.(requestError).Message})
 				continue
 			}
 
@@ -21312,9 +21910,9 @@ func main() {
 			}
 			if _, err := tx.Exec(`
 				UPDATE productos
-				SET precio_venta = ?, anotaciones = ?, location = ?, owner_user_id = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = 0, total_value = ?, installment_value = ?
+				SET precio_venta = ?, anotaciones = ?, location = ?, talla_requerida = ?, talla = ?, owner_user_id = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = ?, debtor_name = ?, installments_total = ?, installments_paid = 0, total_value = ?, installment_value = ?
 				WHERE tenant_id = ? AND sku = ?
-			`, precioVenta, anotaciones, location, ownerUserID, boolToInt(retomaEnabled), retomaPrice, boolToInt(creditEnabled), debtorName, installmentsTotal, totalValue, installmentValue, tenantID, internalSKU); err != nil {
+			`, precioVenta, anotaciones, location, boolToInt(tallaRequerida), talla, ownerUserID, boolToInt(retomaEnabled), retomaPrice, boolToInt(creditEnabled), debtorName, installmentsTotal, totalValue, installmentValue, tenantID, internalSKU); err != nil {
 				_, _ = tx.Exec("ROLLBACK TO csv_row")
 				_, _ = tx.Exec("RELEASE csv_row")
 				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: fmt.Sprintf("Error al guardar los datos del producto: %v", err)})
@@ -21329,6 +21927,8 @@ func main() {
 					products[idx].Name = nombre
 					products[idx].Line = linea
 					products[idx].Location = location
+					products[idx].TallaRequerida = tallaRequerida
+					products[idx].Talla = talla
 					products[idx].Notes = anotaciones
 					products[idx].SalePrice = precioVenta
 					products[idx].RetomaEnabled = retomaEnabled
@@ -21361,6 +21961,8 @@ func main() {
 					Name:              nombre,
 					Line:              linea,
 					Location:          location,
+					TallaRequerida:    tallaRequerida,
+					Talla:             talla,
 					Notes:             anotaciones,
 					FechaIngreso:      time.Now().Format("2006-01-02"),
 					SalePrice:         precioVenta,

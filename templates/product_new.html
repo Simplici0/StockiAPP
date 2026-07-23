@@ -217,12 +217,117 @@
     }
   </style>
   {{template "app_styles" .}}
+  <style>
+    .product-create-page .page-content {
+      max-width: 1040px;
+      padding: 24px 24px 40px;
+    }
+
+    .product-create-card {
+      padding: 28px;
+    }
+
+    .product-form {
+      display: grid;
+      gap: 28px;
+    }
+
+    .product-form .form-section {
+      display: grid;
+      gap: 16px;
+    }
+
+    .product-form .form-section + .form-section {
+      border-top: 1px solid var(--border);
+      padding-top: 24px;
+    }
+
+    .product-form .section-title {
+      margin: 0 0 2px;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 750;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .product-form .field {
+      min-width: 0;
+    }
+
+    .product-form label:not(.toggle) {
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .product-form input,
+    .product-form select {
+      min-height: 48px;
+      margin-bottom: 0;
+      border-radius: 10px;
+    }
+
+    .product-form .field-error {
+      margin: 7px 0 0;
+    }
+
+    .product-form .compact-note {
+      margin: -4px 0 0;
+    }
+
+    .product-form .toggle-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      align-items: center;
+    }
+
+    .product-form .toggle {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      margin: 0;
+      padding: 0;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .product-form .conditional-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .product-form .actions {
+      margin-top: 0;
+      padding-top: 4px;
+    }
+
+    @media (max-width: 640px) {
+      .product-create-page .page-content {
+        padding: 16px 16px 32px;
+      }
+
+      .product-create-card {
+        padding: 20px;
+      }
+
+      .product-form .toggle-strip {
+        display: grid;
+        gap: 4px;
+      }
+    }
+  </style>
 </head>
-<body>
+<body class="product-create-page">
   {{template "header" .}}
 
   <main class="page-content">
-    <div class="card">
+    <div class="card product-create-card">
       {{if .Flash}}
       <div class="flash">{{.Flash}}</div>
       {{end}}
@@ -231,75 +336,103 @@
         <a class="button secondary" href="{{.LabelPrintURL}}" target="_blank" rel="noreferrer">Imprimir etiqueta 60 x 40 mm</a>
       </div>
       {{end}}
-      <form method="POST" action="/productos">
-        <div class="row">
-          <div>
+      <form class="product-form" method="POST" action="/productos">
+        <section class="form-section">
+          <div class="row">
+            <div class="field">
             <label for="sku">ID</label>
             <input id="sku" name="id" type="text" value="{{.SKU}}" />
-            <div class="hint">Se propone automáticamente, pero puedes editarlo antes de guardar.</div>
             {{with .Errors}}{{with index . "sku"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
-          </div>
-          <div>
+            </div>
+            <div class="field">
             <label for="cantidad">Cantidad</label>
             <input id="cantidad" name="cantidad" type="number" min="1" step="1" value="{{.Cantidad}}" />
             {{with .Errors}}{{with index . "cantidad"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            </div>
           </div>
-        </div>
 
-        <label for="nombre">Nombre</label>
-        <input id="nombre" name="nombre" type="text" placeholder="Nombre del producto" value="{{.Nombre}}" />
-        {{with .Errors}}{{with index . "nombre"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+          <div class="field">
+            <label for="nombre">Nombre</label>
+            <input id="nombre" name="nombre" type="text" placeholder="Nombre del producto" value="{{.Nombre}}" />
+            {{with .Errors}}{{with index . "nombre"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+          </div>
 
-        <label for="linea">Línea</label>
-        <select id="linea" name="linea" {{if not .HasLineas}}disabled{{end}}>
-          <option value="">{{if .HasLineas}}Selecciona una línea{{else}}Sin líneas activas{{end}}</option>
-          {{range .Lineas}}
-            <option value="{{.}}" {{if eq $.Linea .}}selected{{end}}>{{.}}</option>
-          {{end}}
-        </select>
-        {{if not .HasLineas}}
-          <div class="note">No hay líneas activas. Crea la primera desde <a href="/configuracion">Configuración</a>.</div>
-        {{end}}
-        {{with .Errors}}{{with index . "linea"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+          <div class="row">
+            <div class="field">
+              <label for="linea">Línea</label>
+              <select id="linea" name="linea" {{if not .HasLineas}}disabled{{end}}>
+                <option value="">{{if .HasLineas}}Selecciona una línea{{else}}Sin líneas activas{{end}}</option>
+                {{range .Lineas}}
+                  <option value="{{.}}" {{if eq $.Linea .}}selected{{end}}>{{.}}</option>
+                {{end}}
+              </select>
+              {{if not .HasLineas}}
+                <div class="note compact-note">Crea una línea activa en <a href="/configuracion">Configuración</a> para continuar.</div>
+              {{end}}
+              {{with .Errors}}{{with index . "linea"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            </div>
+            <div class="field">
+              <label for="location">Locación <span aria-hidden="true">·</span> opcional</label>
+              <input id="location" name="location" type="text" placeholder="Ej: Estante A-03" value="{{.Location}}" />
+            </div>
+          </div>
+        </section>
 
-        <label for="location">Locación (opcional)</label>
-        <input id="location" name="location" type="text" placeholder="Ej: Estante A-03" value="{{.Location}}" />
-        <div class="note">Dato operativo para ubicar el producto en inventario. No se imprime en la etiqueta.</div>
+        <section class="form-section">
+          <h2 class="section-title">Detalles opcionales</h2>
+          <div class="row">
+            <div class="field">
+              <label for="owner_user_id">Usuario asignado</label>
+              <select id="owner_user_id" name="owner_user_id">
+                <option value="">Sin asignar</option>
+                {{range .AssignableUsers}}
+                  <option value="{{.ID}}" {{if eq $.OwnerUserID (printf "%d" .ID)}}selected{{end}}>{{.Username}}</option>
+                {{end}}
+              </select>
+              {{with .Errors}}{{with index . "owner_user_id"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            </div>
+            <div class="field">
+              <label for="precio_venta">Precio de venta</label>
+              <input id="precio_venta" name="precio_venta" type="text" inputmode="numeric" placeholder="0" value="{{.PrecioVenta}}" />
+              {{with .Errors}}{{with index . "precio_venta"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            </div>
+          </div>
 
-        <label for="owner_user_id">Usuario asignado (opcional)</label>
-        <select id="owner_user_id" name="owner_user_id">
-          <option value="">Sin asignar</option>
-          {{range .AssignableUsers}}
-            <option value="{{.ID}}" {{if eq $.OwnerUserID (printf "%d" .ID)}}selected{{end}}>{{.Username}}</option>
-          {{end}}
-        </select>
-        <div class="note">Si asignas el producto, solo ese usuario y los administradores podrán verlo y operarlo.</div>
-        {{with .Errors}}{{with index . "owner_user_id"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+          <div class="toggle-strip">
+            <label class="toggle" for="talla_requerida">
+              <input id="talla_requerida" name="talla_requerida" type="checkbox" {{if .TallaRequerida}}checked{{end}} />
+              <span>Requiere talla</span>
+            </label>
+            <label class="toggle" for="retoma_enabled">
+              <input id="retoma_enabled" name="retoma_enabled" type="checkbox" {{if .RetomaEnabled}}checked{{end}} />
+              <span>Permitir retoma</span>
+            </label>
+            <label class="toggle" for="aplica_caducidad">
+              <input id="aplica_caducidad" name="aplica_caducidad" type="checkbox" {{if .AplicaCad}}checked{{end}} />
+              <span>Aplica caducidad</span>
+            </label>
+          </div>
 
-        <label for="precio_venta">Precio de venta (opcional)</label>
-        <input id="precio_venta" name="precio_venta" type="text" inputmode="numeric" placeholder="0" value="{{.PrecioVenta}}" />
-        {{with .Errors}}{{with index . "precio_venta"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+          <div class="conditional-grid">
+            <div id="talla_wrap" class="field">
+              <label for="talla">Talla</label>
+              <input id="talla" name="talla" type="text" maxlength="80" placeholder="Ej: S, M, L, 38" value="{{.Talla}}" />
+              {{with .Errors}}{{with index . "talla"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            </div>
 
-        <label class="toggle" for="retoma_enabled">
-          <input id="retoma_enabled" name="retoma_enabled" type="checkbox" {{if .RetomaEnabled}}checked{{end}} />
-          <span>Permitir retoma</span>
-        </label>
+            <div id="retoma_price_wrap" class="field">
+              <label for="retoma_price">Valor de retoma</label>
+              <input id="retoma_price" name="retoma_price" type="text" inputmode="numeric" placeholder="0" value="{{.RetomaPrice}}" />
+              {{with .Errors}}{{with index . "retoma_price"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            </div>
 
-        <div id="retoma_price_wrap">
-          <label for="retoma_price">Valor de retoma</label>
-          <input id="retoma_price" name="retoma_price" type="text" inputmode="numeric" placeholder="0" value="{{.RetomaPrice}}" />
-          <div class="note">Opcional solo si retoma está deshabilitada. Si la habilitas, este valor será requerido.</div>
-          {{with .Errors}}{{with index . "retoma_price"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
-        </div>
-
-        <label class="toggle" for="aplica_caducidad">
-          <input id="aplica_caducidad" name="aplica_caducidad" type="checkbox" {{if .AplicaCad}}checked{{end}} />
-          <span>Aplica caducidad</span>
-        </label>
-
-        <label for="fecha_caducidad">Fecha caducidad (YYYY-MM-DD)</label>
-        <input id="fecha_caducidad" name="fecha_caducidad" type="date" value="{{.Caducidad}}" />
-        {{with .Errors}}{{with index . "fecha_caducidad"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            <div id="caducidad_wrap" class="field">
+              <label for="fecha_caducidad">Fecha de caducidad</label>
+              <input id="fecha_caducidad" name="fecha_caducidad" type="date" value="{{.Caducidad}}" />
+              {{with .Errors}}{{with index . "fecha_caducidad"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            </div>
+          </div>
+        </section>
 
         <div class="actions">
           <button class="primary" type="submit">Guardar producto</button>
@@ -311,10 +444,14 @@
   <script>
     const aplica = document.getElementById("aplica_caducidad");
     const fecha = document.getElementById("fecha_caducidad");
+    const caducidadWrap = document.getElementById("caducidad_wrap");
     const precioVenta = document.getElementById("precio_venta");
     const retomaEnabled = document.getElementById("retoma_enabled");
     const retomaPriceWrap = document.getElementById("retoma_price_wrap");
     const retomaPrice = document.getElementById("retoma_price");
+    const tallaRequerida = document.getElementById("talla_requerida");
+    const tallaWrap = document.getElementById("talla_wrap");
+    const talla = document.getElementById("talla");
     const parseCOP = (raw) => {
       const digits = String(raw || "").replace(/[^\d]/g, "");
       if (!digits) return NaN;
@@ -326,7 +463,8 @@
     };
 
     const sync = () => {
-      if (!aplica || !fecha) return;
+      if (!aplica || !fecha || !caducidadWrap) return;
+      caducidadWrap.style.display = aplica.checked ? "block" : "none";
       fecha.disabled = !aplica.checked;
       if (!aplica.checked) fecha.value = "";
     };
@@ -336,6 +474,14 @@
       retomaPriceWrap.style.display = retomaEnabled.checked ? "block" : "none";
       retomaPrice.disabled = !retomaEnabled.checked;
       if (!retomaEnabled.checked) retomaPrice.value = "";
+    };
+
+    const syncTalla = () => {
+      if (!tallaRequerida || !tallaWrap || !talla) return;
+      tallaWrap.style.display = tallaRequerida.checked ? "block" : "none";
+      talla.disabled = !tallaRequerida.checked;
+      talla.required = tallaRequerida.checked;
+      if (!tallaRequerida.checked) talla.value = "";
     };
 
     if (precioVenta) {
@@ -369,8 +515,10 @@
     }
     if (aplica) aplica.addEventListener("change", sync);
     if (retomaEnabled) retomaEnabled.addEventListener("change", syncRetoma);
+    if (tallaRequerida) tallaRequerida.addEventListener("change", syncTalla);
     sync();
     syncRetoma();
+    syncTalla();
   </script>
 </body>
 </html>

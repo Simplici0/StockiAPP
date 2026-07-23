@@ -805,6 +805,28 @@
                 .dashboard-toolbar-actions > * {
                     flex: 1 1 auto;
                 }
+
+                .dashboard-toolbar-actions > .button,
+                .dashboard-toolbar-actions > button,
+                .dashboard-toolbar-actions > details {
+                    width: 100%;
+                }
+
+                details.range-picker summary {
+                    min-height: 44px;
+                    justify-content: space-between;
+                }
+
+                .range-popover {
+                    position: fixed;
+                    top: auto;
+                    right: 12px;
+                    bottom: 12px;
+                    left: 12px;
+                    width: auto;
+                    max-height: calc(100dvh - 24px);
+                    overflow-y: auto;
+                }
             }
         </style>
         {{template "app_styles" .}}

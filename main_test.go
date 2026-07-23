@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -530,6 +531,22 @@ func TestProductCSVColumnIndexRequiresVisibleIDColumn(t *testing.T) {
 	}
 	if reqErr.Status != http.StatusBadRequest || reqErr.Message != "Falta la columna requerida id." {
 		t.Fatalf("unexpected request error: %+v", reqErr)
+	}
+}
+
+func TestNormalizedProductSize(t *testing.T) {
+	got, err := normalizedProductSize(false, " M ")
+	if err != nil || got != "" {
+		t.Fatalf("size must be cleared when not required: got=%q err=%v", got, err)
+	}
+
+	got, err = normalizedProductSize(true, " M ")
+	if err != nil || got != "M" {
+		t.Fatalf("expected normalized size M: got=%q err=%v", got, err)
+	}
+
+	if _, err := normalizedProductSize(true, ""); err == nil {
+		t.Fatal("expected required size validation error")
 	}
 }
 
@@ -1292,6 +1309,76 @@ func TestProductLabelItemsForUserRespectsTenantScope(t *testing.T) {
 	}
 	if items[0].BarcodeDataURI == "" {
 		t.Fatalf("expected barcode data uri")
+	}
+}
+
+func TestLabelRowsAndPDFRespectDoubleColumnProfile(t *testing.T) {
+	barcode, err := barcodeDataURI("P-ETIQUETA", 180, 60)
+	if err != nil {
+		t.Fatalf("barcodeDataURI: %v", err)
+	}
+	items := []productLabelItem{
+		{ID: "P-1", Name: "Producto uno", Price: "$ 10.000", BarcodeDataURI: template.URL(barcode)},
+		{ID: "P-2", Name: "Producto dos", Price: "$ 20.000", BarcodeDataURI: template.URL(barcode)},
+		{ID: "P-3", Name: "Producto tres", Price: "$ 30.000", BarcodeDataURI: template.URL(barcode)},
+	}
+	profile := labelPrintProfileFor("58mm", 2, 2)
+	if profile.PaperWidthMM != 118 || profile.PaperHeightMM != 40 {
+		t.Fatalf("unexpected physical paper profile: %+v", profile)
+	}
+	rows := labelRows(items, profile.Columns)
+	if len(rows) != 2 || len(rows[0]) != 2 || len(rows[1]) != 1 {
+		t.Fatalf("unexpected label rows: %+v", rows)
+	}
+	pdf, err := productLabelsPDF(items, profile, "Negocio prueba")
+	if err != nil {
+		t.Fatalf("productLabelsPDF: %v", err)
+	}
+	if !bytes.HasPrefix(pdf, []byte("%PDF-1.4")) {
+		t.Fatalf("expected PDF header, got %q", pdf[:min(8, len(pdf))])
+	}
+	if !bytes.Contains(pdf, []byte("/MediaBox [0 0 334.49 113.39]")) {
+		t.Fatalf("expected physical double-column MediaBox in PDF")
+	}
+}
+
+func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
+	templates, err := template.New("").Funcs(template.FuncMap{
+		"businessName":          func(any) string { return "Negocio prueba" },
+		"businessLogoPath":      func(any) string { return "" },
+		"businessPrimaryColor":  func(any) string { return "#172554" },
+		"businessPrimaryStrong": func(any) string { return "#0f172a" },
+		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
+		"pageCanLoan":           func(any) bool { return false },
+		"pageCanCredit":         func(any) bool { return false },
+	}).ParseFiles(
+		"templates/partials/app_styles.html",
+		"templates/partials/header.html",
+		"templates/product_labels.html",
+		"templates/product_labels_batch.html",
+		"templates/product_new.html",
+	)
+	if err != nil {
+		t.Fatalf("parse label templates: %v", err)
+	}
+	barcode, err := barcodeDataURI("P-1", 120, 40)
+	if err != nil {
+		t.Fatalf("barcodeDataURI: %v", err)
+	}
+	item := productLabelItem{ID: "P-1", Name: "Producto prueba", Price: "$ 10.000", BarcodeDataURI: template.URL(barcode)}
+	var rendered bytes.Buffer
+	if err := templates.ExecuteTemplate(&rendered, "product_labels.html", productLabelsPageDataFor([]productLabelItem{item}, labelPrintProfileFor("58mm", 1, 0), nil, BusinessSettings{})); err != nil {
+		t.Fatalf("render print template: %v", err)
+	}
+	if bytes.Contains(rendered.Bytes(), []byte("topbar")) || !bytes.Contains(rendered.Bytes(), []byte("@page")) {
+		t.Fatalf("print template should be isolated and define a page size")
+	}
+	rendered.Reset()
+	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
+		t.Fatalf("render batch template: %v", err)
+	}
+	if !bytes.Contains(rendered.Bytes(), []byte("/productos/etiquetas/lote")) {
+		t.Fatalf("batch template should submit to the batch route")
 	}
 }
 

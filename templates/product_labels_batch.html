@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        {{template "app_styles" .}}
+        <style>
+            .labels-workspace { display: grid; gap: 20px; }
+            .labels-intro { display: flex; gap: 16px; align-items: end; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+            .labels-intro h1 { margin: 0 0 6px; font-size: clamp(24px, 3vw, 32px); }
+            .labels-intro p { max-width: 620px; margin: 0; color: var(--text-muted); }
+            .labels-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 24px; align-items: start; }
+            .labels-controls { display: grid; gap: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+            .labels-controls h2 { margin: 0; font-size: 16px; }
+            .labels-control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .labels-control-grid label, .label-search { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
+            .labels-product-list { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+            .labels-list-toolbar { display: flex; gap: 12px; align-items: end; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--border); background: var(--bg-card-muted); }
+            .labels-list-toolbar .label-search { flex: 1 1 260px; }
+            .labels-list-toolbar input { min-height: 42px; }
+            .labels-select-visible { min-height: 42px; white-space: nowrap; }
+            .labels-product-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 78px; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+            .labels-product-row:last-child { border-bottom: 0; }
+            .labels-product-row[hidden] { display: none; }
+            .labels-product-row input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: var(--primary); }
+            .labels-product-name { min-width: 0; display: grid; gap: 3px; }
+            .labels-product-name strong { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+            .labels-product-name span { color: var(--text-muted); font-size: 12px; }
+            .labels-copies { min-height: 42px; text-align: center; }
+            .labels-summary { position: sticky; top: 14px; display: grid; gap: 16px; padding: 18px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-card); box-shadow: var(--shadow-xs); }
+            .labels-summary h2 { margin: 0; font-size: 16px; }
+            .labels-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .labels-metric { padding: 12px 0; border-bottom: 1px solid var(--border); }
+            .labels-metric span { display: block; color: var(--text-muted); font-size: 12px; }
+            .labels-metric strong { display: block; margin-top: 4px; color: var(--text); font-size: 23px; letter-spacing: -.03em; }
+            .labels-hint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+            .labels-output-actions { display: grid; gap: 8px; }
+            .labels-output-actions button { width: 100%; min-height: 46px; }
+            .labels-output-actions .secondary { background: var(--bg-card-muted); border-color: var(--border-strong); color: var(--text); }
+            .labels-status { min-height: 18px; margin: 0; color: var(--text-muted); font-size: 12px; }
+            .labels-status.error { color: #b42318; font-weight: 700; }
+            @media (max-width: 860px) { .labels-layout { grid-template-columns: 1fr; } .labels-summary { position: static; } }
+            @media (max-width: 560px) { .labels-intro, .labels-list-toolbar { align-items: stretch; flex-direction: column; } .labels-control-grid { grid-template-columns: 1fr; } .labels-product-row { grid-template-columns: 28px minmax(0, 1fr) 66px; gap: 8px; padding-inline: 10px; } }
+        </style>
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <form id="labels-batch-form" class="labels-workspace" method="POST" action="/productos/etiquetas/lote" target="_blank">
+                <section class="labels-intro">
+                    <div>
+                        <h1>{{.Title}}</h1>
+                        <p>{{.Subtitle}}</p>
+                    </div>
+                </section>
+
+                <section class="labels-layout">
+                    <div class="labels-product-list">
+                        <div class="labels-list-toolbar">
+                            <label class="label-search">Buscar producto
+                                <input id="label-product-search" type="search" placeholder="Nombre, ID o línea" autocomplete="off" />
+                            </label>
+                            <button id="label-select-visible" class="secondary labels-select-visible" type="button">Seleccionar visibles</button>
+                        </div>
+                        <div id="label-product-rows">
+                            {{range .Products}}
+                            <label class="labels-product-row" data-label-product="{{.ID}} {{.Name}} {{.Line}}">
+                                <input class="label-product-check" name="id" value="{{.ID}}" type="checkbox" />
+                                <span class="labels-product-name">
+                                    <strong>{{.Name}}</strong>
+                                    <span>{{.ID}}{{if .Line}} · {{.Line}}{{end}} · {{.Price}}</span>
+                                </span>
+                                <input class="labels-copies" name="{{.CopiesKey}}" type="number" min="1" max="{{$.MaxCopies}}" value="1" disabled aria-label="Copias para {{.Name}}" />
+                            </label>
+                            {{else}}
+                            <p style="padding: 16px; color: var(--text-muted);">No hay productos visibles para imprimir.</p>
+                            {{end}}
+                        </div>
+                    </div>
+
+                    <aside class="labels-summary" aria-label="Configuración del lote">
+                        <div>
+                            <h2>Salida del lote</h2>
+                            <p class="labels-hint">El documento respeta el tamaño físico. En el diálogo de impresión usa escala 100 % / tamaño real.</p>
+                        </div>
+                        <div class="labels-controls">
+                            <div class="labels-control-grid">
+                                <label for="label-size">Etiqueta
+                                    <select id="label-size" name="size">
+                                        {{range .SizeOptions}}<option value="{{.Value}}" {{if eq $.DefaultSize .Value}}selected{{end}}>{{.Label}}</option>{{end}}
+                                    </select>
+                                </label>
+                                <label for="label-columns">Formato
+                                    <select id="label-columns" name="columns">
+                                        <option value="1">Una por línea</option>
+                                        <option value="2">Dos por línea</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <label for="label-gap">Separación entre columnas (mm)
+                                <input id="label-gap" name="gap_mm" type="number" min="0" max="10" value="{{.DefaultGapMM}}" />
+                            </label>
+                        </div>
+                        <div class="labels-metrics">
+                            <div class="labels-metric"><span>Seleccionados</span><strong id="label-selected-count">0</strong></div>
+                            <div class="labels-metric"><span>Etiquetas</span><strong id="label-total-count">0</strong></div>
+                        </div>
+                        <p id="label-batch-status" class="labels-status">Selecciona productos para continuar.</p>
+                        <div class="labels-output-actions">
+                            <button id="label-print-batch" class="primary" name="output" value="print" type="submit" disabled>Preparar impresión</button>
+                            <button id="label-pdf-batch" class="secondary" name="output" value="pdf" type="submit" disabled>Descargar PDF</button>
+                        </div>
+                        <p class="labels-hint">Máximo {{.MaxLabels}} etiquetas por lote y {{.MaxCopies}} copias por producto. El PDF no se guarda en el servidor.</p>
+                    </aside>
+                </section>
+            </form>
+        </main>
+        <script>
+            (() => {
+                const maxLabels = {{.MaxLabels}};
+                const rows = Array.from(document.querySelectorAll(".labels-product-row"));
+                const search = document.getElementById("label-product-search");
+                const selectVisible = document.getElementById("label-select-visible");
+                const selectedCount = document.getElementById("label-selected-count");
+                const totalCount = document.getElementById("label-total-count");
+                const status = document.getElementById("label-batch-status");
+                const actions = [document.getElementById("label-print-batch"), document.getElementById("label-pdf-batch")];
+                const sync = () => {
+                    let selected = 0;
+                    let total = 0;
+                    rows.forEach((row) => {
+                        const check = row.querySelector(".label-product-check");
+                        const copies = row.querySelector(".labels-copies");
+                        const active = Boolean(check && check.checked);
+                        if (copies) copies.disabled = !active;
+                        if (!active) return;
+                        selected += 1;
+                        const amount = Math.max(1, Number.parseInt(copies.value, 10) || 1);
+                        copies.value = Math.min({{.MaxCopies}}, amount);
+                        total += Number(copies.value);
+                    });
+                    selectedCount.textContent = String(selected);
+                    totalCount.textContent = String(total);
+                    const valid = total > 0 && total <= maxLabels;
+                    actions.forEach((button) => { if (button) button.disabled = !valid; });
+                    status.classList.toggle("error", total > maxLabels);
+                    status.textContent = total > maxLabels
+                        ? `El lote supera el máximo de ${maxLabels} etiquetas.`
+                        : total > 0
+                            ? `${total} etiqueta(s) preparada(s) para salida.`
+                            : "Selecciona productos para continuar.";
+                };
+                rows.forEach((row) => {
+                    row.querySelector(".label-product-check")?.addEventListener("change", sync);
+                    row.querySelector(".labels-copies")?.addEventListener("input", sync);
+                });
+                search?.addEventListener("input", () => {
+                    const query = search.value.trim().toLowerCase();
+                    rows.forEach((row) => { row.hidden = query && !row.dataset.labelProduct.toLowerCase().includes(query); });
+                });
+                selectVisible?.addEventListener("click", () => {
+                    const visible = rows.filter((row) => !row.hidden);
+                    const shouldSelect = visible.some((row) => !row.querySelector(".label-product-check").checked);
+                    visible.forEach((row) => { row.querySelector(".label-product-check").checked = shouldSelect; });
+                    sync();
+                });
+                sync();
+            })();
+        </script>
+    </body>
+</html>

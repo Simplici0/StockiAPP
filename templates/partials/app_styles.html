@@ -238,6 +238,7 @@
     }
 
     html {
+      min-width: 0;
       background:
         radial-gradient(circle at top left, var(--bg-page-glow) 0, rgba(255, 255, 255, 0) 28rem),
         linear-gradient(180deg, var(--bg-page-accent) 0%, var(--bg-page) 28%, var(--bg-page) 100%);
@@ -246,6 +247,8 @@
     body {
       margin: 0;
       min-height: 100vh;
+      min-width: 0;
+      overflow-x: hidden;
       color: var(--text);
       background:
         radial-gradient(circle at 0 0, var(--bg-page-glow-soft), rgba(255, 255, 255, 0) 32rem),
@@ -1311,6 +1314,16 @@
         font-size: 1.3rem;
       }
 
+      /* Evita el zoom automático de Safari al enfocar controles. */
+      input,
+      select,
+      textarea,
+      input[type="date"],
+      input[type="search"],
+      input[type="number"] {
+        font-size: 16px;
+      }
+
       th, td {
         padding: 9px 10px;
       }
@@ -1318,7 +1331,7 @@
       button,
       .button,
       a.button {
-        min-height: 42px;
+        min-height: 44px;
         font-size: 14px;
       }
 
@@ -1336,7 +1349,6 @@
         align-items: stretch;
       }
 
-      .actions,
       .export-actions,
       .export-button-row,
       .dashboard-toolbar {
@@ -1346,14 +1358,63 @@
 
       button,
       .button,
-      a.button,
-      .nav-button {
+      a.button {
+        width: auto;
+      }
+
+      form > .actions,
+      .modal-actions,
+      .export-actions,
+      .export-button-row {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      form > .actions > button,
+      form > .actions > .button,
+      .modal-actions > button,
+      .modal-actions > .button,
+      .export-actions > button,
+      .export-actions > .button,
+      .export-button-row > button,
+      .export-button-row > .button {
         width: 100%;
       }
 
       .nav-buttons {
         width: 100%;
         border-radius: var(--radius-sm);
+      }
+
+      .nav-button {
+        width: auto;
+        min-height: 40px;
+      }
+
+      .table-wrap,
+      .upload-preview,
+      .audit-table-wrap,
+      .report-table-wrap {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .table-wrap:focus-visible,
+      .upload-preview:focus-visible,
+      .audit-table-wrap:focus-visible,
+      .report-table-wrap:focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 2px;
+      }
+
+      .toggle input[type="checkbox"],
+      .checkline input[type="checkbox"] {
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
       }
     }
 </style>

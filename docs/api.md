@@ -298,7 +298,7 @@ Respuesta:
 
 Lista productos visibles para el usuario autenticado.
 
-Cada item incluye también `location` cuando el producto tiene locación operativa registrada.
+Cada item incluye también `location`, `talla_requerida` y `talla` cuando el producto tiene esos datos operativos registrados.
 
 ### `GET /api/products/search?q=`
 
@@ -331,6 +331,8 @@ Payload:
   "name": "Producto API",
   "line": "Farmacia",
   "location": "Estante A-03",
+  "talla_requerida": true,
+  "talla": "M",
   "owner_user_id": 2,
   "quantity": 5,
   "sale_price": 25000,
@@ -345,6 +347,8 @@ Reglas:
 - `name` y `line` son obligatorios
 - `id` es opcional; si no lo envías, el backend genera un `id` visible tenant-scoped
 - `location` es opcional
+- `talla_requerida` es opcional y por defecto es `false`; cuando es `true`, `talla` es obligatoria
+- si `talla_requerida` es `false`, `talla` se ignora y se guarda vacía
 - `quantity` debe ser mayor a `0`
 - `owner_user_id` es opcional
 - `retoma_enabled=true` exige `retoma_price` válido

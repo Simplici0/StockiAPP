@@ -26,6 +26,14 @@
       padding: 8px 0;
     }
 
+    .topbar-mobile-toggle {
+      display: none;
+    }
+
+    .topbar-mobile-panel {
+      display: contents;
+    }
+
     /* Marca */
     .topbar-brand {
       display: flex;
@@ -456,34 +464,164 @@
     }
 
     @media (max-width: 767px) {
-      .topbar-admin-nav {
-        padding-right: 8px;
-      }
+      .topbar.topbar-hidden { transform: none; }
 
-      .topbar-nav {
-        overflow-x: auto;
-        overflow-y: visible;
-      }
+      body.mobile-navigation-open { overflow: hidden; }
 
       .topbar-inner {
-        min-height: 52px;
-        padding: 6px 0;
+        min-height: 60px;
+        padding: 8px 0;
+        justify-content: space-between;
       }
 
-      .topbar-name {
+      .topbar-brand {
+        padding-right: 0;
+        margin-right: auto;
+        border-right: 0;
+      }
+
+      .topbar-logo { width: 40px; height: 40px; }
+      .topbar-name { display: none; }
+
+      .topbar-mobile-toggle {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 12px;
+        border: 1px solid var(--border-strong);
+        background: var(--bg-card);
+        color: var(--secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: var(--shadow-xs);
+      }
+
+      .topbar-mobile-toggle-icon,
+      .topbar-mobile-toggle-icon::before,
+      .topbar-mobile-toggle-icon::after {
+        width: 18px;
+        height: 2px;
+        border-radius: 999px;
+        background: currentColor;
+        display: block;
+        transition: transform 160ms ease, opacity 160ms ease;
+      }
+
+      .topbar-mobile-toggle-icon { position: relative; }
+      .topbar-mobile-toggle-icon::before,
+      .topbar-mobile-toggle-icon::after {
+        content: "";
+        position: absolute;
+        left: 0;
+      }
+      .topbar-mobile-toggle-icon::before { top: -6px; }
+      .topbar-mobile-toggle-icon::after { top: 6px; }
+      .topbar.mobile-navigation-open .topbar-mobile-toggle-icon { background: transparent; }
+      .topbar.mobile-navigation-open .topbar-mobile-toggle-icon::before { transform: translateY(6px) rotate(45deg); }
+      .topbar.mobile-navigation-open .topbar-mobile-toggle-icon::after { transform: translateY(-6px) rotate(-45deg); }
+
+      .topbar-mobile-panel {
+        position: fixed;
+        top: calc(68px + env(safe-area-inset-top));
+        right: 8px;
+        left: 8px;
+        z-index: 110;
         display: none;
+        grid-template-columns: 1fr;
+        gap: 14px;
+        max-height: calc(100dvh - 84px - env(safe-area-inset-top));
+        padding: 14px;
+        overflow-y: auto;
+        border: 1px solid var(--border-strong);
+        border-radius: 18px;
+        background: var(--bg-nav-panel);
+        box-shadow: var(--shadow-md);
+      }
+
+      .topbar.mobile-navigation-open .topbar-mobile-panel {
+        display: grid;
+        animation: mobile-nav-in 160ms ease-out;
+      }
+
+      .topbar-nav,
+      .topbar-admin-nav {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding: 0;
+        margin: 0;
+        overflow: visible;
+      }
+
+      .topbar-nav { flex: none; }
+
+      .topbar-link,
+      .topbar-menu summary {
+        justify-content: flex-start;
+        min-height: 44px;
+        padding: 0 13px;
+        border-radius: 12px;
+        font-size: 14px;
+      }
+
+      .topbar-menu { width: 100%; }
+      .topbar-menu summary { width: 100%; }
+      .topbar-menu-caret { margin-left: auto; }
+
+      .topbar-menu-panel {
+        position: static;
+        min-width: 0;
+        margin-top: 6px;
+        padding: 6px;
+        border-radius: 12px;
+        box-shadow: none;
+      }
+
+      .topbar-menu-panel a,
+      .topbar-menu-panel button.menu-item {
+        min-height: 44px;
+        padding: 11px 12px;
+        font-size: 14px;
+      }
+
+      .topbar-user {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        padding: 12px 0 0;
+        border-top: 1px solid var(--border);
+        border-left: 0;
       }
 
       .topbar-username {
-        display: none;
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 13px;
       }
 
-      .topbar-menu-panel {
-        left: auto;
-        right: 0;
-        min-width: 200px;
+      .topbar-theme-toggle {
+        width: 52px;
+        min-width: 52px;
+        height: 44px;
       }
 
+      .topbar-logout {
+        min-height: 44px;
+        padding: 0 14px;
+        border-radius: 12px;
+        font-size: 13px;
+      }
+
+      @keyframes mobile-nav-in {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
     }
 </style>
 
@@ -500,10 +638,24 @@
             <span class="topbar-name">{{businessName .}}</span>
         </a>
 
+        <button
+            class="topbar-mobile-toggle"
+            type="button"
+            aria-controls="topbar-mobile-panel"
+            aria-expanded="false"
+            aria-label="Abrir navegación"
+        >
+            <span class="topbar-mobile-toggle-icon" aria-hidden="true"></span>
+        </button>
+
+        <div class="topbar-mobile-panel" id="topbar-mobile-panel">
         <nav class="topbar-nav" aria-label="Navegación principal">
             <a href="/inventario" class="topbar-link">Inventario</a>
             <a href="/dashboard" class="topbar-link">Dashboard</a>
             <a href="/clientes" class="topbar-link">Clientes</a>
+            {{if .CurrentUser}}{{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin") (eq .CurrentUser.Role "empleado")}}
+            <a href="/productos/etiquetas/masivas" class="topbar-link">Etiquetas</a>
+            {{end}}{{end}}
         </nav>
 
         <div class="topbar-admin-nav" aria-label="Menús administrativos">
@@ -578,19 +730,46 @@
             </form>
         </div>
         {{end}}
+        </div>
     </div>
 </header>
 <script>
     (function () {
         const themeToggle = document.getElementById("theme-toggle");
+        const topbar = document.querySelector(".topbar");
+        const mobileToggle = document.querySelector(".topbar-mobile-toggle");
+        const mobilePanel = document.getElementById("topbar-mobile-panel");
         const closeMenus = () => {
             document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
                 menu.open = false;
             });
         };
 
+        const closeMobileNavigation = () => {
+            if (!topbar) return;
+            topbar.classList.remove("mobile-navigation-open");
+            document.body.classList.remove("mobile-navigation-open");
+            mobileToggle?.setAttribute("aria-expanded", "false");
+            mobileToggle?.setAttribute("aria-label", "Abrir navegación");
+        };
+
+        const toggleMobileNavigation = () => {
+            if (!topbar || !mobileToggle) return;
+            const willOpen = !topbar.classList.contains("mobile-navigation-open");
+            topbar.classList.toggle("mobile-navigation-open", willOpen);
+            document.body.classList.toggle("mobile-navigation-open", willOpen);
+            mobileToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+            mobileToggle.setAttribute("aria-label", willOpen ? "Cerrar navegación" : "Abrir navegación");
+            if (!willOpen) closeMenus();
+        };
+
         closeMenus();
-        window.addEventListener("pageshow", closeMenus);
+        closeMobileNavigation();
+        window.addEventListener("pageshow", () => {
+            closeMenus();
+            closeMobileNavigation();
+        });
+        mobileToggle?.addEventListener("click", toggleMobileNavigation);
 
         const path = window.location.pathname;
         const directLinks = document.querySelectorAll(".topbar-link");
@@ -621,6 +800,13 @@
             document.querySelectorAll(".topbar-menu[open]").forEach((menu) => {
                 if (!menu.contains(event.target)) menu.open = false;
             });
+            if (
+                topbar?.classList.contains("mobile-navigation-open") &&
+                !mobilePanel?.contains(event.target) &&
+                !mobileToggle?.contains(event.target)
+            ) {
+                closeMobileNavigation();
+            }
         });
 
         document
@@ -628,11 +814,15 @@
             .forEach((link) => {
                 link.addEventListener("click", () => {
                     closeMenus();
+                    closeMobileNavigation();
                 });
             });
 
         document.addEventListener("keydown", (event) => {
-            if (event.key === "Escape") closeMenus();
+            if (event.key === "Escape") {
+                closeMenus();
+                closeMobileNavigation();
+            }
         });
 
         if (themeToggle && window.stockiTheme) {
@@ -665,7 +855,6 @@
         }
 
         // ── Hide on scroll ──
-        const topbar = document.querySelector(".topbar");
         const DEAD_ZONE = 80;
         let lastY = window.scrollY;
         let ticking = false;

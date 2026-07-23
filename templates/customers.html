@@ -334,6 +334,22 @@
             }
 
             @media (max-width: 640px) {
+                .customers-search-row {
+                    display: grid;
+                    grid-template-columns: 1fr;
+                }
+
+                .customers-search-row .field,
+                .customers-search-row .primary,
+                .customers-search-row .search-reset,
+                .customer-actions .button-link {
+                    width: 100%;
+                }
+
+                .customer-actions {
+                    align-items: stretch;
+                }
+
                 .customer-metrics {
                     grid-template-columns: 1fr;
                 }
@@ -443,7 +459,7 @@
                     <ul class="chk" id="customer-csv-validation-errors"></ul>
                 </div>
 
-                <div class="upload-preview">
+                <div class="upload-preview" tabindex="0" aria-label="Vista previa de clientes. Desliza horizontalmente para ver todas las columnas.">
                     <table class="customer-import-table">
                         <thead>
                             <tr>

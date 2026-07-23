@@ -625,6 +625,26 @@
                 .line-form-grid {
                     grid-template-columns: 1fr;
                 }
+
+                .tenant-control-row,
+                .tenant-control-row .actions {
+                    align-items: stretch;
+                }
+            }
+
+            @media (max-width: 640px) {
+                .tenant-control-row,
+                .tenant-control-row .actions {
+                    display: grid;
+                    grid-template-columns: 1fr;
+                    width: 100%;
+                }
+
+                .tenant-control-row .button,
+                .tenant-control-row button,
+                .tenant-control-row .actions form {
+                    width: 100%;
+                }
             }
         </style>
         {{template "app_styles" .}}
