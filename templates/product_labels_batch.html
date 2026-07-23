@@ -10,15 +10,69 @@
             .labels-intro { display: flex; gap: 16px; align-items: end; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
             .labels-intro h1 { margin: 0 0 6px; font-size: clamp(24px, 3vw, 32px); }
             .labels-intro p { max-width: 620px; margin: 0; color: var(--text-muted); }
+            .labels-notice { margin: 0; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-card-muted); color: var(--text); font-size: 14px; }
+            .labels-notice.error { border-color: #f0b7ae; color: #a93828; background: #fff7f5; }
+
+            .label-editor { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-card); overflow: hidden; }
+            .label-editor > summary { min-height: 64px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; list-style: none; cursor: pointer; }
+            .label-editor > summary::-webkit-details-marker { display: none; }
+            .label-editor-summary { display: grid; gap: 3px; }
+            .label-editor-summary strong { color: var(--text); }
+            .label-editor-summary span { color: var(--text-muted); font-size: 13px; }
+            .label-editor-chevron { color: var(--text-muted); font-size: 20px; transition: transform .16s ease; }
+            .label-editor[open] .label-editor-chevron { transform: rotate(45deg); }
+            .label-editor-body { padding: 18px 16px; border-top: 1px solid var(--border); background: var(--bg-card-muted); }
+            .label-editor-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: end; margin-bottom: 18px; }
+            .label-editor-picker label, .label-editor-fields label { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 750; }
+            .label-editor-picker select, .label-editor-fields input, .label-editor-fields select { min-height: 44px; }
+            .label-editor-picker p { margin: 0 0 12px; max-width: 420px; color: var(--text-muted); font-size: 13px; line-height: 1.4; }
+            .label-editor-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 310px); gap: 24px; align-items: start; padding-top: 18px; border-top: 1px solid var(--border); }
+            .label-editor-panel[hidden] { display: none; }
+            .label-editor-form { display: grid; gap: 16px; }
+            .label-editor-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+            .label-editor-head h2 { margin: 0; color: var(--text); font-size: 18px; }
+            .label-editor-default { padding: 4px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-strong); font-size: 11px; font-weight: 800; }
+            .label-editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .label-editor-fields .label-editor-full { grid-column: 1 / -1; }
+            .label-editor-options { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0; padding: 0; border: 0; }
+            .label-editor-options legend { width: 100%; margin-bottom: 4px; color: var(--text-muted); font-size: 12px; font-weight: 750; }
+            .label-editor-options .checkline { min-height: 32px; font-size: 13px; }
+            .label-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+            .label-editor-actions button { min-height: 42px; }
+            .label-editor-side-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+            .label-editor-side-actions form { margin: 0; }
+
+            .label-editor-preview { position: sticky; top: 14px; display: grid; gap: 10px; }
+            .label-editor-preview > strong { color: var(--text); font-size: 13px; }
+            .label-preview-stage { min-height: 250px; padding: 16px; display: grid; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: #edf1f5; overflow: hidden; }
+            .label-preview-sheet { width: min(100%, 250px); padding: 8px; display: grid; min-height: 0; overflow: hidden; border: 1px solid #aab4c2; border-radius: 4px; background: #fff; box-shadow: 0 8px 20px rgba(15, 23, 42, .1); }
+            .label-preview-label { min-width: 0; min-height: 0; height: 100%; padding: 6px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; border: 1px solid #d6dce5; color: #172033; background: #fff; }
+            .label-preview-business, .label-preview-meta, .label-preview-id, .label-preview-reference { overflow: hidden; font-size: 6px; font-weight: 800; line-height: 1.1; white-space: nowrap; text-overflow: ellipsis; }
+            .label-preview-business { letter-spacing: .06em; }
+            .label-preview-name { overflow: hidden; font-size: 8px; font-weight: 400; line-height: 1.1; }
+            .label-preview-price { display: flex; justify-content: space-between; gap: 4px; padding: 3px 0; border-top: 1px solid #172033; font-size: 6px; font-weight: 800; }
+            .label-preview-price strong { font-size: 8px; }
+            .label-preview-bars { min-height: 13px; flex: 1 1 13px; background: repeating-linear-gradient(90deg, #172033 0 2px, transparent 2px 3px, #172033 3px 4px, transparent 4px 6px); }
+            .label-preview-label.is-compact { display: grid; grid-template-columns: 46px minmax(0, 1fr); grid-template-rows: 30px 14px minmax(28px, 1fr) 18px; gap: 3px 5px; }
+            .label-preview-label.is-compact .label-preview-logo { grid-column: 1; grid-row: 1 / 4; justify-self: center; align-self: start; display: block; width: 35px; height: 35px; max-width: 35px; max-height: 35px; filter: grayscale(1) contrast(1.8) brightness(.7); object-fit: contain; }
+            .label-preview-label.is-compact .label-preview-business { grid-column: 1; grid-row: 1 / 4; align-self: start; text-align: center; }
+            .label-preview-label.is-compact .label-preview-price { grid-column: 2; grid-row: 4; padding: 0; border: 0; align-self: end; }
+            .label-preview-label.is-compact .label-preview-price > span { display: none; }
+            .label-preview-label.is-compact .label-preview-name { grid-column: 2; grid-row: 1; align-self: center; }
+            .label-preview-label.is-compact .label-preview-reference { grid-column: 2; grid-row: 2; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 8px; letter-spacing: .03em; }
+            .label-preview-label.is-compact .label-preview-meta, .label-preview-label.is-compact .label-preview-id { display: none; }
+            .label-preview-label.is-compact .label-preview-contact { grid-column: 1 / -1; grid-row: 4; box-sizing: border-box; padding-right: 54px; overflow: hidden; font-size: 8px; font-weight: 800; line-height: 1.1; white-space: nowrap; text-overflow: ellipsis; align-self: end; }
+            .label-preview-label.is-compact .label-preview-bars { grid-column: 2; grid-row: 3; min-height: 28px; }
+            .label-preview-meta-note { margin: 0; color: var(--text-muted); font-size: 12px; text-align: center; }
+
             .labels-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 24px; align-items: start; }
             .labels-controls { display: grid; gap: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
             .labels-controls h2 { margin: 0; font-size: 16px; }
-            .labels-control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-            .labels-control-grid label, .label-search { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
             .labels-product-list { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
             .labels-list-toolbar { display: flex; gap: 12px; align-items: end; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--border); background: var(--bg-card-muted); }
             .labels-list-toolbar .label-search { flex: 1 1 260px; }
             .labels-list-toolbar input { min-height: 42px; }
+            .label-search { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
             .labels-select-visible { min-height: 42px; white-space: nowrap; }
             .labels-product-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 78px; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
             .labels-product-row:last-child { border-bottom: 0; }
@@ -30,6 +84,7 @@
             .labels-copies { min-height: 42px; text-align: center; }
             .labels-summary { position: sticky; top: 14px; display: grid; gap: 16px; padding: 18px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-card); box-shadow: var(--shadow-xs); }
             .labels-summary h2 { margin: 0; font-size: 16px; }
+            .labels-summary label { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
             .labels-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
             .labels-metric { padding: 12px 0; border-bottom: 1px solid var(--border); }
             .labels-metric span { display: block; color: var(--text-muted); font-size: 12px; }
@@ -40,14 +95,14 @@
             .labels-output-actions .secondary { background: var(--bg-card-muted); border-color: var(--border-strong); color: var(--text); }
             .labels-status { min-height: 18px; margin: 0; color: var(--text-muted); font-size: 12px; }
             .labels-status.error { color: #b42318; font-weight: 700; }
-            @media (max-width: 860px) { .labels-layout { grid-template-columns: 1fr; } .labels-summary { position: static; } }
-            @media (max-width: 560px) { .labels-intro, .labels-list-toolbar { align-items: stretch; flex-direction: column; } .labels-control-grid { grid-template-columns: 1fr; } .labels-product-row { grid-template-columns: 28px minmax(0, 1fr) 66px; gap: 8px; padding-inline: 10px; } }
+            @media (max-width: 860px) { .labels-layout, .label-editor-panel { grid-template-columns: 1fr; } .labels-summary, .label-editor-preview { position: static; } }
+            @media (max-width: 560px) { .labels-intro, .labels-list-toolbar { align-items: stretch; flex-direction: column; } .label-editor-picker { grid-template-columns: 1fr; } .label-editor-picker p { margin: 0; } .label-editor-fields { grid-template-columns: 1fr; } .labels-product-row { grid-template-columns: 28px minmax(0, 1fr) 66px; gap: 8px; padding-inline: 10px; } }
         </style>
     </head>
     <body>
         {{template "header" .}}
         <main class="page-content">
-            <form id="labels-batch-form" class="labels-workspace" method="POST" action="/productos/etiquetas/lote" target="_blank">
+            <section class="labels-workspace">
                 <section class="labels-intro">
                     <div>
                         <h1>{{.Title}}</h1>
@@ -55,7 +110,97 @@
                     </div>
                 </section>
 
-                <section class="labels-layout">
+                {{if .Flash}}<p class="labels-notice">{{.Flash}}</p>{{end}}
+                {{if .Error}}<p class="labels-notice error">{{.Error}}</p>{{end}}
+
+                {{if .CanManageLabels}}
+                <details id="editor-de-etiquetas" class="label-editor">
+                    <summary>
+                        <span class="label-editor-summary"><strong>Editor de etiquetas</strong><span>Define tamaño, separación e información visible antes de imprimir.</span></span>
+                        <span class="label-editor-chevron" aria-hidden="true">+</span>
+                    </summary>
+                    <div class="label-editor-body">
+                        <div class="label-editor-picker">
+                            <label for="label-editor-profile">Perfil a editar
+                                <select id="label-editor-profile">
+                                    {{range .Profiles}}<option value="{{.ID}}" {{if eq $.DefaultProfileID .ID}}selected{{end}}>{{.Name}}{{if eq $.DefaultProfileID .ID}} · predeterminado{{end}}</option>{{end}}
+                                    <option value="new">Crear nuevo perfil…</option>
+                                </select>
+                            </label>
+                            <p>Solo se muestra el perfil seleccionado. La vista previa representa el tamaño, las columnas y las separaciones; el nombre del producto siempre se imprime.</p>
+                        </div>
+
+                        {{range .Profiles}}
+                        <article class="label-editor-panel" data-label-editor-panel="{{.ID}}" {{if ne $.DefaultProfileID .ID}}hidden{{end}}>
+                            <form method="POST" action="/configuracion/etiquetas/update" class="label-editor-form" data-label-profile-form>
+                                <input type="hidden" name="profile_id" value="{{.ID}}" />
+                                <div class="label-editor-head"><h2>{{.Name}}</h2>{{if eq $.DefaultProfileID .ID}}<span class="label-editor-default">Predeterminado</span>{{end}}</div>
+                                <div class="label-editor-fields">
+                                    <label class="label-editor-full">Nombre del perfil<input name="name" type="text" maxlength="80" value="{{.Name}}" required /></label>
+                                    <label>Ancho de cada etiqueta (mm)<input name="label_width_mm" type="number" min="20" max="120" value="{{.LabelWidthMM}}" required /></label>
+                                    <label>Alto de cada etiqueta (mm)<input name="label_height_mm" type="number" min="15" max="120" value="{{.LabelHeightMM}}" required /></label>
+                                    <label>Etiquetas por fila<select name="columns"><option value="1" {{if eq .Columns 1}}selected{{end}}>Una</option><option value="2" {{if eq .Columns 2}}selected{{end}}>Dos</option></select></label>
+                                    <label>Separación lateral (mm)<input name="column_gap_mm" type="number" min="0" max="10" value="{{.ColumnGapMM}}" required /></label>
+                                    <label>Separación vertical (mm)<input name="row_gap_mm" type="number" min="0" max="10" value="{{.RowGapMM}}" required /></label>
+                                </div>
+                                <fieldset class="label-editor-options">
+                                    <legend>Información visible</legend>
+                                    <label class="checkline"><input name="show_business" type="checkbox" {{if .ShowBusiness}}checked{{end}} /> Negocio</label>
+                                    <label class="checkline"><input name="show_contact" type="checkbox" {{if .ShowContact}}checked{{end}} /> Contacto</label>
+                                    <label class="checkline"><input name="show_size" type="checkbox" {{if .ShowSize}}checked{{end}} /> Talla si aplica</label>
+                                    <label class="checkline"><input name="show_price" type="checkbox" {{if .ShowPrice}}checked{{end}} /> Precio</label>
+                                    <label class="checkline"><input name="show_barcode" type="checkbox" {{if .ShowBarcode}}checked{{end}} /> Código de barras</label>
+                                    <label class="checkline"><input name="show_id" type="checkbox" {{if .ShowID}}checked{{end}} /> ID</label>
+                                </fieldset>
+                                <div class="label-editor-actions"><button class="primary" type="submit">Guardar cambios</button></div>
+                            </form>
+                            <aside class="label-editor-preview" aria-label="Vista previa del perfil">
+                                <strong>Vista previa</strong>
+                                <div class="label-preview-stage"><div class="label-preview-sheet" data-label-preview-sheet></div></div>
+                                <p class="label-preview-meta-note" data-label-preview-meta></p>
+                                {{if ne $.DefaultProfileID .ID}}
+                                <div class="label-editor-side-actions">
+                                    <form method="POST" action="/configuracion/etiquetas/default"><input type="hidden" name="profile_id" value="{{.ID}}" /><button class="secondary" type="submit">Usar como predeterminado</button></form>
+                                    <form method="POST" action="/configuracion/etiquetas/delete" onsubmit="return confirm('¿Eliminar este perfil de etiqueta?');"><input type="hidden" name="profile_id" value="{{.ID}}" /><button class="danger" type="submit">Eliminar</button></form>
+                                </div>
+                                {{end}}
+                            </aside>
+                        </article>
+                        {{end}}
+
+                        <article class="label-editor-panel" data-label-editor-panel="new" hidden>
+                            <form method="POST" action="/configuracion/etiquetas/create" class="label-editor-form" data-label-profile-form>
+                                <div class="label-editor-head"><h2>Nuevo perfil</h2></div>
+                                <div class="label-editor-fields">
+                                    <label class="label-editor-full">Nombre del perfil<input name="name" type="text" maxlength="80" placeholder="Ej.: Precio y código 60 × 40" required /></label>
+                                    <label>Ancho de cada etiqueta (mm)<input name="label_width_mm" type="number" min="20" max="120" value="58" required /></label>
+                                    <label>Alto de cada etiqueta (mm)<input name="label_height_mm" type="number" min="15" max="120" value="40" required /></label>
+                                    <label>Etiquetas por fila<select name="columns"><option value="1">Una</option><option value="2">Dos</option></select></label>
+                                    <label>Separación lateral (mm)<input name="column_gap_mm" type="number" min="0" max="10" value="0" required /></label>
+                                    <label>Separación vertical (mm)<input name="row_gap_mm" type="number" min="0" max="10" value="0" required /></label>
+                                </div>
+                                <fieldset class="label-editor-options">
+                                    <legend>Información visible</legend>
+                                    <label class="checkline"><input name="show_business" type="checkbox" checked /> Negocio</label>
+                                    <label class="checkline"><input name="show_contact" type="checkbox" /> Contacto</label>
+                                    <label class="checkline"><input name="show_size" type="checkbox" /> Talla si aplica</label>
+                                    <label class="checkline"><input name="show_price" type="checkbox" checked /> Precio</label>
+                                    <label class="checkline"><input name="show_barcode" type="checkbox" checked /> Código de barras</label>
+                                    <label class="checkline"><input name="show_id" type="checkbox" checked /> ID</label>
+                                </fieldset>
+                                <div class="label-editor-actions"><button class="primary" type="submit">Crear perfil</button></div>
+                            </form>
+                            <aside class="label-editor-preview" aria-label="Vista previa del nuevo perfil">
+                                <strong>Vista previa</strong>
+                                <div class="label-preview-stage"><div class="label-preview-sheet" data-label-preview-sheet></div></div>
+                                <p class="label-preview-meta-note" data-label-preview-meta></p>
+                            </aside>
+                        </article>
+                    </div>
+                </details>
+                {{end}}
+
+                <form id="labels-batch-form" class="labels-layout" method="POST" action="/productos/etiquetas/lote" target="_blank">
                     <div class="labels-product-list">
                         <div class="labels-list-toolbar">
                             <label class="label-search">Buscar producto
@@ -85,22 +230,12 @@
                             <p class="labels-hint">El documento respeta el tamaño físico. En el diálogo de impresión usa escala 100 % / tamaño real.</p>
                         </div>
                         <div class="labels-controls">
-                            <div class="labels-control-grid">
-                                <label for="label-size">Etiqueta
-                                    <select id="label-size" name="size">
-                                        {{range .SizeOptions}}<option value="{{.Value}}" {{if eq $.DefaultSize .Value}}selected{{end}}>{{.Label}}</option>{{end}}
-                                    </select>
-                                </label>
-                                <label for="label-columns">Formato
-                                    <select id="label-columns" name="columns">
-                                        <option value="1">Una por línea</option>
-                                        <option value="2">Dos por línea</option>
-                                    </select>
-                                </label>
-                            </div>
-                            <label for="label-gap">Separación entre columnas (mm)
-                                <input id="label-gap" name="gap_mm" type="number" min="0" max="10" value="{{.DefaultGapMM}}" />
+                            <label for="label-profile">Perfil de etiqueta
+                                <select id="label-profile" name="profile_id">
+                                    {{range .Profiles}}<option value="{{.ID}}" {{if eq $.DefaultProfileID .ID}}selected{{end}}>{{.Name}} · {{.LabelWidthMM}} × {{.LabelHeightMM}} mm{{if eq .Columns 2}} · doble{{end}}{{if gt .RowGapMM 0}} · V {{.RowGapMM}} mm{{end}}</option>{{end}}
+                                </select>
                             </label>
+                            {{if .CanManageLabels}}<p class="labels-hint">Puedes ajustar el perfil desde el editor de arriba.</p>{{else}}<p class="labels-hint">El perfil define tamaño, columnas y contenido.</p>{{end}}
                         </div>
                         <div class="labels-metrics">
                             <div class="labels-metric"><span>Seleccionados</span><strong id="label-selected-count">0</strong></div>
@@ -113,8 +248,8 @@
                         </div>
                         <p class="labels-hint">Máximo {{.MaxLabels}} etiquetas por lote y {{.MaxCopies}} copias por producto. El PDF no se guarda en el servidor.</p>
                     </aside>
-                </section>
-            </form>
+                </form>
+            </section>
         </main>
         <script>
             (() => {
@@ -145,11 +280,7 @@
                     const valid = total > 0 && total <= maxLabels;
                     actions.forEach((button) => { if (button) button.disabled = !valid; });
                     status.classList.toggle("error", total > maxLabels);
-                    status.textContent = total > maxLabels
-                        ? `El lote supera el máximo de ${maxLabels} etiquetas.`
-                        : total > 0
-                            ? `${total} etiqueta(s) preparada(s) para salida.`
-                            : "Selecciona productos para continuar.";
+                    status.textContent = total > maxLabels ? `El lote supera el máximo de ${maxLabels} etiquetas.` : total > 0 ? `${total} etiqueta(s) preparada(s) para salida.` : "Selecciona productos para continuar.";
                 };
                 rows.forEach((row) => {
                     row.querySelector(".label-product-check")?.addEventListener("change", sync);
@@ -165,6 +296,65 @@
                     visible.forEach((row) => { row.querySelector(".label-product-check").checked = shouldSelect; });
                     sync();
                 });
+
+                const previewMarkup = (values, compact) => {
+                    const meta = values.size ? 'Talla M' : '';
+                    if (compact) {
+                        const brand = values.business ? '{{if businessLogoPath .}}<img class="label-preview-logo" src="{{businessLogoPath .}}" alt="Logo del negocio" />{{else}}<span class="label-preview-business">MI NEGOCIO</span>{{end}}' : '';
+                        const reference = [values.id ? 'P-001' : '', meta].filter(Boolean).join(' · ');
+                        return `<div class="label-preview-label is-compact">${brand}<strong class="label-preview-name">Producto de ejemplo</strong>${reference ? `<span class="label-preview-reference">${reference}</span>` : ''}${values.price ? '<span class="label-preview-price"><span>PRECIO</span><strong>$ 50.000</strong></span>' : ''}${values.contact ? '<span class="label-preview-contact">Tel. 300 123 4567</span>' : ''}${values.barcode ? '<span class="label-preview-bars"></span>' : ''}</div>`;
+                    }
+                    const parts = [];
+                    if (values.business) parts.push('<span class="label-preview-business">MI NEGOCIO</span>');
+                    parts.push('<strong class="label-preview-name">Producto de ejemplo</strong>');
+                    if (values.contact) parts.push('<span class="label-preview-meta">Contacto</span>');
+                    if (meta) parts.push(`<span class="label-preview-meta">${meta}</span>`);
+                    if (values.price) parts.push('<span class="label-preview-price"><span>PRECIO</span><strong>$ 50.000</strong></span>');
+                    if (values.barcode) parts.push('<span class="label-preview-bars"></span>');
+                    if (values.id) parts.push('<span class="label-preview-id">P-001</span>');
+                    return `<div class="label-preview-label">${parts.join('')}</div>`;
+                };
+                const renderPreview = (form) => {
+                    const number = (name, fallback) => Math.max(0, Number.parseInt(form.elements[name]?.value, 10) || fallback);
+                    const width = Math.max(20, number("label_width_mm", 58));
+                    const height = Math.max(15, number("label_height_mm", 40));
+                    const columns = form.elements.columns?.value === "2" ? 2 : 1;
+                    const columnGap = Math.min(10, number("column_gap_mm", 0));
+                    const rowGap = Math.min(10, number("row_gap_mm", 0));
+                    const values = {
+                        business: form.elements.show_business?.checked,
+                        contact: form.elements.show_contact?.checked,
+                        size: form.elements.show_size?.checked,
+                        price: form.elements.show_price?.checked,
+                        barcode: form.elements.show_barcode?.checked,
+                        id: form.elements.show_id?.checked,
+                    };
+                    const sheet = form.closest(".label-editor-panel").querySelector("[data-label-preview-sheet]");
+                    const meta = form.closest(".label-editor-panel").querySelector("[data-label-preview-meta]");
+                    const unit = 2.2;
+                    sheet.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+                    sheet.style.gridTemplateRows = "repeat(2, minmax(0, 1fr))";
+                    sheet.style.columnGap = `${Math.max(5, columnGap * unit)}px`;
+                    sheet.style.rowGap = `${Math.max(5, rowGap * unit)}px`;
+                    sheet.style.aspectRatio = `${width * columns + columnGap * (columns - 1)} / ${height * 2 + rowGap}`;
+                    sheet.innerHTML = Array.from({ length: columns * 2 }, () => previewMarkup(values, height <= 30)).join("");
+                    meta.textContent = `${width} × ${height} mm · ${columns === 2 ? '2 por fila' : '1 por fila'} · lateral ${columnGap} mm · vertical ${rowGap} mm`;
+                };
+                const editorSelect = document.getElementById("label-editor-profile");
+                const panels = Array.from(document.querySelectorAll("[data-label-editor-panel]"));
+                const outputProfile = document.getElementById("label-profile");
+                const showEditorPanel = () => {
+                    if (!editorSelect) return;
+                    panels.forEach((panel) => { panel.hidden = panel.dataset.labelEditorPanel !== editorSelect.value; });
+                    if (outputProfile && editorSelect.value !== "new") outputProfile.value = editorSelect.value;
+                };
+                document.querySelectorAll("[data-label-profile-form]").forEach((form) => {
+                    form.addEventListener("input", () => renderPreview(form));
+                    form.addEventListener("change", () => renderPreview(form));
+                    renderPreview(form);
+                });
+                editorSelect?.addEventListener("change", showEditorPanel);
+                showEditorPanel();
                 sync();
             })();
         </script>

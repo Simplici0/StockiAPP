@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"image"
+	_ "image/jpeg"
 	"image/png"
 	"io"
 	"log"
@@ -112,29 +114,35 @@ type saleReceiptData struct {
 type productLabelItem struct {
 	ID             string
 	Name           string
+	Line           string
+	Size           string
 	Price          string
 	BarcodeDataURI template.URL
 }
 
 type productLabelsPageData struct {
-	Title         string
-	Subtitle      string
-	Size          string
-	WidthMM       int
-	HeightMM      int
-	PaperWidthMM  int
-	PaperHeightMM int
-	Columns       int
-	GapMM         int
-	PaperDPI      int
-	PaperClass    string
-	Items         []productLabelItem
-	Rows          [][]productLabelItem
-	AutoPrint     bool
-	CanLoan       bool
-	CanCredit     bool
-	CurrentUser   *User
-	Settings      BusinessSettings
+	Title              string
+	Subtitle           string
+	Size               string
+	WidthMM            int
+	HeightMM           int
+	PaperWidthMM       int
+	PaperHeightMM      int
+	Columns            int
+	GapMM              int
+	RowGapMM           int
+	PaperDPI           int
+	PaperClass         string
+	Items              []productLabelItem
+	Rows               [][]productLabelItem
+	AutoPrint          bool
+	CanLoan            bool
+	CanCredit          bool
+	CurrentUser        *User
+	Settings           BusinessSettings
+	ContactLine        string
+	CompactContactLine string
+	Profile            LabelProfile
 }
 
 type productLabelBatchProduct struct {
@@ -146,16 +154,21 @@ type productLabelBatchProduct struct {
 }
 
 type productLabelsBatchPageData struct {
-	Title        string
-	Subtitle     string
-	Products     []productLabelBatchProduct
-	DefaultSize  string
-	CurrentUser  *User
-	Settings     BusinessSettings
-	MaxLabels    int
-	MaxCopies    int
-	SizeOptions  []labelPaperOption
-	DefaultGapMM int
+	Title            string
+	Subtitle         string
+	Flash            string
+	Error            string
+	Products         []productLabelBatchProduct
+	DefaultSize      string // legacy template data retained for compatibility
+	DefaultProfileID int
+	Profiles         []LabelProfile
+	CanManageLabels  bool
+	CurrentUser      *User
+	Settings         BusinessSettings
+	MaxLabels        int
+	MaxCopies        int
+	SizeOptions      []labelPaperOption
+	DefaultGapMM     int
 }
 
 type labelPaperOption struct {
@@ -171,8 +184,42 @@ type labelPrintProfile struct {
 	PaperHeightMM int
 	Columns       int
 	GapMM         int
+	RowGapMM      int
 	DPI           int
 	PaperClass    string
+}
+
+// LabelProfile is a tenant-scoped, structured label layout. It intentionally
+// avoids free positioning so HTML and PDF output stay physically predictable.
+type LabelProfile struct {
+	ID            int
+	TenantID      int
+	Name          string
+	LabelWidthMM  int
+	LabelHeightMM int
+	Columns       int
+	ColumnGapMM   int
+	RowGapMM      int
+	ShowBusiness  bool
+	ShowContact   bool
+	ShowLine      bool
+	ShowSize      bool
+	ShowPrice     bool
+	ShowBarcode   bool
+	ShowID        bool
+	CreatedAt     string
+	UpdatedAt     string
+}
+
+func (p LabelProfile) paperWidthMM() int {
+	if p.Columns == 2 {
+		return p.LabelWidthMM*2 + p.ColumnGapMM
+	}
+	return p.LabelWidthMM
+}
+
+func (p LabelProfile) paperHeightMM() int {
+	return p.LabelHeightMM + p.RowGapMM
 }
 
 type invoiceItemData struct {
@@ -609,16 +656,20 @@ type productIdentityRecord struct {
 }
 
 type BusinessSettings struct {
-	ID                int
-	BusinessName      string
-	LogoPath          string
-	PrimaryColor      string
-	Currency          string
-	DateFormat        string
-	LabelPaperWidth   string
-	InvoicePaperWidth string
-	TicketPaperWidth  string
-	UpdatedAt         string
+	ID                    int
+	BusinessName          string
+	LogoPath              string
+	ContactPhone          string
+	ContactEmail          string
+	SocialMedia           string
+	PrimaryColor          string
+	Currency              string
+	DateFormat            string
+	LabelPaperWidth       string
+	DefaultLabelProfileID int
+	InvoicePaperWidth     string
+	TicketPaperWidth      string
+	UpdatedAt             string
 }
 
 type BusinessLine struct {
@@ -1021,6 +1072,9 @@ func defaultBusinessSettings() BusinessSettings {
 		ID:                1,
 		BusinessName:      "Stocki App",
 		LogoPath:          "/static/img/logo1.svg",
+		ContactPhone:      "",
+		ContactEmail:      "",
+		SocialMedia:       "",
 		PrimaryColor:      "#0ea5c9",
 		Currency:          "COP",
 		DateFormat:        "2006-01-02",
@@ -8427,6 +8481,9 @@ func normalizeBusinessSettings(settings BusinessSettings) BusinessSettings {
 	if settings.LogoPath == "" {
 		settings.LogoPath = defaults.LogoPath
 	}
+	settings.ContactPhone = strings.TrimSpace(settings.ContactPhone)
+	settings.ContactEmail = strings.TrimSpace(settings.ContactEmail)
+	settings.SocialMedia = strings.TrimSpace(settings.SocialMedia)
 	settings.PrimaryColor = normalizeHexColor(settings.PrimaryColor, defaults.PrimaryColor)
 	settings.Currency = normalizeCurrency(settings.Currency)
 	settings.DateFormat = normalizeDateFormat(settings.DateFormat)
@@ -8594,10 +8651,17 @@ func loadBusinessSettingsForTenant(db *sql.DB, tenantID int) (BusinessSettings, 
 		return BusinessSettings{}, err
 	}
 	labelExpr := "'58mm'"
+	defaultLabelProfileExpr := "0"
 	invoiceExpr := "'58mm'"
 	ticketExpr := "'58mm'"
+	contactPhoneExpr := "''"
+	contactEmailExpr := "''"
+	socialMediaExpr := "''"
 	if cols["label_paper_width"] {
 		labelExpr = "label_paper_width"
+	}
+	if cols["default_label_profile_id"] {
+		defaultLabelProfileExpr = "default_label_profile_id"
 	}
 	if cols["invoice_paper_width"] {
 		invoiceExpr = "invoice_paper_width"
@@ -8605,16 +8669,25 @@ func loadBusinessSettingsForTenant(db *sql.DB, tenantID int) (BusinessSettings, 
 	if cols["ticket_paper_width"] {
 		ticketExpr = "ticket_paper_width"
 	}
+	if cols["contact_phone"] {
+		contactPhoneExpr = "contact_phone"
+	}
+	if cols["contact_email"] {
+		contactEmailExpr = "contact_email"
+	}
+	if cols["social_media"] {
+		socialMediaExpr = "social_media"
+	}
 	query := fmt.Sprintf(`
-		SELECT id, business_name, logo_path, primary_color, currency, date_format, %s AS label_paper_width, %s AS invoice_paper_width, %s AS ticket_paper_width, updated_at
+		SELECT id, business_name, logo_path, %s AS contact_phone, %s AS contact_email, %s AS social_media, primary_color, currency, date_format, %s AS label_paper_width, %s AS default_label_profile_id, %s AS invoice_paper_width, %s AS ticket_paper_width, updated_at
 		FROM business_settings
 		WHERE tenant_id = ?
 		ORDER BY id ASC
 		LIMIT 1
-	`, labelExpr, invoiceExpr, ticketExpr)
+	`, contactPhoneExpr, contactEmailExpr, socialMediaExpr, labelExpr, defaultLabelProfileExpr, invoiceExpr, ticketExpr)
 	row := db.QueryRow(query, normalizeTenantID(tenantID))
 	var updatedAt sql.NullString
-	err = row.Scan(&settings.ID, &settings.BusinessName, &settings.LogoPath, &settings.PrimaryColor, &settings.Currency, &settings.DateFormat, &settings.LabelPaperWidth, &settings.InvoicePaperWidth, &settings.TicketPaperWidth, &updatedAt)
+	err = row.Scan(&settings.ID, &settings.BusinessName, &settings.LogoPath, &settings.ContactPhone, &settings.ContactEmail, &settings.SocialMedia, &settings.PrimaryColor, &settings.Currency, &settings.DateFormat, &settings.LabelPaperWidth, &settings.DefaultLabelProfileID, &settings.InvoicePaperWidth, &settings.TicketPaperWidth, &updatedAt)
 	if err == sql.ErrNoRows {
 		return normalizeBusinessSettings(settings), nil
 	}
@@ -8651,6 +8724,11 @@ func saveBusinessSettingsForTenant(db *sql.DB, tenantID int, settings BusinessSe
 		args = append(args, settings.LabelPaperWidth)
 		updateCols = append(updateCols, "label_paper_width = excluded.label_paper_width")
 	}
+	if cols["default_label_profile_id"] {
+		insertCols = append(insertCols, "default_label_profile_id")
+		args = append(args, settings.DefaultLabelProfileID)
+		updateCols = append(updateCols, "default_label_profile_id = excluded.default_label_profile_id")
+	}
 	if cols["invoice_paper_width"] {
 		insertCols = append(insertCols, "invoice_paper_width")
 		args = append(args, settings.InvoicePaperWidth)
@@ -8660,6 +8738,21 @@ func saveBusinessSettingsForTenant(db *sql.DB, tenantID int, settings BusinessSe
 		insertCols = append(insertCols, "ticket_paper_width")
 		args = append(args, settings.TicketPaperWidth)
 		updateCols = append(updateCols, "ticket_paper_width = excluded.ticket_paper_width")
+	}
+	if cols["contact_phone"] {
+		insertCols = append(insertCols, "contact_phone")
+		args = append(args, settings.ContactPhone)
+		updateCols = append(updateCols, "contact_phone = excluded.contact_phone")
+	}
+	if cols["contact_email"] {
+		insertCols = append(insertCols, "contact_email")
+		args = append(args, settings.ContactEmail)
+		updateCols = append(updateCols, "contact_email = excluded.contact_email")
+	}
+	if cols["social_media"] {
+		insertCols = append(insertCols, "social_media")
+		args = append(args, settings.SocialMedia)
+		updateCols = append(updateCols, "social_media = excluded.social_media")
 	}
 	placeholders := make([]string, 0, len(insertCols))
 	for range insertCols {
@@ -9206,9 +9299,300 @@ func labelPrintProfileFor(size string, columns, gapMM int) labelPrintProfile {
 		PaperHeightMM: labelHeightMM,
 		Columns:       columns,
 		GapMM:         gapMM,
+		RowGapMM:      0,
 		DPI:           dpi,
 		PaperClass:    paperClass,
 	}
+}
+
+func labelPrintProfileFromProfile(profile LabelProfile) labelPrintProfile {
+	profile = normalizeLabelProfile(profile)
+	paperClass := "standard"
+	if profile.LabelHeightMM <= 30 {
+		paperClass = "compact"
+	} else if profile.LabelWidthMM >= 80 {
+		paperClass = "wide"
+	}
+	return labelPrintProfile{
+		Size:          fmt.Sprintf("%dx%d", profile.LabelWidthMM, profile.LabelHeightMM),
+		LabelWidthMM:  profile.LabelWidthMM,
+		LabelHeightMM: profile.LabelHeightMM,
+		PaperWidthMM:  profile.paperWidthMM(),
+		PaperHeightMM: profile.paperHeightMM(),
+		Columns:       profile.Columns,
+		GapMM:         profile.ColumnGapMM,
+		RowGapMM:      profile.RowGapMM,
+		DPI:           203,
+		PaperClass:    paperClass,
+	}
+}
+
+func defaultLabelProfileSpecs() []LabelProfile {
+	return []LabelProfile{
+		{Name: "Compacta 57 × 30", LabelWidthMM: 57, LabelHeightMM: 30, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true},
+		{Name: "Estándar 58 × 40", LabelWidthMM: 58, LabelHeightMM: 40, Columns: 1, ShowBusiness: true, ShowContact: true, ShowPrice: true, ShowBarcode: true, ShowID: true},
+		{Name: "Amplia 80 × 50", LabelWidthMM: 80, LabelHeightMM: 50, Columns: 1, ShowBusiness: true, ShowContact: true, ShowSize: true, ShowPrice: true, ShowBarcode: true, ShowID: true},
+	}
+}
+
+func normalizeLabelProfile(profile LabelProfile) LabelProfile {
+	profile.Name = strings.TrimSpace(profile.Name)
+	if profile.Name == "" {
+		profile.Name = "Etiqueta"
+	}
+	if profile.LabelWidthMM < 20 || profile.LabelWidthMM > 120 {
+		profile.LabelWidthMM = 58
+	}
+	if profile.LabelHeightMM < 15 || profile.LabelHeightMM > 120 {
+		profile.LabelHeightMM = 40
+	}
+	if profile.Columns != 2 {
+		profile.Columns = 1
+	}
+	if profile.ColumnGapMM < 0 || profile.ColumnGapMM > 10 {
+		profile.ColumnGapMM = 0
+	}
+	if profile.RowGapMM < 0 || profile.RowGapMM > 10 {
+		profile.RowGapMM = 0
+	}
+	// "Línea" remains inventory metadata, but it is no longer part of the
+	// label editor or printable layout. Keep the persisted column untouched so
+	// existing profiles and API contracts remain compatible.
+	profile.ShowLine = false
+	// The product name is deliberately fixed: a label without it is not useful
+	// in day-to-day inventory operation.
+	return profile
+}
+
+func loadLabelProfilesForTenant(db *sql.DB, tenantID int) ([]LabelProfile, error) {
+	rows, err := db.Query(`
+		SELECT id, tenant_id, name, label_width_mm, label_height_mm, columns, column_gap_mm, row_gap_mm,
+			show_business, show_contact, show_line, show_size, show_price, show_barcode, show_id,
+			created_at, updated_at
+		FROM label_profiles
+		WHERE tenant_id = ?
+		ORDER BY id ASC
+	`, normalizeTenantID(tenantID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	profiles := make([]LabelProfile, 0)
+	for rows.Next() {
+		var (
+			profile                                                                       LabelProfile
+			showBusiness, showContact, showLine, showSize, showPrice, showBarcode, showID int
+		)
+		if err := rows.Scan(&profile.ID, &profile.TenantID, &profile.Name, &profile.LabelWidthMM, &profile.LabelHeightMM, &profile.Columns, &profile.ColumnGapMM, &profile.RowGapMM,
+			&showBusiness, &showContact, &showLine, &showSize, &showPrice, &showBarcode, &showID,
+			&profile.CreatedAt, &profile.UpdatedAt); err != nil {
+			return nil, err
+		}
+		profile.ShowBusiness = showBusiness != 0
+		profile.ShowContact = showContact != 0
+		profile.ShowLine = showLine != 0
+		profile.ShowSize = showSize != 0
+		profile.ShowPrice = showPrice != 0
+		profile.ShowBarcode = showBarcode != 0
+		profile.ShowID = showID != 0
+		profiles = append(profiles, normalizeLabelProfile(profile))
+	}
+	return profiles, rows.Err()
+}
+
+func ensureLabelProfilesForTenant(db *sql.DB, tenantID int, legacySize string) ([]LabelProfile, int, error) {
+	tenantID = normalizeTenantID(tenantID)
+	profiles, err := loadLabelProfilesForTenant(db, tenantID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(profiles) == 0 {
+		now := time.Now().Format(time.RFC3339)
+		for _, spec := range defaultLabelProfileSpecs() {
+			spec = normalizeLabelProfile(spec)
+			if _, err := db.Exec(`
+				INSERT INTO label_profiles (
+					tenant_id, name, label_width_mm, label_height_mm, columns, column_gap_mm, row_gap_mm,
+					show_business, show_contact, show_line, show_size, show_price, show_barcode, show_id,
+					created_at, updated_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT (tenant_id, name) DO NOTHING
+			`, tenantID, spec.Name, spec.LabelWidthMM, spec.LabelHeightMM, spec.Columns, spec.ColumnGapMM, spec.RowGapMM,
+				boolToInt(spec.ShowBusiness), boolToInt(spec.ShowContact), boolToInt(spec.ShowLine), boolToInt(spec.ShowSize), boolToInt(spec.ShowPrice), boolToInt(spec.ShowBarcode), boolToInt(spec.ShowID), now, now); err != nil {
+				return nil, 0, err
+			}
+		}
+		profiles, err = loadLabelProfilesForTenant(db, tenantID)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	if len(profiles) == 0 {
+		return nil, 0, fmt.Errorf("no se pudieron preparar perfiles de etiqueta")
+	}
+	defaultID := 0
+	if err := db.QueryRow(`SELECT COALESCE(default_label_profile_id, 0) FROM business_settings WHERE tenant_id = ?`, tenantID).Scan(&defaultID); err != nil && err != sql.ErrNoRows {
+		return nil, 0, err
+	}
+	validDefault := false
+	for _, profile := range profiles {
+		if profile.ID == defaultID {
+			validDefault = true
+			break
+		}
+	}
+	if !validDefault {
+		_, widthMM, heightMM := labelSizeDimensions(legacySize)
+		defaultID = profiles[0].ID
+		for _, profile := range profiles {
+			if profile.Columns == 1 && profile.LabelWidthMM == widthMM && profile.LabelHeightMM == heightMM {
+				defaultID = profile.ID
+				break
+			}
+		}
+		if _, err := db.Exec(`UPDATE business_settings SET default_label_profile_id = ?, updated_at = ? WHERE tenant_id = ?`, defaultID, time.Now().Format(time.RFC3339), tenantID); err != nil {
+			return nil, 0, err
+		}
+	}
+	return profiles, defaultID, nil
+}
+
+func labelProfileForTenant(db *sql.DB, tenantID int, defaultLegacySize, requestedLegacySize string, requestedID int) (LabelProfile, error) {
+	profiles, defaultID, err := ensureLabelProfilesForTenant(db, tenantID, defaultLegacySize)
+	if err != nil {
+		return LabelProfile{}, err
+	}
+	if requestedID > 0 {
+		for _, profile := range profiles {
+			if profile.ID == requestedID {
+				return profile, nil
+			}
+		}
+		return LabelProfile{}, requestError{Status: http.StatusNotFound, Message: "El perfil de etiqueta no existe."}
+	}
+	if strings.TrimSpace(requestedLegacySize) != "" {
+		_, widthMM, heightMM := labelSizeDimensions(requestedLegacySize)
+		for _, profile := range profiles {
+			if profile.Columns == 1 && profile.LabelWidthMM == widthMM && profile.LabelHeightMM == heightMM {
+				return profile, nil
+			}
+		}
+	}
+	for _, profile := range profiles {
+		if profile.ID == defaultID {
+			return profile, nil
+		}
+	}
+	return profiles[0], nil
+}
+
+func labelProfileFromForm(r *http.Request) (LabelProfile, error) {
+	parseBounded := func(field string, minValue, maxValue int) (int, error) {
+		value, err := strconv.Atoi(strings.TrimSpace(r.FormValue(field)))
+		if err != nil || value < minValue || value > maxValue {
+			return 0, requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("%s debe estar entre %d y %d.", field, minValue, maxValue)}
+		}
+		return value, nil
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" || len([]rune(name)) > 80 {
+		return LabelProfile{}, requestError{Status: http.StatusBadRequest, Message: "El nombre del perfil debe tener entre 1 y 80 caracteres."}
+	}
+	widthMM, err := parseBounded("label_width_mm", 20, 120)
+	if err != nil {
+		return LabelProfile{}, err
+	}
+	heightMM, err := parseBounded("label_height_mm", 15, 120)
+	if err != nil {
+		return LabelProfile{}, err
+	}
+	columns, err := parseBounded("columns", 1, 2)
+	if err != nil {
+		return LabelProfile{}, err
+	}
+	gapMM, err := parseBounded("column_gap_mm", 0, 10)
+	if err != nil {
+		return LabelProfile{}, err
+	}
+	rowGapMM := 0
+	if strings.TrimSpace(r.FormValue("row_gap_mm")) != "" {
+		rowGapMM, err = parseBounded("row_gap_mm", 0, 10)
+		if err != nil {
+			return LabelProfile{}, err
+		}
+	}
+	return LabelProfile{
+		Name:          name,
+		LabelWidthMM:  widthMM,
+		LabelHeightMM: heightMM,
+		Columns:       columns,
+		ColumnGapMM:   gapMM,
+		RowGapMM:      rowGapMM,
+		ShowBusiness:  r.FormValue("show_business") == "on",
+		ShowContact:   r.FormValue("show_contact") == "on",
+		ShowLine:      false,
+		ShowSize:      r.FormValue("show_size") == "on",
+		ShowPrice:     r.FormValue("show_price") == "on",
+		ShowBarcode:   r.FormValue("show_barcode") == "on",
+		ShowID:        r.FormValue("show_id") == "on",
+	}, nil
+}
+
+func labelProfileByIDForTenant(db *sql.DB, tenantID, profileID int) (LabelProfile, error) {
+	profiles, err := loadLabelProfilesForTenant(db, tenantID)
+	if err != nil {
+		return LabelProfile{}, err
+	}
+	for _, profile := range profiles {
+		if profile.ID == profileID {
+			return profile, nil
+		}
+	}
+	return LabelProfile{}, requestError{Status: http.StatusNotFound, Message: "El perfil de etiqueta no existe."}
+}
+
+func createLabelProfileForTenant(db *sql.DB, tenantID int, profile LabelProfile) (LabelProfile, error) {
+	profile = normalizeLabelProfile(profile)
+	tenantID = normalizeTenantID(tenantID)
+	now := time.Now().Format(time.RFC3339)
+	err := db.QueryRow(`
+		INSERT INTO label_profiles (
+			tenant_id, name, label_width_mm, label_height_mm, columns, column_gap_mm, row_gap_mm,
+			show_business, show_contact, show_line, show_size, show_price, show_barcode, show_id,
+			created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id
+	`, tenantID, profile.Name, profile.LabelWidthMM, profile.LabelHeightMM, profile.Columns, profile.ColumnGapMM, profile.RowGapMM,
+		boolToInt(profile.ShowBusiness), boolToInt(profile.ShowContact), boolToInt(profile.ShowLine), boolToInt(profile.ShowSize), boolToInt(profile.ShowPrice), boolToInt(profile.ShowBarcode), boolToInt(profile.ShowID), now, now).Scan(&profile.ID)
+	if err != nil {
+		return LabelProfile{}, err
+	}
+	profile.TenantID = tenantID
+	profile.CreatedAt = now
+	profile.UpdatedAt = now
+	return profile, nil
+}
+
+func updateLabelProfileForTenant(db *sql.DB, tenantID, profileID int, profile LabelProfile) error {
+	profile = normalizeLabelProfile(profile)
+	result, err := db.Exec(`
+		UPDATE label_profiles
+		SET name = ?, label_width_mm = ?, label_height_mm = ?, columns = ?, column_gap_mm = ?, row_gap_mm = ?,
+			show_business = ?, show_contact = ?, show_line = ?, show_size = ?, show_price = ?, show_barcode = ?, show_id = ?, updated_at = ?
+		WHERE tenant_id = ? AND id = ?
+	`, profile.Name, profile.LabelWidthMM, profile.LabelHeightMM, profile.Columns, profile.ColumnGapMM, profile.RowGapMM,
+		boolToInt(profile.ShowBusiness), boolToInt(profile.ShowContact), boolToInt(profile.ShowLine), boolToInt(profile.ShowSize), boolToInt(profile.ShowPrice), boolToInt(profile.ShowBarcode), boolToInt(profile.ShowID), time.Now().Format(time.RFC3339), normalizeTenantID(tenantID), profileID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return requestError{Status: http.StatusNotFound, Message: "El perfil de etiqueta no existe."}
+	}
+	return nil
 }
 
 func labelRows(items []productLabelItem, columns int) [][]productLabelItem {
@@ -9226,23 +9610,71 @@ func labelRows(items []productLabelItem, columns int) [][]productLabelItem {
 	return rows
 }
 
-func productLabelsPageDataFor(items []productLabelItem, profile labelPrintProfile, currentUser *User, settings BusinessSettings) productLabelsPageData {
-	return productLabelsPageData{
-		Title:         "Etiquetas de producto",
-		Subtitle:      "Documento preparado para impresión térmica y PDF.",
-		Size:          profile.Size,
-		WidthMM:       profile.LabelWidthMM,
-		HeightMM:      profile.LabelHeightMM,
-		PaperWidthMM:  profile.PaperWidthMM,
-		PaperHeightMM: profile.PaperHeightMM,
+func businessContactLine(settings BusinessSettings) string {
+	parts := make([]string, 0, 3)
+	if phone := strings.TrimSpace(settings.ContactPhone); phone != "" {
+		parts = append(parts, "Tel. "+phone)
+	}
+	if email := strings.TrimSpace(settings.ContactEmail); email != "" {
+		parts = append(parts, email)
+	}
+	if social := strings.TrimSpace(settings.SocialMedia); social != "" {
+		parts = append(parts, social)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// compactLabelContactLine reserves the narrow left column of a small thermal
+// label for the most actionable contact method. The full contact line remains
+// available on larger profiles.
+func compactLabelContactLine(settings BusinessSettings) string {
+	if phone := strings.TrimSpace(settings.ContactPhone); phone != "" {
+		return "Tel. " + phone
+	}
+	return businessContactLine(settings)
+}
+
+func legacyLabelProfile(profile labelPrintProfile) LabelProfile {
+	return normalizeLabelProfile(LabelProfile{
+		Name:          "Etiqueta",
+		LabelWidthMM:  profile.LabelWidthMM,
+		LabelHeightMM: profile.LabelHeightMM,
 		Columns:       profile.Columns,
-		GapMM:         profile.GapMM,
-		PaperDPI:      profile.DPI,
-		PaperClass:    profile.PaperClass,
-		Items:         items,
-		Rows:          labelRows(items, profile.Columns),
-		CurrentUser:   currentUser,
-		Settings:      settings,
+		ColumnGapMM:   profile.GapMM,
+		RowGapMM:      profile.RowGapMM,
+		ShowBusiness:  true,
+		ShowContact:   true,
+		ShowPrice:     true,
+		ShowBarcode:   true,
+		ShowID:        true,
+	})
+}
+
+func productLabelsPageDataFor(items []productLabelItem, profile labelPrintProfile, currentUser *User, settings BusinessSettings) productLabelsPageData {
+	return productLabelsPageDataForProfile(items, profile, legacyLabelProfile(profile), currentUser, settings)
+}
+
+func productLabelsPageDataForProfile(items []productLabelItem, profile labelPrintProfile, labelProfile LabelProfile, currentUser *User, settings BusinessSettings) productLabelsPageData {
+	return productLabelsPageData{
+		Title:              "Etiquetas de producto",
+		Subtitle:           "Documento preparado para impresión térmica y PDF.",
+		Size:               profile.Size,
+		WidthMM:            profile.LabelWidthMM,
+		HeightMM:           profile.LabelHeightMM,
+		PaperWidthMM:       profile.PaperWidthMM,
+		PaperHeightMM:      profile.PaperHeightMM,
+		Columns:            profile.Columns,
+		GapMM:              profile.GapMM,
+		RowGapMM:           profile.RowGapMM,
+		PaperDPI:           profile.DPI,
+		PaperClass:         profile.PaperClass,
+		Items:              items,
+		Rows:               labelRows(items, profile.Columns),
+		CurrentUser:        currentUser,
+		Settings:           settings,
+		ContactLine:        businessContactLine(settings),
+		CompactContactLine: compactLabelContactLine(settings),
+		Profile:            normalizeLabelProfile(labelProfile),
 	}
 }
 
@@ -9347,11 +9779,31 @@ func pdfEscapeText(raw string) string {
 }
 
 func pdfTextLine(buffer *bytes.Buffer, x, y, size float64, value string) {
+	pdfTextLineWithFont(buffer, "F1", x, y, size, value)
+}
+
+func pdfTextLineWithFont(buffer *bytes.Buffer, fontName string, x, y, size float64, value string) {
 	value = pdfEscapeText(value)
 	if value == "" {
 		return
 	}
-	fmt.Fprintf(buffer, "BT /F1 %.2f Tf 0 g 1 0 0 1 %.2f %.2f Tm (%s) Tj ET\n", size, x, y, value)
+	fmt.Fprintf(buffer, "BT /%s %.2f Tf 0 g 1 0 0 1 %.2f %.2f Tm (%s) Tj ET\n", fontName, size, x, y, value)
+}
+
+func pdfTruncateLabelText(value string, maxRunes int) string {
+	value = strings.TrimSpace(value)
+	if maxRunes < 1 || utf8.RuneCountInString(value) <= maxRunes {
+		return value
+	}
+	runes := []rune(value)
+	if maxRunes <= 3 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-3]) + "..."
+}
+
+func pdfApproxTextWidth(value string, size float64) float64 {
+	return float64(utf8.RuneCountInString(pdfEscapeText(value))) * size * 0.56
 }
 
 func pdfLabelNameLines(name string, maxRunes int) []string {
@@ -9397,6 +9849,31 @@ func decodeLabelPDFImage(uri template.URL) (labelPDFImage, error) {
 	if err != nil {
 		return labelPDFImage{}, err
 	}
+	return labelPDFImageFromDecoded(decoded)
+}
+
+func labelPDFImageFromStaticPath(rawPath string) (labelPDFImage, error) {
+	rawPath = strings.TrimSpace(rawPath)
+	if !strings.HasPrefix(rawPath, "/static/") {
+		return labelPDFImage{}, fmt.Errorf("logo de etiqueta fuera de archivos estáticos")
+	}
+	relativePath := filepath.Clean(strings.TrimPrefix(rawPath, "/static/"))
+	if relativePath == "." || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return labelPDFImage{}, fmt.Errorf("ruta de logo de etiqueta inválida")
+	}
+	file, err := os.Open(filepath.Join("static", relativePath))
+	if err != nil {
+		return labelPDFImage{}, err
+	}
+	defer file.Close()
+	decoded, _, err := image.Decode(file)
+	if err != nil {
+		return labelPDFImage{}, err
+	}
+	return labelPDFImageFromDecoded(decoded)
+}
+
+func labelPDFImageFromDecoded(decoded image.Image) (labelPDFImage, error) {
 	bounds := decoded.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
 	if width <= 0 || height <= 0 {
@@ -9436,75 +9913,185 @@ func labelPDFStreamObject(content []byte) []byte {
 }
 
 func productLabelsPDF(items []productLabelItem, profile labelPrintProfile, businessName string) ([]byte, error) {
+	return productLabelsPDFWithSettings(items, profile, BusinessSettings{BusinessName: businessName})
+}
+
+func productLabelsPDFWithSettings(items []productLabelItem, profile labelPrintProfile, settings BusinessSettings) ([]byte, error) {
+	return productLabelsPDFWithSettingsAndProfile(items, profile, legacyLabelProfile(profile), settings)
+}
+
+func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile labelPrintProfile, labelProfile LabelProfile, settings BusinessSettings) ([]byte, error) {
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no hay etiquetas para exportar")
 	}
+	settings = normalizeBusinessSettings(settings)
+	labelProfile = normalizeLabelProfile(labelProfile)
+	businessName := settings.BusinessName
+	contactLine := businessContactLine(settings)
+	compactContactLine := compactLabelContactLine(settings)
 	writer := &labelPDFWriter{}
 	catalogID := writer.addObject(nil)
 	pagesID := writer.addObject(nil)
 	fontID := writer.addObject([]byte("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"))
+	fontBoldID := writer.addObject([]byte("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"))
 	imageIDs := make(map[string]int, len(items))
-	for _, item := range items {
-		if _, exists := imageIDs[item.ID]; exists {
-			continue
+	logoImageID := 0
+	var logoImage labelPDFImage
+	if labelProfile.ShowBusiness && profile.LabelHeightMM <= 30 {
+		if image, err := labelPDFImageFromStaticPath(settings.LogoPath); err == nil {
+			logoImage = image
+			logoImageID = writer.addObject(labelPDFImageObject(image))
 		}
-		image, err := decodeLabelPDFImage(item.BarcodeDataURI)
-		if err != nil {
-			return nil, err
+	}
+	if labelProfile.ShowBarcode {
+		for _, item := range items {
+			if _, exists := imageIDs[item.ID]; exists {
+				continue
+			}
+			image, err := decodeLabelPDFImage(item.BarcodeDataURI)
+			if err != nil {
+				return nil, err
+			}
+			imageIDs[item.ID] = writer.addObject(labelPDFImageObject(image))
 		}
-		imageIDs[item.ID] = writer.addObject(labelPDFImageObject(image))
 	}
 
 	paperWidth := millimetersToPoints(profile.PaperWidthMM)
 	paperHeight := millimetersToPoints(profile.PaperHeightMM)
 	labelWidth := millimetersToPoints(profile.LabelWidthMM)
+	labelHeight := millimetersToPoints(profile.LabelHeightMM)
+	contentOffsetY := millimetersToPoints(profile.RowGapMM)
+	contentTopY := contentOffsetY + labelHeight
 	pad := millimetersToPoints(3)
 	gap := millimetersToPoints(profile.GapMM)
 	compact := profile.LabelHeightMM <= 30
 	if compact {
-		pad = millimetersToPoints(2)
+		pad = 1.5 * 72 / 25.4
 	}
 	pageIDs := make([]int, 0, len(labelRows(items, profile.Columns)))
 	for _, row := range labelRows(items, profile.Columns) {
 		var content bytes.Buffer
 		for column, item := range row {
 			x := float64(column) * (labelWidth + gap)
-			businessSize, nameSize, priceLabelSize, priceValueSize, priceLabelY, barcodeHeight, barcodeY, codeY := 6.5, 8.3, 6.2, 11.5, paperHeight-pad-36, millimetersToPoints(12), millimetersToPoints(7), millimetersToPoints(3)
+			businessSize, nameSize, priceLabelSize, priceValueSize, priceLabelY, barcodeHeight, barcodeY, codeY := 6.5, 8.3, 6.2, 11.5, contentTopY-pad-36, millimetersToPoints(12), contentOffsetY+millimetersToPoints(7), contentOffsetY+millimetersToPoints(3)
 			nameLines := pdfLabelNameLines(item.Name, 26)
+			printContact := labelProfile.ShowContact && contactLine != ""
+			meta := make([]string, 0, 2)
+			if labelProfile.ShowSize && strings.TrimSpace(item.Size) != "" {
+				meta = append(meta, "Talla "+item.Size)
+			}
 			if compact {
-				businessSize = 5.4
-				nameSize = 7.0
-				priceLabelSize = 5.4
-				priceValueSize = 9.5
-				priceLabelY = paperHeight - pad - 24
-				barcodeHeight = millimetersToPoints(7)
-				barcodeY = millimetersToPoints(5)
-				codeY = 2.5 * 72 / 25.4
-				if len(nameLines) > 1 {
-					nameLines = nameLines[:1]
+				// The 50 x 25 mm format follows a classic retail-label hierarchy:
+				// identity and phone on the left; product, reference, barcode and
+				// price on the right. This reserves dots for the details that must
+				// be legible at 203 DPI.
+				leftColumnWidth := 15.5 * 72 / 25.4
+				columnGap := .8 * 72 / 25.4
+				rightX := x + pad + leftColumnWidth + columnGap
+				rightWidth := labelWidth - pad - (rightX - x)
+				brandHeight := 11.5 * 72 / 25.4
+				if logoImageID > 0 {
+					logoWidth := brandHeight * float64(logoImage.Width) / float64(logoImage.Height)
+					maxLogoWidth := brandHeight
+					if logoWidth > maxLogoWidth {
+						logoWidth = maxLogoWidth
+					}
+					logoX := x + pad + (leftColumnWidth-logoWidth)/2
+					logoY := contentTopY - pad - brandHeight
+					fmt.Fprintf(&content, "q %.2f 0 0 %.2f %.2f %.2f cm /L%d Do Q\n", logoWidth, brandHeight, logoX, logoY, logoImageID)
+				} else if labelProfile.ShowBusiness {
+					business := pdfTruncateLabelText(strings.ToUpper(strings.TrimSpace(businessName)), 10)
+					businessX := x + pad + (leftColumnWidth-pdfApproxTextWidth(business, 5.6))/2
+					pdfTextLineWithFont(&content, "F2", businessX, contentTopY-pad-7, 5.6, business)
 				}
+				compactNameLines := pdfLabelNameLines(item.Name, 15)
+				for lineIndex, line := range compactNameLines {
+					pdfTextLine(&content, rightX, contentTopY-pad-9-float64(lineIndex)*11, 10.4, pdfTruncateLabelText(line, 15))
+				}
+				referenceParts := make([]string, 0, 2)
+				if labelProfile.ShowID {
+					referenceParts = append(referenceParts, item.ID)
+				}
+				if labelProfile.ShowSize && strings.TrimSpace(item.Size) != "" {
+					referenceParts = append(referenceParts, "Talla "+item.Size)
+				}
+				if len(referenceParts) > 0 {
+					pdfTextLineWithFont(&content, "F2", rightX, contentTopY-pad-30.5, 8.4, pdfTruncateLabelText(strings.Join(referenceParts, " · "), 18))
+				}
+				if labelProfile.ShowPrice {
+					// Thermal heads and drivers often lose the last dot columns near
+					// the right edge. Keep the entire amount 2.5 mm inside the label.
+					priceSafeInset := pad + 2.5*72/25.4
+					priceX := x + labelWidth - priceSafeInset - pdfApproxTextWidth(item.Price, 12.2)
+					pdfTextLineWithFont(&content, "F2", priceX, contentOffsetY+2*72/25.4, 12.2, item.Price)
+				}
+				if printContact {
+					pdfTextLineWithFont(&content, "F2", x+pad, contentOffsetY+2*72/25.4, 6.4, pdfTruncateLabelText(compactContactLine, 18))
+				}
+				if labelProfile.ShowBarcode {
+					barcodeHeight := 5 * 72 / 25.4
+					barcodeY := contentOffsetY + 7*72/25.4
+					fmt.Fprintf(&content, "q %.2f 0 0 %.2f %.2f %.2f cm /I%d Do Q\n", rightWidth, barcodeHeight, rightX, barcodeY, imageIDs[item.ID])
+				}
+				continue
 			}
-			pdfTextLine(&content, x+pad, paperHeight-pad-6, businessSize, strings.ToUpper(strings.TrimSpace(businessName)))
+			if printContact && len(nameLines) > 1 {
+				nameLines = nameLines[:1]
+			}
+			businessY := contentTopY - pad - 6
+			nameStartY := contentTopY - pad - 17
+			contactY := contentTopY - pad - 13
+			if labelProfile.ShowBusiness {
+				pdfTextLineWithFont(&content, "F2", x+pad, businessY, businessSize, pdfTruncateLabelText(strings.ToUpper(strings.TrimSpace(businessName)), 32))
+			}
+			if !labelProfile.ShowBusiness {
+				nameStartY = contentTopY - pad - 8
+			}
+			if printContact {
+				printableContact := contactLine
+				contactRunes := []rune(printableContact)
+				contactLimit := 54
+				if len(contactRunes) > contactLimit {
+					printableContact = string(contactRunes[:contactLimit-3]) + "..."
+				}
+				pdfTextLine(&content, x+pad, contactY, 4.8, printableContact)
+				nameStartY -= 7
+			}
 			for lineIndex, line := range nameLines {
-				pdfTextLine(&content, x+pad, paperHeight-pad-17-float64(lineIndex)*8, nameSize, line)
+				pdfTextLine(&content, x+pad, nameStartY-float64(lineIndex)*8, nameSize, line)
 			}
-			pdfTextLine(&content, x+pad, priceLabelY, priceLabelSize, "PRECIO")
-			pdfTextLine(&content, x+pad+27, priceLabelY, priceValueSize, item.Price)
-			barcodeWidth := labelWidth - pad*2
-			fmt.Fprintf(&content, "q %.2f 0 0 %.2f %.2f %.2f cm /I%d Do Q\n", barcodeWidth, barcodeHeight, x+pad, barcodeY, imageIDs[item.ID])
-			pdfTextLine(&content, x+pad, codeY, 7.2, item.ID)
+			if len(meta) > 0 {
+				pdfTextLineWithFont(&content, "F2", x+pad, nameStartY-float64(len(nameLines))*8-1, 5.2, strings.Join(meta, " · "))
+			}
+			if labelProfile.ShowPrice {
+				pdfTextLineWithFont(&content, "F2", x+pad, priceLabelY, priceLabelSize, "PRECIO")
+				pdfTextLineWithFont(&content, "F2", x+pad+27, priceLabelY, priceValueSize, item.Price)
+			}
+			if labelProfile.ShowBarcode {
+				barcodeWidth := labelWidth - pad*2
+				fmt.Fprintf(&content, "q %.2f 0 0 %.2f %.2f %.2f cm /I%d Do Q\n", barcodeWidth, barcodeHeight, x+pad, barcodeY, imageIDs[item.ID])
+			}
+			if labelProfile.ShowID {
+				pdfTextLineWithFont(&content, "F2", x+pad, codeY, 7.2, item.ID)
+			}
 		}
 		contentID := writer.addObject(labelPDFStreamObject(content.Bytes()))
 		var xObjects strings.Builder
 		seenImages := map[string]struct{}{}
 		for _, item := range row {
+			if !labelProfile.ShowBarcode {
+				continue
+			}
 			if _, seen := seenImages[item.ID]; seen {
 				continue
 			}
 			seenImages[item.ID] = struct{}{}
 			fmt.Fprintf(&xObjects, "/I%d %d 0 R ", imageIDs[item.ID], imageIDs[item.ID])
 		}
-		pageBody := fmt.Sprintf("<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /Font << /F1 %d 0 R >> /XObject << %s>> >> /Contents %d 0 R >>", pagesID, paperWidth, paperHeight, fontID, xObjects.String(), contentID)
+		if logoImageID > 0 {
+			fmt.Fprintf(&xObjects, "/L%d %d 0 R ", logoImageID, logoImageID)
+		}
+		pageBody := fmt.Sprintf("<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /Font << /F1 %d 0 R /F2 %d 0 R >> /XObject << %s>> >> /Contents %d 0 R >>", pagesID, paperWidth, paperHeight, fontID, fontBoldID, xObjects.String(), contentID)
 		pageIDs = append(pageIDs, writer.addObject([]byte(pageBody)))
 	}
 	var kids strings.Builder
@@ -9558,16 +10145,34 @@ func productLabelItemsForUser(db *sql.DB, currentUser *User, productIDs []string
 	}
 	normalizedSize, widthMM, heightMM := labelSizeDimensions(size)
 	_ = normalizedSize
+	return productLabelItemsForUserWithDimensions(db, currentUser, productIDs, widthMM, heightMM)
+}
+
+// productLabelItemsForUserWithDimensions keeps barcode pixels aligned with the
+// actual profile. Custom profiles such as 50 x 25 mm must not inherit the
+// legacy 58 x 40 mm bitmap size and then be resampled by the browser or PDF.
+func productLabelItemsForUserWithDimensions(db *sql.DB, currentUser *User, productIDs []string, widthMM, heightMM int) ([]productLabelItem, int, int, error) {
+	if currentUser == nil || !isStaffRole(currentUser.Role) {
+		return nil, 0, 0, requestError{Status: http.StatusForbidden, Message: "Solo personal autorizado puede imprimir etiquetas."}
+	}
+	if widthMM < 20 || widthMM > 120 {
+		widthMM = 58
+	}
+	if heightMM < 15 || heightMM > 120 {
+		heightMM = 40
+	}
 	seen := map[string]struct{}{}
 	items := make([]productLabelItem, 0, len(productIDs))
-	_, _, dpi, _ := thermalPaperDimensions(normalizedSize)
-	printableWidthMM := max(24, widthMM-8)
-	barcodeWidth := int(math.Ceil(float64(printableWidthMM*dpi) / 25.4))
+	const labelDPI = 203
+	// The compact layout uses 1.6 mm left/right padding, leaving about 47 mm
+	// for a 50 mm label. Generate at that physical width to avoid resampling.
+	printableWidthMM := max(20, widthMM-3)
+	barcodeWidth := int(math.Ceil(float64(printableWidthMM*labelDPI) / 25.4))
 	barcodeHeightMM := 12
 	if heightMM <= 30 {
-		barcodeHeightMM = 8
+		barcodeHeightMM = 7
 	}
-	barcodeHeight := int(math.Ceil(float64(barcodeHeightMM*dpi) / 25.4))
+	barcodeHeight := int(math.Ceil(float64(barcodeHeightMM*labelDPI) / 25.4))
 
 	for _, rawID := range productIDs {
 		productID := strings.TrimSpace(rawID)
@@ -9588,16 +10193,19 @@ func productLabelItemsForUser(db *sql.DB, currentUser *User, productIDs []string
 		}
 
 		var (
-			visibleID string
-			name      string
-			salePrice float64
+			visibleID    string
+			name         string
+			line         string
+			requiresSize int
+			size         string
+			salePrice    float64
 		)
 		err = db.QueryRow(`
-			SELECT id, COALESCE(nombre, sku), COALESCE(precio_venta, 0)
+			SELECT id, COALESCE(nombre, sku), COALESCE(linea, ''), COALESCE(talla_requerida, 0), COALESCE(talla, ''), COALESCE(precio_venta, 0)
 			FROM productos
 			WHERE tenant_id = ? AND id = ?
 			LIMIT 1
-		`, tenantIDFromUser(currentUser), productID).Scan(&visibleID, &name, &salePrice)
+		`, tenantIDFromUser(currentUser), productID).Scan(&visibleID, &name, &line, &requiresSize, &size, &salePrice)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				continue
@@ -9609,9 +10217,15 @@ func productLabelItemsForUser(db *sql.DB, currentUser *User, productIDs []string
 		if err != nil {
 			return nil, 0, 0, err
 		}
+		productSize := ""
+		if requiresSize != 0 {
+			productSize = strings.TrimSpace(size)
+		}
 		items = append(items, productLabelItem{
 			ID:             visibleID,
 			Name:           name,
+			Line:           line,
+			Size:           productSize,
 			Price:          formatCurrency(salePrice),
 			BarcodeDataURI: template.URL(barcodeURI),
 		})
@@ -11457,6 +12071,18 @@ func createTenantWithSeed(db *sql.DB, currentUser *User, usersCols map[string]bo
 	if businessSettingsCols["ticket_paper_width"] {
 		settingsInsertCols = append(settingsInsertCols, "ticket_paper_width")
 		settingsInsertArgs = append(settingsInsertArgs, sourceSettings.TicketPaperWidth)
+	}
+	if businessSettingsCols["contact_phone"] {
+		settingsInsertCols = append(settingsInsertCols, "contact_phone")
+		settingsInsertArgs = append(settingsInsertArgs, sourceSettings.ContactPhone)
+	}
+	if businessSettingsCols["contact_email"] {
+		settingsInsertCols = append(settingsInsertCols, "contact_email")
+		settingsInsertArgs = append(settingsInsertArgs, sourceSettings.ContactEmail)
+	}
+	if businessSettingsCols["social_media"] {
+		settingsInsertCols = append(settingsInsertCols, "social_media")
+		settingsInsertArgs = append(settingsInsertArgs, sourceSettings.SocialMedia)
 	}
 	settingsPlaceholders := make([]string, len(settingsInsertCols))
 	for i := range settingsPlaceholders {
@@ -14206,13 +14832,33 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 			definition string
 		}{
 			{name: "label_paper_width", definition: "TEXT NOT NULL DEFAULT '58mm'"},
+			{name: "default_label_profile_id", definition: "INTEGER NOT NULL DEFAULT 0"},
 			{name: "invoice_paper_width", definition: "TEXT NOT NULL DEFAULT '58mm'"},
 			{name: "ticket_paper_width", definition: "TEXT NOT NULL DEFAULT '58mm'"},
+			{name: "contact_phone", definition: "TEXT NOT NULL DEFAULT ''"},
+			{name: "contact_email", definition: "TEXT NOT NULL DEFAULT ''"},
+			{name: "social_media", definition: "TEXT NOT NULL DEFAULT ''"},
 		} {
 			if !businessSettingsCols[column.name] {
 				if _, err := db.Exec("ALTER TABLE business_settings ADD COLUMN " + column.name + " " + column.definition); err != nil {
 					return err
 				}
+			}
+		}
+	}
+
+	labelProfilesExists, err := tableExists(db, "label_profiles")
+	if err != nil {
+		return err
+	}
+	if labelProfilesExists {
+		labelProfileCols, err := tableColumns(db, "label_profiles")
+		if err != nil {
+			return err
+		}
+		if !labelProfileCols["row_gap_mm"] {
+			if _, err := db.Exec("ALTER TABLE label_profiles ADD COLUMN row_gap_mm INTEGER NOT NULL DEFAULT 0"); err != nil {
+				return err
 			}
 		}
 	}
@@ -14747,15 +15393,46 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		tenant_id INTEGER NOT NULL UNIQUE,
 		business_name TEXT NOT NULL,
 		logo_path TEXT NOT NULL DEFAULT '',
+		contact_phone TEXT NOT NULL DEFAULT '',
+		contact_email TEXT NOT NULL DEFAULT '',
+		social_media TEXT NOT NULL DEFAULT '',
 		primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
 		currency TEXT NOT NULL DEFAULT 'COP',
 		date_format TEXT NOT NULL DEFAULT '2006-01-02',
 		label_paper_width TEXT NOT NULL DEFAULT '58mm',
+		default_label_profile_id INTEGER NOT NULL DEFAULT 0,
 		invoice_paper_width TEXT NOT NULL DEFAULT '58mm',
 		ticket_paper_width TEXT NOT NULL DEFAULT '58mm',
 		updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text)
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_business_settings_tenant_id ON business_settings (tenant_id);
+
+	CREATE TABLE IF NOT EXISTS label_profiles (
+		id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		name TEXT NOT NULL,
+		label_width_mm INTEGER NOT NULL,
+		label_height_mm INTEGER NOT NULL,
+		columns INTEGER NOT NULL DEFAULT 1,
+		column_gap_mm INTEGER NOT NULL DEFAULT 0,
+		row_gap_mm INTEGER NOT NULL DEFAULT 0,
+		show_business INTEGER NOT NULL DEFAULT 1,
+		show_contact INTEGER NOT NULL DEFAULT 0,
+		show_line INTEGER NOT NULL DEFAULT 0,
+		show_size INTEGER NOT NULL DEFAULT 0,
+		show_price INTEGER NOT NULL DEFAULT 1,
+		show_barcode INTEGER NOT NULL DEFAULT 1,
+		show_id INTEGER NOT NULL DEFAULT 1,
+		created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+		updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+		CHECK (label_width_mm BETWEEN 20 AND 120),
+		CHECK (label_height_mm BETWEEN 15 AND 120),
+		CHECK (columns IN (1, 2)),
+		CHECK (column_gap_mm BETWEEN 0 AND 10),
+		CHECK (row_gap_mm BETWEEN 0 AND 10)
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_label_profiles_tenant_name ON label_profiles (tenant_id, name);
+	CREATE INDEX IF NOT EXISTS idx_label_profiles_tenant_id ON label_profiles (tenant_id, id);
 
 	CREATE TABLE IF NOT EXISTS business_lines (
 		id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -16160,6 +16837,9 @@ func main() {
 			return
 		}
 		settings.BusinessName = strings.TrimSpace(r.FormValue("business_name"))
+		settings.ContactPhone = strings.TrimSpace(r.FormValue("contact_phone"))
+		settings.ContactEmail = strings.TrimSpace(r.FormValue("contact_email"))
+		settings.SocialMedia = strings.TrimSpace(r.FormValue("social_media"))
 		settings.PrimaryColor = normalizeHexColor(r.FormValue("primary_color"), settings.PrimaryColor)
 		settings.Currency = normalizeCurrency(r.FormValue("currency"))
 		settings.DateFormat = normalizeDateFormat(r.FormValue("date_format"))
@@ -16198,6 +16878,9 @@ func main() {
 		if err := logAuditEvent(db, userFromContext(r), "business_settings_updated", "business_settings", strconv.Itoa(savedSettings.ID), "manual", map[string]any{
 			"business_name":       savedSettings.BusinessName,
 			"logo_path":           savedSettings.LogoPath,
+			"contact_phone":       savedSettings.ContactPhone,
+			"contact_email":       savedSettings.ContactEmail,
+			"social_media":        savedSettings.SocialMedia,
 			"primary_color":       savedSettings.PrimaryColor,
 			"currency":            savedSettings.Currency,
 			"date_format":         savedSettings.DateFormat,
@@ -16209,6 +16892,140 @@ func main() {
 		}
 
 		redirectWithMessage(w, r, "/configuracion", "Configuración actualizada.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/etiquetas/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo leer el perfil de etiqueta.")
+			return
+		}
+		profile, err := labelProfileFromForm(r)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", reqErr.Message)
+				return
+			}
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "El perfil de etiqueta es inválido.")
+			return
+		}
+		created, err := createLabelProfileForTenant(db, tenantIDFromRequest(r), profile)
+		if err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo crear el perfil. Verifica que el nombre no esté repetido.")
+			return
+		}
+		if err := logAuditEvent(db, userFromContext(r), "label_profile_created", "label_profile", strconv.Itoa(created.ID), "manual", map[string]any{"name": created.Name, "width_mm": created.LabelWidthMM, "height_mm": created.LabelHeightMM, "columns": created.Columns}); err != nil {
+			log.Printf("audit label profile created: %v", err)
+		}
+		redirectWithMessage(w, r, "/productos/etiquetas/masivas", "Perfil de etiqueta creado.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/etiquetas/update", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo leer el perfil de etiqueta.")
+			return
+		}
+		profileID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("profile_id")))
+		if err != nil || profileID <= 0 {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Perfil de etiqueta inválido.")
+			return
+		}
+		profile, err := labelProfileFromForm(r)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", reqErr.Message)
+				return
+			}
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "El perfil de etiqueta es inválido.")
+			return
+		}
+		if err := updateLabelProfileForTenant(db, tenantIDFromRequest(r), profileID, profile); err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo actualizar el perfil. Verifica que el nombre no esté repetido.")
+			return
+		}
+		if err := logAuditEvent(db, userFromContext(r), "label_profile_updated", "label_profile", strconv.Itoa(profileID), "manual", map[string]any{"name": profile.Name, "width_mm": profile.LabelWidthMM, "height_mm": profile.LabelHeightMM, "columns": profile.Columns}); err != nil {
+			log.Printf("audit label profile updated: %v", err)
+		}
+		redirectWithMessage(w, r, "/productos/etiquetas/masivas", "Perfil de etiqueta actualizado.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/etiquetas/default", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo leer el perfil de etiqueta.")
+			return
+		}
+		profileID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("profile_id")))
+		if err != nil || profileID <= 0 {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Perfil de etiqueta inválido.")
+			return
+		}
+		tenantID := tenantIDFromRequest(r)
+		if _, err := labelProfileByIDForTenant(db, tenantID, profileID); err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "El perfil de etiqueta no existe.")
+			return
+		}
+		if _, err := db.Exec(`UPDATE business_settings SET default_label_profile_id = ?, updated_at = ? WHERE tenant_id = ?`, profileID, time.Now().Format(time.RFC3339), tenantID); err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo seleccionar el perfil predeterminado.")
+			return
+		}
+		if err := logAuditEvent(db, userFromContext(r), "label_profile_default_changed", "label_profile", strconv.Itoa(profileID), "manual", nil); err != nil {
+			log.Printf("audit label profile default: %v", err)
+		}
+		redirectWithMessage(w, r, "/productos/etiquetas/masivas", "Perfil predeterminado actualizado.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/etiquetas/delete", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo leer el perfil de etiqueta.")
+			return
+		}
+		profileID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("profile_id")))
+		if err != nil || profileID <= 0 {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Perfil de etiqueta inválido.")
+			return
+		}
+		tenantID := tenantIDFromRequest(r)
+		settings := settingsForUser(userFromContext(r))
+		profiles, defaultProfileID, err := ensureLabelProfilesForTenant(db, tenantID, settings.LabelPaperWidth)
+		if err != nil || len(profiles) <= 1 {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Debe conservar al menos un perfil de etiqueta.")
+			return
+		}
+		if profileID == defaultProfileID {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "Elige otro perfil predeterminado antes de eliminar este.")
+			return
+		}
+		result, err := db.Exec(`DELETE FROM label_profiles WHERE tenant_id = ? AND id = ?`, tenantID, profileID)
+		if err != nil {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "No se pudo eliminar el perfil de etiqueta.")
+			return
+		}
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			redirectWithMessage(w, r, "/productos/etiquetas/masivas", "", "El perfil de etiqueta no existe.")
+			return
+		}
+		if err := logAuditEvent(db, userFromContext(r), "label_profile_deleted", "label_profile", strconv.Itoa(profileID), "manual", nil); err != nil {
+			log.Printf("audit label profile deleted: %v", err)
+		}
+		redirectWithMessage(w, r, "/productos/etiquetas/masivas", "Perfil de etiqueta eliminado.", "")
 	}))
 
 	mux.HandleFunc("/configuracion/tenants/reset", platformAdminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -17029,14 +17846,32 @@ func main() {
 				}
 			}
 		}
-		sizeParam := r.URL.Query().Get("size")
-		if strings.TrimSpace(sizeParam) == "" {
-			sizeParam = r.URL.Query().Get("paper")
+		requestedProfileID := 0
+		if rawProfileID := strings.TrimSpace(r.URL.Query().Get("profile_id")); rawProfileID != "" {
+			var err error
+			requestedProfileID, err = strconv.Atoi(rawProfileID)
+			if err != nil || requestedProfileID <= 0 {
+				http.Error(w, "Perfil de etiqueta inválido.", http.StatusBadRequest)
+				return
+			}
 		}
-		if strings.TrimSpace(sizeParam) == "" {
-			sizeParam = settingsForUser(currentUser).LabelPaperWidth
+		requestedSize := r.URL.Query().Get("size")
+		if strings.TrimSpace(requestedSize) == "" {
+			requestedSize = r.URL.Query().Get("paper")
 		}
-		items, _, _, err := productLabelItemsForUser(db, currentUser, productIDs, sizeParam)
+		settings := settingsForUser(currentUser)
+		labelProfile, err := labelProfileForTenant(db, tenantIDFromUser(currentUser), settings.LabelPaperWidth, requestedSize, requestedProfileID)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "No se pudo cargar el perfil de etiqueta.", http.StatusInternalServerError)
+			return
+		}
+		printProfile := labelPrintProfileFromProfile(labelProfile)
+		items, _, _, err := productLabelItemsForUserWithDimensions(db, currentUser, productIDs, printProfile.LabelWidthMM, printProfile.LabelHeightMM)
 		if err != nil {
 			var reqErr requestError
 			if errors.As(err, &reqErr) {
@@ -17046,7 +17881,7 @@ func main() {
 			http.Error(w, "No se pudieron generar las etiquetas.", http.StatusInternalServerError)
 			return
 		}
-		data := productLabelsPageDataFor(items, labelPrintProfileFor(sizeParam, 1, 0), currentUser, settingsForUser(currentUser))
+		data := productLabelsPageDataForProfile(items, printProfile, labelProfile, currentUser, settings)
 		var rendered bytes.Buffer
 		if err := tmpl.ExecuteTemplate(&rendered, "product_labels.html", data); err != nil {
 			http.Error(w, "Error al renderizar etiquetas", http.StatusInternalServerError)
@@ -17086,17 +17921,26 @@ func main() {
 			})
 		}
 		settings := settingsForUser(currentUser)
+		profiles, defaultProfileID, err := ensureLabelProfilesForTenant(db, tenantIDFromUser(currentUser), settings.LabelPaperWidth)
+		if err != nil {
+			http.Error(w, "No se pudieron cargar los perfiles de etiqueta.", http.StatusInternalServerError)
+			return
+		}
 		renderTemplate(w, "product_labels_batch.html", productLabelsBatchPageData{
-			Title:        "Etiquetas masivas",
-			Subtitle:     "Selecciona productos y prepara un lote para impresora térmica o PDF.",
-			Products:     batchProducts,
-			DefaultSize:  normalizePaperWidth(settings.LabelPaperWidth, "58mm"),
-			CurrentUser:  currentUser,
-			Settings:     settings,
-			MaxLabels:    maxLabelBatchLabels,
-			MaxCopies:    maxLabelBatchCopies,
-			SizeOptions:  labelPaperOptions(),
-			DefaultGapMM: defaultLabelGapMM,
+			Title:            "Etiquetas masivas",
+			Subtitle:         "Selecciona productos y prepara un lote para impresora térmica o PDF.",
+			Flash:            strings.TrimSpace(r.URL.Query().Get("mensaje")),
+			Error:            strings.TrimSpace(r.URL.Query().Get("error")),
+			Products:         batchProducts,
+			DefaultProfileID: defaultProfileID,
+			Profiles:         profiles,
+			CanManageLabels:  isAdminRole(currentUser.Role),
+			CurrentUser:      currentUser,
+			Settings:         settings,
+			MaxLabels:        maxLabelBatchLabels,
+			MaxCopies:        maxLabelBatchCopies,
+			SizeOptions:      labelPaperOptions(),
+			DefaultGapMM:     defaultLabelGapMM,
 		}, "Error al renderizar etiquetas masivas")
 	})
 
@@ -17126,14 +17970,27 @@ func main() {
 			http.Error(w, "No se pudo preparar el lote.", http.StatusBadRequest)
 			return
 		}
-		columns, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("columns")))
-		gapMM, err := strconv.Atoi(strings.TrimSpace(r.FormValue("gap_mm")))
-		if err != nil || gapMM < 0 || gapMM > 10 {
-			gapMM = defaultLabelGapMM
+		requestedProfileID := 0
+		if rawProfileID := strings.TrimSpace(r.FormValue("profile_id")); rawProfileID != "" {
+			requestedProfileID, err = strconv.Atoi(rawProfileID)
+			if err != nil || requestedProfileID <= 0 {
+				http.Error(w, "Perfil de etiqueta inválido.", http.StatusBadRequest)
+				return
+			}
 		}
-		size := normalizePaperWidth(r.FormValue("size"), settingsForUser(currentUser).LabelPaperWidth)
-		profile := labelPrintProfileFor(size, columns, gapMM)
-		baseItems, _, _, err := productLabelItemsForUser(db, currentUser, productIDs, profile.Size)
+		settings := settingsForUser(currentUser)
+		labelProfile, err := labelProfileForTenant(db, tenantIDFromUser(currentUser), settings.LabelPaperWidth, r.FormValue("size"), requestedProfileID)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "No se pudo cargar el perfil de etiqueta.", http.StatusInternalServerError)
+			return
+		}
+		profile := labelPrintProfileFromProfile(labelProfile)
+		baseItems, _, _, err := productLabelItemsForUserWithDimensions(db, currentUser, productIDs, profile.LabelWidthMM, profile.LabelHeightMM)
 		if err != nil {
 			var reqErr requestError
 			if errors.As(err, &reqErr) {
@@ -17148,9 +18005,8 @@ func main() {
 			http.Error(w, "No hay productos accesibles para imprimir.", http.StatusNotFound)
 			return
 		}
-		settings := settingsForUser(currentUser)
 		if strings.EqualFold(strings.TrimSpace(r.FormValue("output")), "pdf") {
-			pdf, err := productLabelsPDF(items, profile, settings.BusinessName)
+			pdf, err := productLabelsPDFWithSettingsAndProfile(items, profile, labelProfile, settings)
 			if err != nil {
 				http.Error(w, "No se pudo generar el PDF de etiquetas.", http.StatusInternalServerError)
 				return
@@ -17161,7 +18017,7 @@ func main() {
 			_, _ = w.Write(pdf)
 			return
 		}
-		data := productLabelsPageDataFor(items, profile, currentUser, settings)
+		data := productLabelsPageDataForProfile(items, profile, labelProfile, currentUser, settings)
 		data.AutoPrint = true
 		var rendered bytes.Buffer
 		if err := tmpl.ExecuteTemplate(&rendered, "product_labels.html", data); err != nil {
@@ -17539,7 +18395,7 @@ func main() {
 		}
 		productsMu.Unlock()
 
-		target := "/productos/new?mensaje=" + url.QueryEscape("Producto agregado correctamente.") + "&label_url=" + url.QueryEscape(productLabelPrintURL([]string{sku}, "60x40"))
+		target := "/productos/new?mensaje=" + url.QueryEscape("Producto agregado correctamente.") + "&label_url=" + url.QueryEscape(productLabelPrintURL([]string{sku}, ""))
 		http.Redirect(w, r, target, http.StatusSeeOther)
 	}))
 
@@ -19802,6 +20658,9 @@ func main() {
 			"settings": map[string]any{
 				"business_name": settings.BusinessName,
 				"logo_path":     settings.LogoPath,
+				"contact_phone": settings.ContactPhone,
+				"contact_email": settings.ContactEmail,
+				"social_media":  settings.SocialMedia,
 				"primary_color": settings.PrimaryColor,
 				"currency":      settings.Currency,
 				"date_format":   settings.DateFormat,
@@ -19890,6 +20749,9 @@ func main() {
 			"ok": true,
 			"item": map[string]any{
 				"business_name": settings.BusinessName,
+				"contact_phone": settings.ContactPhone,
+				"contact_email": settings.ContactEmail,
+				"social_media":  settings.SocialMedia,
 				"primary_color": settings.PrimaryColor,
 				"currency":      settings.Currency,
 				"date_format":   settings.DateFormat,
@@ -22022,7 +22884,7 @@ func main() {
 			return
 		}
 		if len(resp.ProductIDs) > 0 {
-			resp.LabelPrintURL = productLabelPrintURL(resp.ProductIDs, "60x40")
+			resp.LabelPrintURL = productLabelPrintURL(resp.ProductIDs, "")
 		}
 
 		w.Header().Set("Content-Type", "application/json")

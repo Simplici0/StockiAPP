@@ -216,6 +216,9 @@ Respuesta:
   "settings": {
     "business_name": "Tenant Dos Brand",
     "logo_path": "/static/logo.png",
+    "contact_phone": "+57 300 123 4567",
+    "contact_email": "ventas@tenantdos.co",
+    "social_media": "Instagram @tenantdos",
     "primary_color": "#112233",
     "currency": "USD",
     "date_format": "2006-01-02"
@@ -1873,6 +1876,9 @@ Respuesta:
   "ok": true,
   "item": {
     "business_name": "Tenant Dos Brand",
+    "contact_phone": "+57 300 123 4567",
+    "contact_email": "ventas@tenantdos.co",
+    "social_media": "Instagram @tenantdos",
     "primary_color": "#112233",
     "currency": "USD",
     "date_format": "2006-01-02",

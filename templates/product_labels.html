@@ -12,6 +12,7 @@
                 --paper-width: {{.PaperWidthMM}}mm;
                 --paper-height: {{.PaperHeightMM}}mm;
                 --label-gap: {{.GapMM}}mm;
+                --label-row-gap: {{.RowGapMM}}mm;
                 --ink: #111827;
                 --muted: #596579;
                 --line: #d9e0e8;
@@ -37,6 +38,7 @@
 
             .print-toolbar h1 { margin: 0 0 4px; font-size: 17px; }
             .print-toolbar p { margin: 0; color: var(--muted); font-size: 13px; }
+            .print-guidance { margin-top: 8px !important; max-width: 500px; font-size: 12px !important; line-height: 1.4; }
             .print-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
             button, a {
@@ -79,16 +81,38 @@
                 width: var(--label-width);
                 height: var(--label-height);
                 padding: 3mm;
-                display: grid;
-                grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+                display: flex;
+                min-height: 0;
+                flex-direction: column;
                 gap: 1.6mm;
                 overflow: hidden;
                 color: var(--ink);
             }
 
+            .label-card.has-contact {
+                gap: 1.2mm;
+            }
+
+            .label-brand {
+                min-height: 9px;
+                display: flex;
+                align-items: center;
+                overflow: hidden;
+            }
+
+            .label-logo {
+                display: block;
+                max-width: 100%;
+                max-height: 5mm;
+                object-fit: contain;
+                object-position: left center;
+                filter: grayscale(1) contrast(1.8) brightness(.7);
+            }
+
             .label-business {
                 min-height: 9px;
                 overflow: hidden;
+                color: #111827;
                 font-size: 7px;
                 font-weight: 800;
                 letter-spacing: .08em;
@@ -98,51 +122,84 @@
                 text-overflow: ellipsis;
             }
 
+            .label-contact {
+                min-height: 0;
+                overflow: hidden;
+                color: var(--muted);
+                font-size: 5.4px;
+                font-weight: 650;
+                line-height: 1.15;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+            .label-contact-compact, .label-reference { display: none; }
+
             .label-name {
                 margin: 0;
+                flex: 0 0 auto;
                 display: -webkit-box;
                 overflow: hidden;
                 font-size: 11px;
-                font-weight: 800;
+                font-weight: 400;
                 line-height: 1.12;
                 -webkit-box-orient: vertical;
                 -webkit-line-clamp: 2;
             }
 
+            .label-card.has-contact .label-name {
+                -webkit-line-clamp: 1;
+            }
+
             .label-price {
                 padding: 1.3mm 0;
+                flex: 0 0 auto;
                 display: flex;
                 align-items: baseline;
                 justify-content: space-between;
                 gap: 4px;
-                border-top: 1px dashed #8793a5;
-                border-bottom: 1px dashed #8793a5;
+                border-top: .2mm solid #111827;
             }
 
-            .label-price span { color: var(--muted); font-size: 6.5px; font-weight: 800; letter-spacing: .08em; }
-            .label-price strong { font-size: 13px; line-height: 1; white-space: nowrap; }
+            .label-price span { color: #111827; font-size: 6.5px; font-weight: 800; letter-spacing: .06em; }
+            .label-price strong { color: #111827; font-size: 13px; font-weight: 850; line-height: 1; white-space: nowrap; }
 
-            .label-barcode { display: grid; justify-items: center; align-content: center; gap: 1mm; min-height: 0; }
-            .label-barcode img { width: 100%; max-height: 12mm; object-fit: fill; image-rendering: pixelated; }
+            .label-barcode { min-height: 0; flex: 1 1 0; display: grid; justify-items: center; align-content: center; gap: 1mm; overflow: hidden; }
+            .label-barcode img { width: 100%; max-height: min(12mm, 100%); object-fit: fill; image-rendering: pixelated; }
             .label-code { max-width: 100%; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 7px; font-weight: 700; letter-spacing: .07em; white-space: nowrap; text-overflow: ellipsis; }
 
-            .label-document.is-compact .label-card { padding: 1.8mm 2mm; gap: .7mm; }
-            .label-document.is-compact .label-business { font-size: 5.8px; }
-            .label-document.is-compact .label-name { font-size: 8px; -webkit-line-clamp: 1; }
-            .label-document.is-compact .label-price { padding: .7mm 0; }
-            .label-document.is-compact .label-price span { font-size: 5.4px; }
-            .label-document.is-compact .label-price strong { font-size: 9.5px; }
-            .label-document.is-compact .label-barcode { gap: .5mm; }
-            .label-document.is-compact .label-barcode img { max-height: 7.2mm; }
-            .label-document.is-compact .label-code { font-size: 5.8px; }
+            /*
+             * 50 x 25 mm is a genuinely small physical canvas (roughly 400 x
+             * 200 dots at 203 DPI). Keep its hierarchy deliberate: product,
+             * price and barcode get the space; secondary text remains one
+             * readable line instead of shrinking every element below print
+             * resolution.
+             */
+            .label-document.is-compact .label-card { padding: 1mm 1.6mm; display: grid; grid-template-columns: 15.5mm minmax(0, 1fr); grid-template-rows: 6.2mm 2.8mm minmax(8.4mm, 1fr) 3.4mm; gap: .3mm .8mm; }
+            .label-document.is-compact .label-brand { grid-column: 1; grid-row: 1 / 4; min-width: 0; min-height: 0; justify-content: center; align-items: start; }
+            .label-document.is-compact .label-logo { width: 11.5mm; max-width: 11.5mm; height: 11.5mm; max-height: 11.5mm; object-position: center; object-fit: contain; }
+            .label-document.is-compact .label-business { min-width: 0; min-height: 0; color: #111827; font-size: 5.6px; font-weight: 850; letter-spacing: .04em; text-align: center; }
+            .label-document.is-compact .label-contact-standard { display: none; }
+            .label-document.is-compact .label-contact-compact { grid-column: 1 / -1; grid-row: 4; display: block; min-width: 0; box-sizing: border-box; padding-right: 20mm; overflow: hidden; color: #111827; font-size: 7.2px; font-weight: 850; line-height: 1; white-space: nowrap; text-overflow: ellipsis; align-self: end; }
+            .label-document.is-compact .label-card:not(.has-contact) .label-contact { display: none; }
+            .label-document.is-compact .label-name { grid-column: 2; grid-row: 1; color: #111827; font-size: 10.4px; font-weight: 400; line-height: 1.08; align-self: center; -webkit-line-clamp: 2; }
+            .label-document.is-compact .label-reference { grid-column: 2; grid-row: 2; display: block; min-width: 0; overflow: hidden; color: #111827; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 8.4px; font-weight: 850; letter-spacing: .035em; line-height: 1; white-space: nowrap; text-overflow: ellipsis; align-self: center; }
+            .label-document.is-compact .label-price { grid-column: 2; grid-row: 4; min-height: 0; margin-right: 2.5mm; padding: 0; display: block; border: 0; text-align: right; align-self: end; }
+            .label-document.is-compact .label-price span { display: none; }
+            .label-document.is-compact .label-price strong { color: #111827; font-size: 12.2px; font-weight: 850; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+            .label-document.is-compact .label-barcode { display: contents; }
+            .label-document.is-compact .label-barcode img { grid-column: 2; grid-row: 3; width: 100%; height: 6.2mm; max-height: 6.2mm; align-self: center; object-fit: fill; image-rendering: crisp-edges; image-rendering: pixelated; }
+            .label-document.is-compact .label-barcode .label-code { display: none; }
 
-            @page { size: {{.PaperWidthMM}}mm {{.PaperHeightMM}}mm; margin: 0; }
+            .label-meta { flex: 0 0 auto; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 6px; font-weight: 700; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
+            .label-document.is-compact .label-meta { display: none; }
+
+            @page { size: {{.PaperWidthMM}}mm {{.PaperHeightMM}}mm; margin: 0 !important; }
 
             @media print {
-                html, body { width: var(--paper-width); background: #fff; }
+                html, body { width: var(--paper-width); height: var(--paper-height); margin: 0 !important; padding: 0 !important; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 .print-toolbar { display: none !important; }
                 .label-document { width: var(--paper-width); margin: 0; gap: 0; }
-                .label-row { break-after: page; page-break-after: always; }
+                .label-row { width: var(--paper-width); height: var(--paper-height); break-after: page; page-break-after: always; }
                 .label-row:last-child { break-after: auto; page-break-after: auto; }
             }
         </style>
@@ -151,7 +208,8 @@
         <section class="print-toolbar">
             <div>
                 <h1>{{.Title}}</h1>
-                <p>{{len .Items}} etiqueta(s) · {{.Columns}} por fila · lienzo {{.PaperWidthMM}} × {{.PaperHeightMM}} mm</p>
+                <p>{{len .Items}} etiqueta(s) · {{.Profile.Name}} · lienzo {{.PaperWidthMM}} × {{.PaperHeightMM}} mm{{if gt .RowGapMM 0}} · separación vertical {{.RowGapMM}} mm{{end}}</p>
+                <p class="print-guidance">En el diálogo: escala 100 %, tamaño personalizado {{.PaperWidthMM}} × {{.PaperHeightMM}} mm y desactiva “Encabezados y pies de página”.</p>
             </div>
             <div class="print-actions">
                 <a href="/productos/etiquetas/masivas">Volver al lote</a>
@@ -162,14 +220,17 @@
             {{range .Rows}}
             <section class="label-row">
                 {{range .}}
-                <article class="label-card">
-                    <div class="label-business">{{businessName $}}</div>
+                <article class="label-card{{if and $.Profile.ShowContact $.ContactLine}} has-contact{{end}}{{if $.Profile.ShowBusiness}} has-brand{{end}}{{if $.Profile.ShowPrice}} has-price{{end}}">
+                    {{if $.Profile.ShowBusiness}}<div class="label-brand">{{if businessLogoPath $}}<img class="label-logo" src="{{businessLogoPath $}}" alt="Logo de {{businessName $}}" />{{else}}<div class="label-business">{{businessName $}}</div>{{end}}</div>{{end}}
                     <h2 class="label-name">{{.Name}}</h2>
-                    <div class="label-price"><span>PRECIO</span><strong>{{.Price}}</strong></div>
-                    <div class="label-barcode">
-                        <img src="{{.BarcodeDataURI}}" alt="Código de barras {{.ID}}" />
-                        <div class="label-code">{{.ID}}</div>
-                    </div>
+                    {{if or $.Profile.ShowID (and $.Profile.ShowSize .Size)}}<div class="label-reference">{{if $.Profile.ShowID}}{{.ID}}{{end}}{{if and $.Profile.ShowSize .Size}}{{if $.Profile.ShowID}} · {{end}}Talla {{.Size}}{{end}}</div>{{end}}
+                    {{if and $.Profile.ShowSize .Size}}<div class="label-meta">Talla {{.Size}}</div>{{end}}
+                    {{if and $.Profile.ShowContact $.ContactLine}}<div class="label-contact label-contact-standard">{{$.ContactLine}}</div><div class="label-contact label-contact-compact">{{$.CompactContactLine}}</div>{{end}}
+                    {{if $.Profile.ShowPrice}}<div class="label-price"><span>PRECIO</span><strong>{{.Price}}</strong></div>{{end}}
+                    {{if or $.Profile.ShowBarcode $.Profile.ShowID}}<div class="label-barcode">
+                        {{if $.Profile.ShowBarcode}}<img src="{{.BarcodeDataURI}}" alt="Código de barras {{.ID}}" />{{end}}
+                        {{if $.Profile.ShowID}}<div class="label-code">{{.ID}}</div>{{end}}
+                    </div>{{end}}
                 </article>
                 {{end}}
             </section>

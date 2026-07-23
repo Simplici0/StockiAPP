@@ -1330,7 +1330,10 @@ func TestLabelRowsAndPDFRespectDoubleColumnProfile(t *testing.T) {
 	if len(rows) != 2 || len(rows[0]) != 2 || len(rows[1]) != 1 {
 		t.Fatalf("unexpected label rows: %+v", rows)
 	}
-	pdf, err := productLabelsPDF(items, profile, "Negocio prueba")
+	pdf, err := productLabelsPDFWithSettings(items, profile, BusinessSettings{
+		BusinessName: "Negocio prueba",
+		ContactPhone: "+57 300 123 4567",
+	})
 	if err != nil {
 		t.Fatalf("productLabelsPDF: %v", err)
 	}
@@ -1339,6 +1342,106 @@ func TestLabelRowsAndPDFRespectDoubleColumnProfile(t *testing.T) {
 	}
 	if !bytes.Contains(pdf, []byte("/MediaBox [0 0 334.49 113.39]")) {
 		t.Fatalf("expected physical double-column MediaBox in PDF")
+	}
+	if !bytes.Contains(pdf, []byte("Tel. +57 300 123 4567")) {
+		t.Fatalf("expected configured contact information in the label PDF")
+	}
+}
+
+func TestCompactLabelPDFUsesLegible50x25Hierarchy(t *testing.T) {
+	barcode, err := barcodeDataURI("P-001", 376, 56)
+	if err != nil {
+		t.Fatalf("barcodeDataURI: %v", err)
+	}
+	profile := LabelProfile{
+		Name:          "50 x 25",
+		LabelWidthMM:  50,
+		LabelHeightMM: 25,
+		Columns:       1,
+		ShowBusiness:  true,
+		ShowContact:   true,
+		ShowLine:      true,
+		ShowSize:      true,
+		ShowPrice:     true,
+		ShowBarcode:   true,
+		ShowID:        true,
+	}
+	pdf, err := productLabelsPDFWithSettingsAndProfile([]productLabelItem{{
+		ID:             "P-001",
+		Name:           "Producto de ejemplo",
+		Line:           "Nutrición",
+		Size:           "M",
+		Price:          "$280.000",
+		BarcodeDataURI: template.URL(barcode),
+	}}, labelPrintProfileFromProfile(profile), profile, BusinessSettings{
+		BusinessName: "Mi negocio",
+		ContactPhone: "+57 300 123 4567",
+	})
+	if err != nil {
+		t.Fatalf("productLabelsPDFWithSettingsAndProfile: %v", err)
+	}
+	if !bytes.Contains(pdf, []byte("/MediaBox [0 0 141.73 70.87]")) {
+		t.Fatalf("expected 50 x 25 mm PDF page, got %q", pdf[:min(200, len(pdf))])
+	}
+	if !bytes.Contains(pdf, []byte("/F1 10.40 Tf")) || !bytes.Contains(pdf, []byte("/F2 12.20 Tf")) || !bytes.Contains(pdf, []byte("/F2 8.40 Tf")) {
+		t.Fatalf("compact label should preserve the readable product name, price, and ID hierarchy")
+	}
+	if !bytes.Contains(pdf, []byte("($280.000)")) {
+		t.Fatalf("compact label should preserve every digit in a six-figure price")
+	}
+	if bytes.Contains(pdf, []byte("Nutrici")) {
+		t.Fatalf("product line should not be printed by compact label profiles")
+	}
+}
+
+func TestLabelProfilesAreTenantScopedAndDrivePhysicalLayout(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "label-profiles"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	profiles, defaultID, err := ensureLabelProfilesForTenant(db, defaultTenantID, "58mm")
+	if err != nil {
+		t.Fatalf("ensureLabelProfilesForTenant default tenant: %v", err)
+	}
+	if len(profiles) != 3 || defaultID == 0 {
+		t.Fatalf("expected safe default label profiles, got profiles=%+v default=%d", profiles, defaultID)
+	}
+
+	custom, err := createLabelProfileForTenant(db, defaultTenantID, LabelProfile{
+		Name:          "Doble 50 × 30",
+		LabelWidthMM:  50,
+		LabelHeightMM: 30,
+		Columns:       2,
+		ColumnGapMM:   3,
+		ShowBusiness:  true,
+		ShowPrice:     true,
+		ShowBarcode:   true,
+		ShowID:        true,
+	})
+	if err != nil {
+		t.Fatalf("createLabelProfileForTenant: %v", err)
+	}
+	printProfile := labelPrintProfileFromProfile(custom)
+	if printProfile.PaperWidthMM != 103 || printProfile.PaperHeightMM != 30 || printProfile.Columns != 2 {
+		t.Fatalf("custom profile did not preserve physical dimensions: %+v", printProfile)
+	}
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant Perfiles", "tenant-perfiles", "tenant.perfiles.admin", "TenantPerfiles123!")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed: %v", err)
+	}
+	if _, err := labelProfileByIDForTenant(db, provisioned.Tenant.ID, custom.ID); err == nil {
+		t.Fatalf("expected profile lookup to be tenant-scoped")
 	}
 }
 
@@ -1367,18 +1470,43 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	}
 	item := productLabelItem{ID: "P-1", Name: "Producto prueba", Price: "$ 10.000", BarcodeDataURI: template.URL(barcode)}
 	var rendered bytes.Buffer
-	if err := templates.ExecuteTemplate(&rendered, "product_labels.html", productLabelsPageDataFor([]productLabelItem{item}, labelPrintProfileFor("58mm", 1, 0), nil, BusinessSettings{})); err != nil {
+	if err := templates.ExecuteTemplate(&rendered, "product_labels.html", productLabelsPageDataFor([]productLabelItem{item}, labelPrintProfileFor("58mm", 1, 0), nil, BusinessSettings{ContactPhone: "+57 300 123 4567", ContactEmail: "ventas@negocio.co"})); err != nil {
 		t.Fatalf("render print template: %v", err)
 	}
 	if bytes.Contains(rendered.Bytes(), []byte("topbar")) || !bytes.Contains(rendered.Bytes(), []byte("@page")) {
 		t.Fatalf("print template should be isolated and define a page size")
 	}
+	if !bytes.Contains(rendered.Bytes(), []byte("Tel. &#43;57 300 123 4567")) || !bytes.Contains(rendered.Bytes(), []byte("ventas@negocio.co")) {
+		t.Fatalf("print template should include configured contact information")
+	}
 	rendered.Reset()
-	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
+	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", DefaultProfileID: 1, Profiles: []LabelProfile{{ID: 1, Name: "Compacta", LabelWidthMM: 50, LabelHeightMM: 25, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true}}, CanManageLabels: true, MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
 		t.Fatalf("render batch template: %v", err)
 	}
 	if !bytes.Contains(rendered.Bytes(), []byte("/productos/etiquetas/lote")) {
 		t.Fatalf("batch template should submit to the batch route")
+	}
+	if bytes.Contains(rendered.Bytes(), []byte("name=\"show_line\"")) {
+		t.Fatalf("label editor should not expose the retired line option")
+	}
+}
+
+func TestBusinessSettingsTemplateParsesLabelProfiles(t *testing.T) {
+	_, err := template.New("").Funcs(template.FuncMap{
+		"businessName":          func(any) string { return "Negocio prueba" },
+		"businessLogoPath":      func(any) string { return "" },
+		"businessPrimaryColor":  func(any) string { return "#172554" },
+		"businessPrimaryStrong": func(any) string { return "#0f172a" },
+		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
+		"pageCanLoan":           func(any) bool { return false },
+		"pageCanCredit":         func(any) bool { return false },
+	}).ParseFiles(
+		"templates/partials/app_styles.html",
+		"templates/partials/header.html",
+		"templates/business_settings.html",
+	)
+	if err != nil {
+		t.Fatalf("parse business settings template: %v", err)
 	}
 }
 
@@ -2267,7 +2395,7 @@ func TestCreateTenantWithSeedRepairsLegacyBusinessSettingsPaperColumns(t *testin
 	}
 	defer db.Close()
 
-	for _, column := range []string{"label_paper_width", "invoice_paper_width", "ticket_paper_width"} {
+	for _, column := range []string{"label_paper_width", "default_label_profile_id", "invoice_paper_width", "ticket_paper_width", "contact_phone", "contact_email", "social_media"} {
 		if _, err := db.Exec(`ALTER TABLE business_settings DROP COLUMN ` + column); err != nil {
 			t.Fatalf("drop legacy test column %s: %v", column, err)
 		}
@@ -2280,7 +2408,7 @@ func TestCreateTenantWithSeedRepairsLegacyBusinessSettingsPaperColumns(t *testin
 	if err != nil {
 		t.Fatalf("tableColumns(business_settings): %v", err)
 	}
-	for _, column := range []string{"label_paper_width", "invoice_paper_width", "ticket_paper_width"} {
+	for _, column := range []string{"label_paper_width", "default_label_profile_id", "invoice_paper_width", "ticket_paper_width", "contact_phone", "contact_email", "social_media"} {
 		if !settingsCols[column] {
 			t.Fatalf("expected repaired business_settings column %s", column)
 		}
@@ -3342,8 +3470,8 @@ func TestAPIBusinessSettingsForRequestUsesTenantContext(t *testing.T) {
 		t.Fatalf("insert tenant 2: %v", err)
 	}
 	if _, err := db.Exec(`
-		INSERT INTO business_settings (tenant_id, business_name, logo_path, primary_color, currency, date_format, updated_at)
-		VALUES (2, 'Tenant Dos Brand', '/static/logo.png', '#112233', 'USD', '2006-01-02', ?)
+		INSERT INTO business_settings (tenant_id, business_name, logo_path, contact_phone, contact_email, social_media, primary_color, currency, date_format, updated_at)
+		VALUES (2, 'Tenant Dos Brand', '/static/logo.png', '+57 300 123 4567', 'ventas@tenantdos.co', 'Instagram @tenantdos', '#112233', 'USD', '2006-01-02', ?)
 	`, now); err != nil {
 		t.Fatalf("insert tenant 2 business settings: %v", err)
 	}
@@ -3355,7 +3483,7 @@ func TestAPIBusinessSettingsForRequestUsesTenantContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apiBusinessSettingsForRequest: %v", err)
 	}
-	if settings.BusinessName != "Tenant Dos Brand" || settings.PrimaryColor != "#112233" || settings.Currency != "USD" {
+	if settings.BusinessName != "Tenant Dos Brand" || settings.ContactPhone != "+57 300 123 4567" || settings.ContactEmail != "ventas@tenantdos.co" || settings.SocialMedia != "Instagram @tenantdos" || settings.PrimaryColor != "#112233" || settings.Currency != "USD" {
 		t.Fatalf("unexpected tenant settings: %+v", settings)
 	}
 }

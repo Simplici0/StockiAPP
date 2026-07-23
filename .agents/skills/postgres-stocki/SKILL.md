@@ -236,6 +236,10 @@ Check which operational tables are tenant-scoped:
 - `product_loans`
 - `product_loan_units`
 
+`business_settings` is tenant-scoped and also stores branding and optional contact fields used by labels: `contact_phone`, `contact_email`, and `social_media`. It also stores `default_label_profile_id`, which selects the tenant's operational label profile. Existing tenants must retain safe defaults when these columns are introduced.
+
+`label_profiles` is tenant-scoped. It stores structured physical label layout (`label_width_mm`, `label_height_mm`, `columns`, `column_gap_mm`) and the enabled visible fields (`show_*`). It must never be resolved across tenants; the initial safe profiles are created lazily per tenant by the application.
+
 Quick count by tenant:
 
 ```sql

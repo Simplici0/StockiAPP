@@ -701,6 +701,50 @@
                                         />
                                     </div>
 
+                                    <div class="stack">
+                                        <div class="settings-subsection-head">
+                                            <h3>Contacto para etiquetas</h3>
+                                            <p>Opcional. Se mostrará cuando el tamaño físico de la etiqueta tenga espacio.</p>
+                                        </div>
+
+                                        <div>
+                                            <label for="contact_phone">Teléfono</label>
+                                            <input
+                                                id="contact_phone"
+                                                name="contact_phone"
+                                                type="tel"
+                                                inputmode="tel"
+                                                maxlength="80"
+                                                value="{{.Settings.ContactPhone}}"
+                                                placeholder="Ej: +57 300 123 4567"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label for="contact_email">Correo</label>
+                                            <input
+                                                id="contact_email"
+                                                name="contact_email"
+                                                type="email"
+                                                maxlength="160"
+                                                value="{{.Settings.ContactEmail}}"
+                                                placeholder="Ej: ventas@negocio.com"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label for="social_media">Redes sociales</label>
+                                            <input
+                                                id="social_media"
+                                                name="social_media"
+                                                type="text"
+                                                maxlength="160"
+                                                value="{{.Settings.SocialMedia}}"
+                                                placeholder="Ej: Instagram @mi_negocio · Facebook /mi_negocio"
+                                            />
+                                        </div>
+                                    </div>
+
                                     <div>
                                         <label for="logo"
                                             >Logo del negocio</label
