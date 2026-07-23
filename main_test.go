@@ -1480,7 +1480,7 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 		t.Fatalf("print template should include configured contact information")
 	}
 	rendered.Reset()
-	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", DefaultProfileID: 1, Profiles: []LabelProfile{{ID: 1, Name: "Compacta", LabelWidthMM: 50, LabelHeightMM: 25, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true}}, CanManageLabels: true, MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
+	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", Available: 7, SuggestedCopies: 7, CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", DefaultProfileID: 1, Profiles: []LabelProfile{{ID: 1, Name: "Compacta", LabelWidthMM: 50, LabelHeightMM: 25, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true}}, CanManageLabels: true, MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
 		t.Fatalf("render batch template: %v", err)
 	}
 	if !bytes.Contains(rendered.Bytes(), []byte("/productos/etiquetas/lote")) {
@@ -1488,6 +1488,9 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	}
 	if bytes.Contains(rendered.Bytes(), []byte("name=\"show_line\"")) {
 		t.Fatalf("label editor should not expose the retired line option")
+	}
+	if !bytes.Contains(rendered.Bytes(), []byte(`data-available="7"`)) || !bytes.Contains(rendered.Bytes(), []byte(`value="7"`)) || !bytes.Contains(rendered.Bytes(), []byte("7 disponibles")) {
+		t.Fatalf("batch template should propose one label per available unit")
 	}
 }
 

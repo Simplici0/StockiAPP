@@ -146,11 +146,13 @@ type productLabelsPageData struct {
 }
 
 type productLabelBatchProduct struct {
-	ID        string
-	Name      string
-	Line      string
-	Price     string
-	CopiesKey string
+	ID              string
+	Name            string
+	Line            string
+	Price           string
+	Available       int
+	SuggestedCopies int
+	CopiesKey       string
 }
 
 type productLabelsBatchPageData struct {
@@ -9266,7 +9268,7 @@ func labelSizeDimensions(size string) (normalized string, widthMM, heightMM int)
 
 const (
 	maxLabelBatchLabels = 500
-	maxLabelBatchCopies = 50
+	maxLabelBatchCopies = maxLabelBatchLabels
 	defaultLabelGapMM   = 2
 )
 
@@ -17915,18 +17917,30 @@ func main() {
 			http.Error(w, "No se pudieron cargar los productos.", http.StatusInternalServerError)
 			return
 		}
+		availableByProduct, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
+		if err != nil {
+			http.Error(w, "No se pudo consultar la existencia disponible.", http.StatusInternalServerError)
+			return
+		}
 		batchProducts := make([]productLabelBatchProduct, 0, len(products))
 		for _, product := range products {
 			visibleID := strings.TrimSpace(product.ID)
 			if visibleID == "" {
 				continue
 			}
+			available := max(0, availableByProduct[visibleID])
+			suggestedCopies := max(1, available)
+			if suggestedCopies > maxLabelBatchCopies {
+				suggestedCopies = maxLabelBatchCopies
+			}
 			batchProducts = append(batchProducts, productLabelBatchProduct{
-				ID:        visibleID,
-				Name:      product.Name,
-				Line:      product.Line,
-				Price:     formatCurrency(product.SalePrice),
-				CopiesKey: "copies_" + visibleID,
+				ID:              visibleID,
+				Name:            product.Name,
+				Line:            product.Line,
+				Price:           formatCurrency(product.SalePrice),
+				Available:       available,
+				SuggestedCopies: suggestedCopies,
+				CopiesKey:       "copies_" + visibleID,
 			})
 		}
 		settings := settingsForUser(currentUser)

@@ -206,17 +206,17 @@
                             <label class="label-search">Buscar producto
                                 <input id="label-product-search" type="search" placeholder="Nombre, ID o línea" autocomplete="off" />
                             </label>
-                            <button id="label-select-visible" class="secondary labels-select-visible" type="button">Seleccionar visibles</button>
+                            <button id="label-select-visible" class="secondary labels-select-visible" type="button">Usar existencias visibles</button>
                         </div>
                         <div id="label-product-rows">
                             {{range .Products}}
-                            <label class="labels-product-row" data-label-product="{{.ID}} {{.Name}} {{.Line}}">
+                            <label class="labels-product-row" data-label-product="{{.ID}} {{.Name}} {{.Line}}" data-available="{{.Available}}">
                                 <input class="label-product-check" name="id" value="{{.ID}}" type="checkbox" />
                                 <span class="labels-product-name">
                                     <strong>{{.Name}}</strong>
-                                    <span>{{.ID}}{{if .Line}} · {{.Line}}{{end}} · {{.Price}}</span>
+                                    <span>{{.ID}}{{if .Line}} · {{.Line}}{{end}} · {{.Available}} disponibles · {{.Price}}</span>
                                 </span>
-                                <input class="labels-copies" name="{{.CopiesKey}}" type="number" min="1" max="{{$.MaxCopies}}" value="1" disabled aria-label="Copias para {{.Name}}" />
+                                <input class="labels-copies" name="{{.CopiesKey}}" type="number" min="1" max="{{$.MaxCopies}}" value="{{.SuggestedCopies}}" disabled aria-label="Copias para {{.Name}}" />
                             </label>
                             {{else}}
                             <p style="padding: 16px; color: var(--text-muted);">No hay productos visibles para imprimir.</p>
@@ -241,12 +241,12 @@
                             <div class="labels-metric"><span>Seleccionados</span><strong id="label-selected-count">0</strong></div>
                             <div class="labels-metric"><span>Etiquetas</span><strong id="label-total-count">0</strong></div>
                         </div>
-                        <p id="label-batch-status" class="labels-status">Selecciona productos para continuar.</p>
+                        <p id="label-batch-status" class="labels-status">Selecciona productos o usa las existencias visibles.</p>
                         <div class="labels-output-actions">
                             <button id="label-print-batch" class="primary" name="output" value="print" type="submit" disabled>Preparar impresión</button>
                             <button id="label-pdf-batch" class="secondary" name="output" value="pdf" type="submit" disabled>Descargar PDF</button>
                         </div>
-                        <p class="labels-hint">Máximo {{.MaxLabels}} etiquetas por lote y {{.MaxCopies}} copias por producto. El PDF no se guarda en el servidor.</p>
+                        <p class="labels-hint">Las copias se proponen según las unidades disponibles. Puedes ajustarlas para reimpresiones. Máximo {{.MaxLabels}} etiquetas por lote. El PDF no se guarda en el servidor.</p>
                     </aside>
                 </form>
             </section>
@@ -261,6 +261,13 @@
                 const totalCount = document.getElementById("label-total-count");
                 const status = document.getElementById("label-batch-status");
                 const actions = [document.getElementById("label-print-batch"), document.getElementById("label-pdf-batch")];
+                const availableCopies = (row) => Math.max(0, Number.parseInt(row.dataset.available, 10) || 0);
+                const applyAvailableCopies = (row, force = false) => {
+                    const copies = row.querySelector(".labels-copies");
+                    const available = availableCopies(row);
+                    if (!copies || available < 1 || (!force && copies.dataset.manuallyAdjusted === "true")) return;
+                    copies.value = String(Math.min({{.MaxCopies}}, available));
+                };
                 const sync = () => {
                     let selected = 0;
                     let total = 0;
@@ -280,20 +287,30 @@
                     const valid = total > 0 && total <= maxLabels;
                     actions.forEach((button) => { if (button) button.disabled = !valid; });
                     status.classList.toggle("error", total > maxLabels);
-                    status.textContent = total > maxLabels ? `El lote supera el máximo de ${maxLabels} etiquetas.` : total > 0 ? `${total} etiqueta(s) preparada(s) para salida.` : "Selecciona productos para continuar.";
+                    status.textContent = total > maxLabels ? `El lote supera el máximo de ${maxLabels} etiquetas.` : total > 0 ? `${total} etiqueta(s) preparada(s) para salida.` : "Selecciona productos o usa las existencias visibles.";
                 };
                 rows.forEach((row) => {
-                    row.querySelector(".label-product-check")?.addEventListener("change", sync);
-                    row.querySelector(".labels-copies")?.addEventListener("input", sync);
+                    row.querySelector(".label-product-check")?.addEventListener("change", (event) => {
+                        if (event.currentTarget.checked) applyAvailableCopies(row);
+                        sync();
+                    });
+                    row.querySelector(".labels-copies")?.addEventListener("input", (event) => {
+                        event.currentTarget.dataset.manuallyAdjusted = "true";
+                        sync();
+                    });
                 });
                 search?.addEventListener("input", () => {
                     const query = search.value.trim().toLowerCase();
                     rows.forEach((row) => { row.hidden = query && !row.dataset.labelProduct.toLowerCase().includes(query); });
                 });
                 selectVisible?.addEventListener("click", () => {
-                    const visible = rows.filter((row) => !row.hidden);
+                    const visible = rows.filter((row) => !row.hidden && availableCopies(row) > 0);
                     const shouldSelect = visible.some((row) => !row.querySelector(".label-product-check").checked);
-                    visible.forEach((row) => { row.querySelector(".label-product-check").checked = shouldSelect; });
+                    visible.forEach((row) => {
+                        const check = row.querySelector(".label-product-check");
+                        check.checked = shouldSelect;
+                        if (shouldSelect) applyAvailableCopies(row, true);
+                    });
                     sync();
                 });
 
