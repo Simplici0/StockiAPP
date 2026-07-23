@@ -9988,7 +9988,6 @@ func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile la
 				leftColumnWidth := 15.5 * 72 / 25.4
 				columnGap := .8 * 72 / 25.4
 				rightX := x + pad + leftColumnWidth + columnGap
-				rightWidth := labelWidth - pad - (rightX - x)
 				brandHeight := 11.5 * 72 / 25.4
 				if logoImageID > 0 {
 					logoWidth := brandHeight * float64(logoImage.Width) / float64(logoImage.Height)
@@ -10037,9 +10036,11 @@ func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile la
 					}
 				}
 				if labelProfile.ShowBarcode {
+					barcodeX := x + pad + 12*72/25.4
+					barcodeWidth := x + labelWidth - pad - barcodeX
 					barcodeHeight := 5 * 72 / 25.4
 					barcodeY := contentOffsetY + 7*72/25.4
-					fmt.Fprintf(&content, "q %.2f 0 0 %.2f %.2f %.2f cm /I%d Do Q\n", rightWidth, barcodeHeight, rightX, barcodeY, imageIDs[item.ID])
+					fmt.Fprintf(&content, "q %.2f 0 0 %.2f %.2f %.2f cm /I%d Do Q\n", barcodeWidth, barcodeHeight, barcodeX, barcodeY, imageIDs[item.ID])
 				}
 				continue
 			}
