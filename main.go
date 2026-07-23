@@ -10006,7 +10006,7 @@ func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile la
 				}
 				compactNameLines := pdfLabelNameLines(item.Name, 15)
 				for lineIndex, line := range compactNameLines {
-					pdfTextLine(&content, rightX, contentTopY-pad-9-float64(lineIndex)*11, 10.4, pdfTruncateLabelText(line, 15))
+					pdfTextLineWithFont(&content, "F2", rightX, contentTopY-pad-9-float64(lineIndex)*11, 10.4, pdfTruncateLabelText(line, 15))
 				}
 				referenceParts := make([]string, 0, 2)
 				if labelProfile.ShowID {
@@ -10018,15 +10018,23 @@ func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile la
 				if len(referenceParts) > 0 {
 					pdfTextLineWithFont(&content, "F2", rightX, contentTopY-pad-30.5, 8.4, pdfTruncateLabelText(strings.Join(referenceParts, " · "), 18))
 				}
+				compactPriceX := x + labelWidth - pad
 				if labelProfile.ShowPrice {
 					// Thermal heads and drivers often lose the last dot columns near
 					// the right edge. Keep the entire amount 2.5 mm inside the label.
 					priceSafeInset := pad + 2.5*72/25.4
-					priceX := x + labelWidth - priceSafeInset - pdfApproxTextWidth(item.Price, 12.2)
-					pdfTextLineWithFont(&content, "F2", priceX, contentOffsetY+2*72/25.4, 12.2, item.Price)
+					compactPriceX = x + labelWidth - priceSafeInset - pdfApproxTextWidth(item.Price, 12.2)
+					pdfTextLineWithFont(&content, "F2", compactPriceX, contentOffsetY+2*72/25.4, 12.2, item.Price)
 				}
 				if printContact {
-					pdfTextLineWithFont(&content, "F2", x+pad, contentOffsetY+2*72/25.4, 6.4, pdfTruncateLabelText(compactContactLine, 18))
+					contactX := x + pad
+					contactWidth := compactPriceX - contactX - 2
+					if contactWidth > 0 {
+						contactY := contentOffsetY + 2*72/25.4
+						fmt.Fprintf(&content, "q %.2f %.2f %.2f %.2f re W n\n", contactX, contactY-3, contactWidth, 16.0)
+						pdfTextLineWithFont(&content, "F2", contactX, contactY, 9.4, compactContactLine)
+						content.WriteString("Q\n")
+					}
 				}
 				if labelProfile.ShowBarcode {
 					barcodeHeight := 5 * 72 / 25.4

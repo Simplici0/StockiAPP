@@ -1383,7 +1383,7 @@ func TestCompactLabelPDFUsesLegible50x25Hierarchy(t *testing.T) {
 	if !bytes.Contains(pdf, []byte("/MediaBox [0 0 141.73 70.87]")) {
 		t.Fatalf("expected 50 x 25 mm PDF page, got %q", pdf[:min(200, len(pdf))])
 	}
-	if !bytes.Contains(pdf, []byte("/F1 10.40 Tf")) || !bytes.Contains(pdf, []byte("/F2 12.20 Tf")) || !bytes.Contains(pdf, []byte("/F2 8.40 Tf")) {
+	if !bytes.Contains(pdf, []byte("/F2 10.40 Tf")) || !bytes.Contains(pdf, []byte("/F2 12.20 Tf")) || !bytes.Contains(pdf, []byte("/F2 8.40 Tf")) {
 		t.Fatalf("compact label should preserve the readable product name, price, and ID hierarchy")
 	}
 	if !bytes.Contains(pdf, []byte("($280.000)")) {
