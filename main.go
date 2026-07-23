@@ -6464,6 +6464,8 @@ func customerTimelineEventLabel(eventType string) string {
 		return "Pago registrado"
 	case "credit_updated":
 		return "Crédito editado"
+	case "credit_deleted":
+		return "Crédito eliminado"
 	case "invoice_created":
 		return "Factura emitida"
 	case "product_loan_created":
@@ -6496,7 +6498,7 @@ func customerTimelineSummary(eventType string, payload map[string]any) string {
 			return fmt.Sprintf("%s · %s", name, city)
 		}
 		return firstNonEmptyString(name, city)
-	case "credit_created", "credit_updated":
+	case "credit_created", "credit_updated", "credit_deleted":
 		product := firstNonEmptyString(stringFromAny(payload["product_name"]), stringFromAny(payload["product"]))
 		kindLabel := firstNonEmptyString(stringFromAny(payload["kind_label"]), stringFromAny(payload["kind"]))
 		if product != "" && kindLabel != "" {
@@ -6814,6 +6816,15 @@ type creditSaleUpdateResult struct {
 	DebtTotal           float64
 	TotalPaid           float64
 	CurrentDebt         float64
+}
+
+type creditSaleDeleteResult struct {
+	CreditSaleID        int
+	CustomerID          int
+	Kind                creditSaleKind
+	ProductID           string
+	Quantity            int
+	DeletedInstallments int
 }
 
 type apiCreditPayload struct {
@@ -7760,6 +7771,92 @@ func updateCreditSale(db *sql.DB, currentUser *User, creditSaleID int, input cre
 		}
 	}
 
+	return result, nil
+}
+
+func deleteCreditSale(db *sql.DB, currentUser *User, creditSaleID int, source string) (creditSaleDeleteResult, error) {
+	if currentUser == nil || !isAdminRole(currentUser.Role) {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusForbidden, Message: "Solo administrador puede eliminar créditos."}
+	}
+	if creditSaleID <= 0 {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusBadRequest, Message: "Crédito inválido."}
+	}
+
+	tenantID := tenantIDFromUser(currentUser)
+	tx, err := db.Begin()
+	if err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo iniciar la transacción."}
+	}
+	defer tx.Rollback()
+
+	var result creditSaleDeleteResult
+	var kindRaw string
+	if err := tx.QueryRow(`
+		SELECT cs.id, COALESCE(cs.customer_id, 0), COALESCE(cs.kind, ?), COALESCE(cs.product_id, ''), COALESCE(cs.quantity, 1)
+		FROM credit_sales cs
+		WHERE cs.tenant_id = ? AND cs.id = ?
+		LIMIT 1
+	`, string(creditSaleKindProduct), tenantID, creditSaleID).Scan(
+		&result.CreditSaleID,
+		&result.CustomerID,
+		&kindRaw,
+		&result.ProductID,
+		&result.Quantity,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return creditSaleDeleteResult{}, requestError{Status: http.StatusNotFound, Message: "Crédito no encontrado."}
+		}
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el crédito."}
+	}
+	result.Kind = normalizeCreditSaleKind(kindRaw)
+
+	var invoiceCount int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM invoices WHERE tenant_id = ? AND credit_sale_id = ?`, tenantID, creditSaleID).Scan(&invoiceCount); err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar las facturas asociadas."}
+	}
+	if invoiceCount > 0 {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusBadRequest, Message: "No se puede eliminar el crédito porque tiene una factura vinculada."}
+	}
+
+	installments, err := tx.Exec(`DELETE FROM credit_installments WHERE tenant_id = ? AND credit_sale_id = ?`, tenantID, creditSaleID)
+	if err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron eliminar los pagos del crédito."}
+	}
+	if deleted, err := installments.RowsAffected(); err == nil {
+		result.DeletedInstallments = int(deleted)
+	}
+
+	deletedCredit, err := tx.Exec(`DELETE FROM credit_sales WHERE tenant_id = ? AND id = ?`, tenantID, creditSaleID)
+	if err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo eliminar el crédito."}
+	}
+	affected, err := deletedCredit.RowsAffected()
+	if err != nil || affected != 1 {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusBadRequest, Message: "No se pudo confirmar la eliminación del crédito."}
+	}
+
+	auditPayload := map[string]any{
+		"credit_sale_id":       result.CreditSaleID,
+		"customer_id":          result.CustomerID,
+		"kind":                 string(result.Kind),
+		"kind_label":           creditKindLabel(result.Kind),
+		"product_id":           result.ProductID,
+		"quantity":             result.Quantity,
+		"deleted_installments": result.DeletedInstallments,
+		"inventory_modified":   false,
+	}
+	if err := logAuditEvent(tx, currentUser, "credit_sale_deleted", "credit_sale", strconv.Itoa(result.CreditSaleID), source, auditPayload); err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría de la eliminación."}
+	}
+	if result.CustomerID > 0 {
+		if err := logCustomerEvent(tx, currentUser, result.CustomerID, "credit_deleted", "credit_sale", strconv.Itoa(result.CreditSaleID), 0, auditPayload); err != nil {
+			return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la trazabilidad del cliente."}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo confirmar la eliminación del crédito."}
+	}
 	return result, nil
 }
 
@@ -20490,6 +20587,14 @@ func main() {
 			writeJSONError(http.StatusBadRequest, "No se pudo confirmar la eliminación del producto.")
 			return
 		}
+		if err := logAuditEvent(tx, currentUser, "product_deleted", "product", productSKU, "web", map[string]any{
+			"producto_id":   visibleID,
+			"product_sku":   productSKU,
+			"deleted_units": true,
+		}); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría de la eliminación.")
+			return
+		}
 
 		if err := tx.Commit(); err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la transacción.")
@@ -20513,6 +20618,39 @@ func main() {
 			"producto_id": visibleID,
 			"sku":         productSKU,
 			"mensaje":     "Producto eliminado correctamente.",
+		})
+	})
+
+	mux.HandleFunc("/creditos/eliminar", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "No se pudo leer el formulario.", nil)
+			return
+		}
+		creditSaleID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("credit_sale_id")))
+		if err != nil || creditSaleID <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "Crédito inválido.", map[string]string{"credit_sale_id": "Crédito inválido."})
+			return
+		}
+
+		result, err := deleteCreditSale(db, userFromContext(r), creditSaleID, "web")
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo eliminar el crédito.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":                   true,
+			"credit_sale_id":       result.CreditSaleID,
+			"deleted_installments": result.DeletedInstallments,
+			"mensaje":              "Crédito eliminado correctamente.",
 		})
 	})
 

@@ -774,6 +774,10 @@
                 backdrop-filter: blur(8px);
             }
 
+            .modal-danger-action {
+                margin-right: auto;
+            }
+
             .modal-error {
                 padding: 10px 14px;
                 border-radius: 8px;
@@ -3645,6 +3649,15 @@
                             </div>
 
                             <div class="modal-actions">
+                                {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}
+                                <button
+                                    id="credit-edit-delete"
+                                    type="button"
+                                    class="danger modal-danger-action"
+                                >
+                                    Eliminar crédito
+                                </button>
+                                {{end}}
                                 <button
                                     type="button"
                                     class="secondary"
@@ -3819,6 +3832,15 @@
                             </div>
 
                             <div class="modal-actions">
+                                {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}
+                                <button
+                                    id="edit-delete-product"
+                                    type="button"
+                                    class="danger modal-danger-action"
+                                >
+                                    Eliminar producto
+                                </button>
+                                {{end}}
                                 <button
                                     type="button"
                                     class="secondary"
@@ -4756,6 +4778,8 @@
                 document.getElementById("credit-edit-status");
             const creditEditNotes =
                 document.getElementById("credit-edit-notes");
+            const creditEditDelete =
+                document.getElementById("credit-edit-delete");
             const creditEditSubmit =
                 document.getElementById("credit-edit-submit");
             const installmentModal =
@@ -4916,6 +4940,9 @@
                 document.getElementById("edit-retoma-price");
             const editOwner = document.getElementById("edit-owner");
             const editNotes = document.getElementById("edit-notes");
+            const editDeleteProduct = document.getElementById(
+                "edit-delete-product",
+            );
             const editSubmit = document.getElementById("edit-submit");
             if (salePrice) {
                 salePrice.addEventListener("input", () => {
@@ -6001,6 +6028,7 @@
                 if (creditEditHistoryLoading)
                     creditEditHistoryLoading.hidden = false;
                 if (creditEditSubmit) creditEditSubmit.disabled = true;
+                if (creditEditDelete) creditEditDelete.disabled = true;
                 try {
                     const [detailResp, historyResp] = await Promise.all([
                         fetch(`/api/credits/${creditSaleId}`, {
@@ -6050,6 +6078,7 @@
                     if (creditEditHistoryLoading)
                         creditEditHistoryLoading.hidden = true;
                     if (creditEditSubmit) creditEditSubmit.disabled = false;
+                    if (creditEditDelete) creditEditDelete.disabled = false;
                 }
             };
 
@@ -7720,6 +7749,7 @@
                     }
 
                     if (creditEditSubmit) creditEditSubmit.disabled = true;
+                    if (creditEditDelete) creditEditDelete.disabled = true;
                     setCreditEditError("");
                     try {
                         const resp = await fetch(
@@ -7754,6 +7784,51 @@
                             err?.message || "No se pudo actualizar el crédito.",
                         );
                         if (creditEditSubmit) creditEditSubmit.disabled = false;
+                        if (creditEditDelete) creditEditDelete.disabled = false;
+                    }
+                });
+            }
+
+            if (creditEditDelete) {
+                creditEditDelete.addEventListener("click", async () => {
+                    if (!creditEditContext?.id) return;
+                    const confirmed = window.confirm(
+                        "Esta acción eliminará el crédito y sus pagos registrados. No modifica inventario ni ventas históricas. ¿Deseas continuar?",
+                    );
+                    if (!confirmed) return;
+
+                    if (creditEditSubmit) creditEditSubmit.disabled = true;
+                    creditEditDelete.disabled = true;
+                    setCreditEditError("");
+                    try {
+                        const body = new URLSearchParams({
+                            credit_sale_id: String(creditEditContext.id),
+                        });
+                        const resp = await fetch("/creditos/eliminar", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type":
+                                    "application/x-www-form-urlencoded",
+                                Accept: "application/json",
+                                "X-Requested-With": "XMLHttpRequest",
+                            },
+                            credentials: "same-origin",
+                            body,
+                        });
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok || !data.ok) {
+                            throw new Error(
+                                data.error || "No se pudo eliminar el crédito.",
+                            );
+                        }
+                        closeModal(creditEditModal);
+                        window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Crédito eliminado correctamente.")}`;
+                    } catch (err) {
+                        setCreditEditError(
+                            err?.message || "No se pudo eliminar el crédito.",
+                        );
+                        if (creditEditSubmit) creditEditSubmit.disabled = false;
+                        creditEditDelete.disabled = false;
                     }
                 });
             }
@@ -8006,6 +8081,54 @@
                                 "No se pudo actualizar el producto.",
                         );
                         if (editSubmit) editSubmit.disabled = false;
+                    }
+                });
+            }
+
+            if (editDeleteProduct) {
+                editDeleteProduct.addEventListener("click", async () => {
+                    if (!editContext?.isAdmin) return;
+                    const confirmed = window.confirm(
+                        "Esta acción eliminará el producto y sus unidades del inventario. ¿Deseas continuar?",
+                    );
+                    if (!confirmed) return;
+
+                    if (editSubmit) editSubmit.disabled = true;
+                    editDeleteProduct.disabled = true;
+                    setEditError("");
+                    try {
+                        const body = new URLSearchParams({
+                            producto_id: editContext.productId,
+                        });
+                        const resp = await fetch(
+                            "/inventario/producto/eliminar",
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type":
+                                        "application/x-www-form-urlencoded",
+                                    Accept: "application/json",
+                                    "X-Requested-With": "XMLHttpRequest",
+                                },
+                                body,
+                            },
+                        );
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok || !data.ok) {
+                            throw new Error(
+                                data.error ||
+                                    "No se pudo eliminar el producto.",
+                            );
+                        }
+                        closeModal(editModal);
+                        window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Producto eliminado correctamente.")}`;
+                    } catch (err) {
+                        setEditError(
+                            err?.message ||
+                                "No se pudo eliminar el producto.",
+                        );
+                        if (editSubmit) editSubmit.disabled = false;
+                        editDeleteProduct.disabled = false;
                     }
                 });
             }

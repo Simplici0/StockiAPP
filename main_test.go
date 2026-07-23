@@ -1540,6 +1540,72 @@ func TestBusinessSettingsTemplateParsesLabelProfiles(t *testing.T) {
 	}
 }
 
+func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
+	templates, err := template.New("").Funcs(template.FuncMap{
+		"businessName":          func(any) string { return "Negocio prueba" },
+		"businessLogoPath":      func(any) string { return "" },
+		"businessPrimaryColor":  func(any) string { return "#172554" },
+		"businessPrimaryStrong": func(any) string { return "#0f172a" },
+		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
+		"pageCanLoan":           func(any) bool { return false },
+		"pageCanCredit":         func(any) bool { return false },
+		"money":                 func(float64) string { return "$0" },
+	}).ParseFiles(
+		"templates/partials/app_styles.html",
+		"templates/partials/header.html",
+		"templates/inventario.html",
+	)
+	if err != nil {
+		t.Fatalf("parse inventory template: %v", err)
+	}
+
+	renderDeleteButton := func(role string) []byte {
+		var rendered bytes.Buffer
+		data := inventoryPageData{
+			Title:       "Inventario",
+			CanCredit:   true,
+			CurrentUser: &User{Role: role},
+		}
+		if err := templates.ExecuteTemplate(&rendered, "inventario.html", data); err != nil {
+			t.Fatalf("render inventory template for %s: %v", role, err)
+		}
+		return rendered.Bytes()
+	}
+
+	adminRendered := renderDeleteButton("admin")
+	if got := bytes.Count(adminRendered, []byte(`id="edit-delete-product"`)); got != 1 {
+		t.Fatalf("admin inventory page should render exactly one delete-product action, got %d", got)
+	}
+	editModalStart := bytes.Index(adminRendered, []byte(`id="edit-modal"`))
+	labelModalStart := bytes.Index(adminRendered, []byte(`id="label-modal"`))
+	if editModalStart < 0 || labelModalStart < 0 || labelModalStart <= editModalStart {
+		t.Fatal("could not locate the edit product modal boundaries")
+	}
+	editModal := adminRendered[editModalStart:labelModalStart]
+	if !bytes.Contains(editModal, []byte(`id="edit-delete-product"`)) {
+		t.Fatalf("admin edit-product modal should expose the delete-product action")
+	}
+	if got := bytes.Count(adminRendered, []byte(`id="credit-edit-delete"`)); got != 1 {
+		t.Fatalf("admin inventory page should render exactly one delete-credit action, got %d", got)
+	}
+	creditModalStart := bytes.Index(adminRendered, []byte(`id="credit-edit-modal"`))
+	if creditModalStart < 0 || creditModalStart >= editModalStart {
+		t.Fatal("could not locate the edit credit modal boundaries")
+	}
+	creditModal := adminRendered[creditModalStart:editModalStart]
+	if !bytes.Contains(creditModal, []byte(`id="credit-edit-delete"`)) {
+		t.Fatalf("admin edit-credit modal should expose the delete-credit action")
+	}
+
+	employeeRendered := renderDeleteButton("empleado")
+	if bytes.Contains(employeeRendered, []byte(`id="edit-delete-product"`)) {
+		t.Fatalf("non-admin inventory modal should not expose the delete-product action")
+	}
+	if bytes.Contains(employeeRendered, []byte(`id="credit-edit-delete"`)) {
+		t.Fatalf("non-admin inventory modal should not expose the delete-credit action")
+	}
+}
+
 func TestVisibleProductsAndAgentItemsIncludeLocation(t *testing.T) {
 	t.Setenv("ADMIN_USER", "admin")
 	t.Setenv("ADMIN_PASS", "SuperSecreto123")
@@ -4749,6 +4815,94 @@ func TestAPICreditsCanUpdateProductCreditAndPersistDerivedState(t *testing.T) {
 	}
 	if installmentsTotal != 6 || installmentsPaid != 1 || totalValue != 180000 || status != "suspended" || notes != "credito reprogramado" {
 		t.Fatalf("unexpected persisted credit state total=%d paid=%d totalValue=%.0f status=%s notes=%s", installmentsTotal, installmentsPaid, totalValue, status, notes)
+	}
+}
+
+func TestDeleteCreditSaleRemovesInstallmentsAndKeepsAuditTrail(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	customerResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Cliente Eliminación",
+		"customer_phone":           "3001112233",
+		"customer_document_type":   "CC",
+		"customer_document_number": "771122",
+		"customer_city":            "Bogotá",
+	})
+	if customerResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 customer, got %d body=%s", customerResp.Code, customerResp.Body.String())
+	}
+	customerID := int(decodeAPIResponse(t, customerResp)["customer"].(map[string]any)["id"].(float64))
+
+	creditResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind":               "cash_loan",
+		"customer_id":        customerID,
+		"installments_total": 3,
+		"total_value":        90000,
+		"installment_value":  30000,
+		"notes":              "crédito de prueba para eliminar",
+	})
+	if creditResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 credit, got %d body=%s", creditResp.Code, creditResp.Body.String())
+	}
+	creditSaleID := int(decodeAPIResponse(t, creditResp)["credit_sale_id"].(float64))
+	if _, err := db.Exec(`
+		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
+		VALUES (?, ?, NULL, 0, 10000, 'abono', ?, ?)
+	`, tenant.ID, creditSaleID, time.Now().Format(time.RFC3339), 0); err != nil {
+		t.Fatalf("seed credit installment: %v", err)
+	}
+
+	if _, err := deleteCreditSale(db, &User{Role: roleEmployee, TenantID: tenant.ID}, creditSaleID, "web"); err == nil {
+		t.Fatal("expected non-admin credit deletion to be rejected")
+	} else {
+		var reqErr requestError
+		if !errors.As(err, &reqErr) || reqErr.Status != http.StatusForbidden {
+			t.Fatalf("expected 403 for non-admin deletion, got %v", err)
+		}
+	}
+	if _, err := deleteCreditSale(db, mustLoadTestUser(t, db, "admin"), creditSaleID, "web"); err == nil {
+		t.Fatal("expected cross-tenant credit deletion to be rejected")
+	} else {
+		var reqErr requestError
+		if !errors.As(err, &reqErr) || reqErr.Status != http.StatusNotFound {
+			t.Fatalf("expected 404 for cross-tenant deletion, got %v", err)
+		}
+	}
+
+	result, err := deleteCreditSale(db, mustLoadTestUser(t, db, "tenant2.admin"), creditSaleID, "web")
+	if err != nil {
+		t.Fatalf("delete credit sale: %v", err)
+	}
+	if result.CreditSaleID != creditSaleID || result.DeletedInstallments != 1 {
+		t.Fatalf("unexpected deletion result: %+v", result)
+	}
+
+	for _, check := range []struct {
+		name  string
+		query string
+	}{
+		{name: "credit", query: `SELECT COUNT(*) FROM credit_sales WHERE tenant_id = ? AND id = ?`},
+		{name: "installments", query: `SELECT COUNT(*) FROM credit_installments WHERE tenant_id = ? AND credit_sale_id = ?`},
+	} {
+		var count int
+		if err := db.QueryRow(check.query, tenant.ID, creditSaleID).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", check.name, err)
+		}
+		if count != 0 {
+			t.Fatalf("expected deleted %s rows, got %d", check.name, count)
+		}
+	}
+
+	var auditCount, customerEventCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE tenant_id = ? AND event_type = 'credit_sale_deleted' AND entity_id = ?`, tenant.ID, strconv.Itoa(creditSaleID)).Scan(&auditCount); err != nil {
+		t.Fatalf("count deletion audit: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_events WHERE tenant_id = ? AND customer_id = ? AND event_type = 'credit_deleted' AND ref_id = ?`, tenant.ID, customerID, strconv.Itoa(creditSaleID)).Scan(&customerEventCount); err != nil {
+		t.Fatalf("count customer deletion event: %v", err)
+	}
+	if auditCount != 1 || customerEventCount != 1 {
+		t.Fatalf("expected deletion audit and customer event, got audit=%d customer_events=%d", auditCount, customerEventCount)
 	}
 }
 
