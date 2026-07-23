@@ -191,6 +191,10 @@
             .label-document.is-compact .label-barcode .label-code { display: none; }
 
             .label-meta { flex: 0 0 auto; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 6px; font-weight: 700; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
+            .label-size,
+            .label-size-inline { color: #111827; font-weight: 850; }
+            .label-size { font-size: 7px; }
+            .label-size-inline { font-size: 9.4px; }
             .label-document.is-compact .label-meta { display: none; }
 
             @page { size: {{.PaperWidthMM}}mm {{.PaperHeightMM}}mm; margin: 0 !important; }
@@ -223,8 +227,8 @@
                 <article class="label-card{{if and $.Profile.ShowContact $.ContactLine}} has-contact{{end}}{{if $.Profile.ShowBusiness}} has-brand{{end}}{{if $.Profile.ShowPrice}} has-price{{end}}">
                     {{if $.Profile.ShowBusiness}}<div class="label-brand">{{if businessLogoPath $}}<img class="label-logo" src="{{businessLogoPath $}}" alt="Logo de {{businessName $}}" />{{else}}<div class="label-business">{{businessName $}}</div>{{end}}</div>{{end}}
                     <h2 class="label-name">{{.Name}}</h2>
-                    {{if or $.Profile.ShowID (and $.Profile.ShowSize .Size)}}<div class="label-reference">{{if $.Profile.ShowID}}{{.ID}}{{end}}{{if and $.Profile.ShowSize .Size}}{{if $.Profile.ShowID}} · {{end}}Talla {{.Size}}{{end}}</div>{{end}}
-                    {{if and $.Profile.ShowSize .Size}}<div class="label-meta">Talla {{.Size}}</div>{{end}}
+                    {{if or $.Profile.ShowID (and $.Profile.ShowSize .Size)}}<div class="label-reference">{{if $.Profile.ShowID}}<span>{{.ID}}</span>{{end}}{{if and $.Profile.ShowSize .Size}}{{if $.Profile.ShowID}} · {{end}}<span class="label-size-inline">Talla {{.Size}}</span>{{end}}</div>{{end}}
+                    {{if and $.Profile.ShowSize .Size}}<div class="label-meta"><span class="label-size">Talla {{.Size}}</span></div>{{end}}
                     {{if and $.Profile.ShowContact $.ContactLine}}<div class="label-contact label-contact-standard">{{$.ContactLine}}</div><div class="label-contact label-contact-compact">{{$.CompactContactLine}}</div>{{end}}
                     {{if $.Profile.ShowPrice}}<div class="label-price"><span>PRECIO</span><strong>{{.Price}}</strong></div>{{end}}
                     {{if or $.Profile.ShowBarcode $.Profile.ShowID}}<div class="label-barcode">

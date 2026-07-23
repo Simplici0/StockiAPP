@@ -149,6 +149,7 @@ type productLabelBatchProduct struct {
 	ID              string
 	Name            string
 	Line            string
+	Size            string
 	Price           string
 	Available       int
 	SuggestedCopies int
@@ -9978,9 +9979,9 @@ func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile la
 			businessSize, nameSize, priceLabelSize, priceValueSize, priceLabelY, barcodeHeight, barcodeY, codeY := 6.5, 8.3, 6.2, 11.5, contentTopY-pad-36, millimetersToPoints(12), contentOffsetY+millimetersToPoints(7), contentOffsetY+millimetersToPoints(3)
 			nameLines := pdfLabelNameLines(item.Name, 26)
 			printContact := labelProfile.ShowContact && contactLine != ""
-			meta := make([]string, 0, 2)
+			sizeLabel := ""
 			if labelProfile.ShowSize && strings.TrimSpace(item.Size) != "" {
-				meta = append(meta, "Talla "+item.Size)
+				sizeLabel = "Talla " + item.Size
 			}
 			if compact {
 				// The 50 x 25 mm format follows a classic retail-label hierarchy:
@@ -10009,15 +10010,18 @@ func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile la
 				for lineIndex, line := range compactNameLines {
 					pdfTextLineWithFont(&content, "F2", rightX, contentTopY-pad-9-float64(lineIndex)*11, 10.4, pdfTruncateLabelText(line, 15))
 				}
-				referenceParts := make([]string, 0, 2)
+				referenceY := contentTopY - pad - 30.5
+				referenceX := rightX
 				if labelProfile.ShowID {
-					referenceParts = append(referenceParts, item.ID)
+					referenceText := item.ID
+					if sizeLabel != "" {
+						referenceText += " · "
+					}
+					pdfTextLineWithFont(&content, "F2", referenceX, referenceY, 8.4, referenceText)
+					referenceX += pdfApproxTextWidth(referenceText, 8.4)
 				}
-				if labelProfile.ShowSize && strings.TrimSpace(item.Size) != "" {
-					referenceParts = append(referenceParts, "Talla "+item.Size)
-				}
-				if len(referenceParts) > 0 {
-					pdfTextLineWithFont(&content, "F2", rightX, contentTopY-pad-30.5, 8.4, pdfTruncateLabelText(strings.Join(referenceParts, " · "), 18))
+				if sizeLabel != "" {
+					pdfTextLineWithFont(&content, "F2", referenceX, referenceY, 9.4, pdfTruncateLabelText(sizeLabel, 10))
 				}
 				compactPriceX := x + labelWidth - pad
 				if labelProfile.ShowPrice {
@@ -10071,8 +10075,8 @@ func productLabelsPDFWithSettingsAndProfile(items []productLabelItem, profile la
 			for lineIndex, line := range nameLines {
 				pdfTextLine(&content, x+pad, nameStartY-float64(lineIndex)*8, nameSize, line)
 			}
-			if len(meta) > 0 {
-				pdfTextLineWithFont(&content, "F2", x+pad, nameStartY-float64(len(nameLines))*8-1, 5.2, strings.Join(meta, " · "))
+			if sizeLabel != "" {
+				pdfTextLineWithFont(&content, "F2", x+pad, nameStartY-float64(len(nameLines))*8-1, 6.2, sizeLabel)
 			}
 			if labelProfile.ShowPrice {
 				pdfTextLineWithFont(&content, "F2", x+pad, priceLabelY, priceLabelSize, "PRECIO")
@@ -17934,9 +17938,15 @@ func main() {
 				suggestedCopies = maxLabelBatchCopies
 			}
 			batchProducts = append(batchProducts, productLabelBatchProduct{
-				ID:              visibleID,
-				Name:            product.Name,
-				Line:            product.Line,
+				ID:   visibleID,
+				Name: product.Name,
+				Line: product.Line,
+				Size: func() string {
+					if !product.TallaRequerida {
+						return ""
+					}
+					return strings.TrimSpace(product.Talla)
+				}(),
 				Price:           formatCurrency(product.SalePrice),
 				Available:       available,
 				SuggestedCopies: suggestedCopies,

@@ -1383,11 +1383,17 @@ func TestCompactLabelPDFUsesLegible50x25Hierarchy(t *testing.T) {
 	if !bytes.Contains(pdf, []byte("/MediaBox [0 0 141.73 70.87]")) {
 		t.Fatalf("expected 50 x 25 mm PDF page, got %q", pdf[:min(200, len(pdf))])
 	}
-	if !bytes.Contains(pdf, []byte("/F2 10.40 Tf")) || !bytes.Contains(pdf, []byte("/F2 12.20 Tf")) || !bytes.Contains(pdf, []byte("/F2 8.40 Tf")) {
-		t.Fatalf("compact label should preserve the readable product name, price, and ID hierarchy")
+	if !bytes.Contains(pdf, []byte("/F2 10.40 Tf")) || !bytes.Contains(pdf, []byte("/F2 12.20 Tf")) || !bytes.Contains(pdf, []byte("/F2 8.40 Tf")) || !bytes.Contains(pdf, []byte("/F2 9.40 Tf")) {
+		t.Fatalf("compact label should preserve the readable product name, size, price, and ID hierarchy")
 	}
 	if !bytes.Contains(pdf, []byte("($280.000)")) {
 		t.Fatalf("compact label should preserve every digit in a six-figure price")
+	}
+	if !bytes.Contains(pdf, []byte("(Talla M)")) {
+		t.Fatalf("compact label should render size when available")
+	}
+	if !bytes.Contains(pdf, []byte("(P-001")) {
+		t.Fatalf("compact label should keep the visible ID alongside size")
 	}
 	if bytes.Contains(pdf, []byte("Nutrici")) {
 		t.Fatalf("product line should not be printed by compact label profiles")
@@ -1468,9 +1474,21 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("barcodeDataURI: %v", err)
 	}
-	item := productLabelItem{ID: "P-1", Name: "Producto prueba", Price: "$ 10.000", BarcodeDataURI: template.URL(barcode)}
+	item := productLabelItem{ID: "P-1", Name: "Producto prueba", Size: "M", Price: "$ 10.000", BarcodeDataURI: template.URL(barcode)}
+	compactProfile := LabelProfile{
+		Name:          "50 x 25",
+		LabelWidthMM:  50,
+		LabelHeightMM: 25,
+		Columns:       1,
+		ShowBusiness:  true,
+		ShowContact:   true,
+		ShowSize:      true,
+		ShowPrice:     true,
+		ShowBarcode:   true,
+		ShowID:        true,
+	}
 	var rendered bytes.Buffer
-	if err := templates.ExecuteTemplate(&rendered, "product_labels.html", productLabelsPageDataFor([]productLabelItem{item}, labelPrintProfileFor("58mm", 1, 0), nil, BusinessSettings{ContactPhone: "+57 300 123 4567", ContactEmail: "ventas@negocio.co"})); err != nil {
+	if err := templates.ExecuteTemplate(&rendered, "product_labels.html", productLabelsPageDataForProfile([]productLabelItem{item}, labelPrintProfileFromProfile(compactProfile), compactProfile, nil, BusinessSettings{ContactPhone: "+57 300 123 4567", ContactEmail: "ventas@negocio.co"})); err != nil {
 		t.Fatalf("render print template: %v", err)
 	}
 	if bytes.Contains(rendered.Bytes(), []byte("topbar")) || !bytes.Contains(rendered.Bytes(), []byte("@page")) {
@@ -1479,8 +1497,17 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	if !bytes.Contains(rendered.Bytes(), []byte("Tel. &#43;57 300 123 4567")) || !bytes.Contains(rendered.Bytes(), []byte("ventas@negocio.co")) {
 		t.Fatalf("print template should include configured contact information")
 	}
+	if !bytes.Contains(rendered.Bytes(), []byte("label-size")) || !bytes.Contains(rendered.Bytes(), []byte("label-size-inline")) {
+		t.Fatalf("print template should expose the size-specific styling hooks")
+	}
+	if !bytes.Contains(rendered.Bytes(), []byte("Talla M")) {
+		t.Fatalf("compact print template should render size when available")
+	}
+	if !bytes.Contains(rendered.Bytes(), []byte(`<div class="label-code">P-1</div>`)) {
+		t.Fatalf("compact print template should keep the visible ID when size is present")
+	}
 	rendered.Reset()
-	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", Available: 7, SuggestedCopies: 7, CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", DefaultProfileID: 1, Profiles: []LabelProfile{{ID: 1, Name: "Compacta", LabelWidthMM: 50, LabelHeightMM: 25, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true}}, CanManageLabels: true, MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
+	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", Size: "M", Available: 7, SuggestedCopies: 7, CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", DefaultProfileID: 1, Profiles: []LabelProfile{{ID: 1, Name: "Compacta", LabelWidthMM: 50, LabelHeightMM: 25, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true}}, CanManageLabels: true, MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
 		t.Fatalf("render batch template: %v", err)
 	}
 	if !bytes.Contains(rendered.Bytes(), []byte("/productos/etiquetas/lote")) {
@@ -1489,8 +1516,8 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	if bytes.Contains(rendered.Bytes(), []byte("name=\"show_line\"")) {
 		t.Fatalf("label editor should not expose the retired line option")
 	}
-	if !bytes.Contains(rendered.Bytes(), []byte(`data-available="7"`)) || !bytes.Contains(rendered.Bytes(), []byte(`value="7"`)) || !bytes.Contains(rendered.Bytes(), []byte("7 disponibles")) {
-		t.Fatalf("batch template should propose one label per available unit")
+	if !bytes.Contains(rendered.Bytes(), []byte(`data-available="7"`)) || !bytes.Contains(rendered.Bytes(), []byte(`value="7"`)) || !bytes.Contains(rendered.Bytes(), []byte("7 disponibles")) || !bytes.Contains(rendered.Bytes(), []byte("Talla M")) {
+		t.Fatalf("batch template should show size and propose one label per available unit")
 	}
 }
 

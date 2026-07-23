@@ -210,11 +210,11 @@
                         </div>
                         <div id="label-product-rows">
                             {{range .Products}}
-                            <label class="labels-product-row" data-label-product="{{.ID}} {{.Name}} {{.Line}}" data-available="{{.Available}}">
+                            <label class="labels-product-row" data-label-product="{{.ID}} {{.Name}} {{.Line}} {{.Size}}" data-available="{{.Available}}">
                                 <input class="label-product-check" name="id" value="{{.ID}}" type="checkbox" />
                                 <span class="labels-product-name">
                                     <strong>{{.Name}}</strong>
-                                    <span>{{.ID}}{{if .Line}} · {{.Line}}{{end}} · {{.Available}} disponibles · {{.Price}}</span>
+                                    <span>{{.ID}}{{if .Size}} · Talla {{.Size}}{{end}}{{if .Line}} · {{.Line}}{{end}} · {{.Available}} disponibles · {{.Price}}</span>
                                 </span>
                                 <input class="labels-copies" name="{{.CopiesKey}}" type="number" min="1" max="{{$.MaxCopies}}" value="{{.SuggestedCopies}}" disabled aria-label="Copias para {{.Name}}" />
                             </label>
