@@ -1751,7 +1751,9 @@
                     window.history.replaceState({}, "", nextUrl);
                     applyData(data);
                   } catch (_) {
-                    // ignore
+                    if (typeof window.showToast === "function") {
+                      window.showToast("No se pudo actualizar el dashboard. Revisa tu conexión e inténtalo de nuevo.", "error");
+                    }
                   }
                 }, 250);
               };
@@ -1784,9 +1786,14 @@
                      if (!resp.ok || !data.ok) {
                        throw new Error(data.error || "No se pudo eliminar la venta.");
                      }
+                     if (typeof window.showToast === "function") {
+                       window.showToast("Venta eliminada correctamente.", "success");
+                     }
                      schedule();
                    } catch (err) {
-                     alert(err?.message || "No se pudo eliminar la venta.");
+                     if (typeof window.showToast === "function") {
+                       window.showToast(err?.message || "No se pudo eliminar la venta. Revisa los permisos e inténtalo de nuevo.", "error");
+                     }
                    } finally {
                      btn.removeAttribute("disabled");
                    }

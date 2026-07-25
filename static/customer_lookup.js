@@ -42,15 +42,37 @@
 
     const results = document.createElement("div");
     results.className = "customer-lookup-results";
+    results.setAttribute("aria-live", "polite");
+    results.setAttribute("aria-atomic", "true");
     results.hidden = true;
     searchInput.parentElement.appendChild(results);
 
     let selected = null;
     let controller = null;
+    let lastQuery = "";
 
     function hideResults() {
       results.hidden = true;
       results.innerHTML = "";
+    }
+
+    function showState(message, state = "info") {
+      results.innerHTML = "";
+      results.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+      const stateNode = document.createElement("div");
+      stateNode.className = `customer-lookup-state ${state} ${state === "loading" ? "state-loading" : state === "error" ? "state-error" : state === "empty" ? "state-empty" : ""}`;
+      stateNode.setAttribute("role", state === "error" ? "alert" : "status");
+      stateNode.textContent = message;
+      results.appendChild(stateNode);
+      if (state === "error" && lastQuery) {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "button secondary customer-lookup-retry";
+        retry.textContent = "Reintentar";
+        retry.addEventListener("click", () => fetchCustomers(lastQuery));
+        results.appendChild(retry);
+      }
+      results.hidden = false;
     }
 
     function setStatus(text, active) {
@@ -82,7 +104,7 @@
 
     function renderResults(items) {
       if (!items.length) {
-        hideResults();
+        showState("Sin resultados para esta búsqueda.", "empty");
         return;
       }
       results.innerHTML = "";
@@ -106,12 +128,14 @@
 
     const fetchCustomers = debounce(async (query) => {
       const trimmed = String(query || "").trim();
+      lastQuery = trimmed;
       if (trimmed.length < 2) {
         hideResults();
         return;
       }
       if (controller) controller.abort();
       controller = new AbortController();
+      showState("Cargando clientes…", "loading");
       try {
         const resp = await fetch(`/api/customers?${new URLSearchParams({ q: trimmed, limit: "8" }).toString()}`, {
           headers: { Accept: "application/json" },
@@ -120,13 +144,13 @@
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || !data.ok || !Array.isArray(data.items)) {
-          hideResults();
+          showState("No se pudo conectar. Intenta nuevamente.", "error");
           return;
         }
         renderResults(data.items);
       } catch (error) {
         if (error && error.name === "AbortError") return;
-        hideResults();
+        showState("No se pudo conectar. Intenta nuevamente.", "error");
       }
     }, 220);
 

@@ -16,6 +16,10 @@
                 --slate2: #273449;
                 --blue: #0ea5e9;
                 --blue-dk: #0284c7;
+                /* Alias visuales compartidos con app_styles.html. */
+                --primary: var(--blue);
+                --primary-strong: var(--blue-dk);
+                --font-sans: "DM Sans", sans-serif;
                 --sky: #bae6fd;
                 --white: #ffffff;
                 --off: #f8fafc;
@@ -39,7 +43,7 @@
                 scroll-behavior: smooth;
             }
             body {
-                font-family: "DM Sans", sans-serif;
+                font-family: var(--font-sans);
                 background: var(--navy);
                 color: var(--white);
                 font-size: 15px;
@@ -93,7 +97,7 @@
                 border: 1px solid var(--border);
                 border-radius: 8px;
                 padding: 7px 13px 7px 34px;
-                font-family: "DM Sans", sans-serif;
+                font-family: var(--font-sans);
                 font-size: 13px;
                 color: var(--white);
                 outline: none;
@@ -817,6 +821,16 @@
                 }
                 .grid3 {
                     grid-template-columns: 1fr 1fr;
+                }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                *,
+                *::before,
+                *::after {
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    scroll-behavior: auto !important;
+                    transition-duration: 0.01ms !important;
                 }
             }
         </style>

@@ -4,185 +4,49 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{.Title}}</title>
-  <style>
-    /* ── Cambio nuevo: estilos locales ── */
-    .card {
-      max-width: 820px;
-      margin: 0 auto;
-    }
-
-    .card h1 {
-      margin-bottom: 4px;
-    }
-
-    .card > p {
-      margin-bottom: 14px;
-    }
-
-    .alert {
-      padding: 11px 14px;
-      border-radius: 8px;
-      background: #eff6ff;
-      border: 1px solid rgba(29, 78, 216, 0.18);
-      color: #1e3a8a;
-      font-size: 13.5px;
-      font-weight: 600;
-      margin-bottom: 14px;
-    }
-
-    form {
-      display: grid;
-      gap: 14px;
-    }
-
-    .row {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    }
-
-    .section {
-      border: 1px solid rgba(15, 40, 80, 0.1);
-      border-radius: 10px;
-      padding: 14px;
-      display: grid;
-      gap: 12px;
-      background: #f8fafc;
-    }
-
-    .section h2 {
-      margin: 0;
-      font-size: 13px;
-      font-weight: 700;
-      color: #0d2b55;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-
-    .multi-select {
-      border: 1px solid rgba(15, 40, 80, 0.1);
-      border-radius: 8px;
-      background: #ffffff;
-      padding: 8px 12px;
-    }
-
-    .multi-select summary {
-      list-style: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 13.5px;
-      color: #0f1d2e;
-      min-height: 34px;
-    }
-
-    .multi-select summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .multi-select .summary-meta {
-      font-size: 12px;
-      color: #7a93ae;
-    }
-
-    .multi-select .options {
-      margin-top: 8px;
-      display: grid;
-      gap: 7px;
-      max-height: 180px;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-
-    .multi-select .option {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      color: #0f1d2e;
-    }
-
-    .multi-select input[type="checkbox"] {
-      width: auto;
-    }
-
-    .selection-count {
-      font-weight: 700;
-      color: #0ea5c9;
-    }
-
-    .hint {
-      font-size: 12px;
-      color: #7a93ae;
-    }
-
-    .error {
-      color: #dc2626;
-      font-size: 12px;
-    }
-
-    .is-hidden {
-      display: none;
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: center;
-      padding-top: 4px;
-    }
-
-    .note {
-      font-size: 12px;
-      color: #0369a1;
-      font-weight: 600;
-    }
-  </style>
   {{template "app_styles" .}}
 </head>
-<body>
+<body class="swap-page">
   {{template "header" .}}
   <main class="page-content">
-    <div class="card">
+    <div class="card swap-page__card">
     <h1>{{.Title}}</h1>
     <p>Registra el intercambio de productos.</p>
 
-    <div class="alert">
+    <div class="alert alert-info">
       Si hay dinero involucrado, usa el flujo de ventas.
     </div>
 
-    <form action="/cambio" method="POST">
-      <div class="row">
+    <form class="swap-page__form" action="/cambio" method="POST">
+      <div class="swap-page__row">
         <div>
-          <label for="producto_id">Sale</label>
+          <label for="producto_id">Producto entregado</label>
           <select id="producto_id" name="producto_id">
             {{range .Productos}}
               <option value="{{.ID}}" {{if eq $.ProductoID .ID}}selected{{end}}>{{.Name}} ({{.ID}})</option>
             {{end}}
           </select>
           {{with index .Errors "producto_id"}}
-            <div class="error">{{.}}</div>
+            <div class="swap-page__error">{{.}}</div>
           {{end}}
         </div>
         <div>
           <label for="persona_del_cambio">Cliente</label>
           <input id="persona_del_cambio" name="persona_del_cambio" type="text" value="{{.PersonaCambio}}" placeholder="Nombre" />
           {{with index .Errors "persona_del_cambio"}}
-            <div class="error">{{.}}</div>
+            <div class="swap-page__error">{{.}}</div>
           {{end}}
         </div>
       </div>
 
-      <div class="section">
+      <div class="swap-page__section">
         <h2>Unidades que salen</h2>
-        <div class="hint">{{len .Unidades}} disponibles</div>
+        <div class="swap-page__hint">{{len .Unidades}} disponibles</div>
         {{if .Unidades}}
-          <details class="multi-select" data-multi-select>
+          <details class="swap-page__multi-select" data-multi-select>
             <summary>
               <span>Seleccionar unidades</span>
-              <span class="summary-meta"><span class="selection-count" data-selection-count>0</span> de {{len .Unidades}} seleccionadas</span>
+              <span class="summary-meta"><span class="swap-page__selection-count" data-selection-count>0</span> de {{len .Unidades}} seleccionadas</span>
             </summary>
             <div class="options" role="listbox" aria-label="Unidades disponibles">
               {{range .Unidades}}
@@ -194,14 +58,14 @@
             </div>
           </details>
         {{else}}
-          <div class="error">No hay unidades disponibles para este producto.</div>
+          <div class="swap-page__error">No hay unidades disponibles para este producto.</div>
         {{end}}
         {{with index .Errors "salientes"}}
-          <div class="error">{{.}}</div>
+          <div class="swap-page__error">{{.}}</div>
         {{end}}
       </div>
 
-      <div class="section">
+      <div class="swap-page__section">
         <h2>Unidades que entran</h2>
         <div>
           <label for="incoming_mode">Tipo</label>
@@ -209,13 +73,13 @@
             <option value="existing" {{if or (eq .IncomingMode "") (eq .IncomingMode "existing")}}selected{{end}}>Existente</option>
             <option value="new" {{if eq .IncomingMode "new"}}selected{{end}}>Nuevo</option>
           </select>
-          <div class="hint">Producto existente o nuevo</div>
+          <div class="swap-page__hint">Producto existente o nuevo</div>
         </div>
         {{with index .Errors "incoming_mode"}}
-          <div class="error">{{.}}</div>
+          <div class="swap-page__error">{{.}}</div>
         {{end}}
 
-        <div class="row" id="incoming_existing_fields">
+        <div class="swap-page__row" id="incoming_existing_fields">
           <div>
             <label for="incoming_existing_id">Producto</label>
             <select id="incoming_existing_id" name="incoming_existing_id">
@@ -224,36 +88,36 @@
               {{end}}
             </select>
             {{with index .Errors "incoming_existing_id"}}
-              <div class="error">{{.}}</div>
+              <div class="swap-page__error">{{.}}</div>
             {{end}}
           </div>
           <div>
             <label for="incoming_existing_qty">Cantidad</label>
             <input id="incoming_existing_qty" name="incoming_existing_qty" type="number" min="1" value="{{.IncomingExistingQty}}" />
             {{with index .Errors "incoming_existing_qty"}}
-              <div class="error">{{.}}</div>
+              <div class="swap-page__error">{{.}}</div>
             {{end}}
           </div>
         </div>
 
-        <div class="row" id="incoming_new_fields">
+        <div class="swap-page__row" id="incoming_new_fields">
           <div>
             <label for="incoming_new_sku">ID</label>
             <input id="incoming_new_sku" name="incoming_new_sku" type="text" value="{{.IncomingNewSKU}}" placeholder="Código" />
             {{with index .Errors "incoming_new_sku"}}
-              <div class="error">{{.}}</div>
+              <div class="swap-page__error">{{.}}</div>
             {{end}}
           </div>
           <div>
             <label for="incoming_new_name">Nombre</label>
             <input id="incoming_new_name" name="incoming_new_name" type="text" value="{{.IncomingNewName}}" placeholder="Nombre del producto" />
             {{with index .Errors "incoming_new_name"}}
-              <div class="error">{{.}}</div>
+              <div class="swap-page__error">{{.}}</div>
             {{end}}
           </div>
         </div>
 
-        <div class="row" id="incoming_new_qty_fields">
+        <div class="swap-page__row" id="incoming_new_qty_fields">
           <div>
             <label for="incoming_new_line">Línea</label>
             <input id="incoming_new_line" name="incoming_new_line" type="text" value="{{.IncomingNewLine}}" placeholder="Categoría" />
@@ -262,7 +126,7 @@
             <label for="incoming_new_qty">Cantidad</label>
             <input id="incoming_new_qty" name="incoming_new_qty" type="number" min="1" value="{{.IncomingNewQty}}" />
             {{with index .Errors "incoming_new_qty"}}
-              <div class="error">{{.}}</div>
+              <div class="swap-page__error">{{.}}</div>
             {{end}}
           </div>
         </div>
@@ -273,10 +137,10 @@
         <textarea id="notas" name="notas" placeholder="Observaciones">{{.Notas}}</textarea>
       </div>
 
-      <div class="note">Sin registro de dinero. Para ventas con pago, usa el flujo de ventas.</div>
+      <div class="swap-page__note">Sin registro de dinero. Para ventas con pago, usa el flujo de ventas.</div>
 
-      <div class="actions">
-        <button class="primary" type="submit">Confirmar</button>
+      <div class="swap-page__actions">
+        <button class="primary" type="submit">Registrar cambio</button>
         <a class="button secondary" href="/inventario">Cancelar</a>
       </div>
     </form>
@@ -303,13 +167,13 @@
       existingFields.forEach((field) => field.toggleAttribute("disabled", mode !== "existing"));
       newFields.forEach((field) => field.toggleAttribute("disabled", mode !== "new"));
       if (existingFieldGroup) {
-        existingFieldGroup.classList.toggle("is-hidden", mode !== "existing");
+        existingFieldGroup.classList.toggle("swap-page__hidden", mode !== "existing");
       }
       if (newFieldGroup) {
-        newFieldGroup.classList.toggle("is-hidden", mode !== "new");
+        newFieldGroup.classList.toggle("swap-page__hidden", mode !== "new");
       }
       if (newQtyFieldGroup) {
-        newQtyFieldGroup.classList.toggle("is-hidden", mode !== "new");
+        newQtyFieldGroup.classList.toggle("swap-page__hidden", mode !== "new");
       }
     };
 

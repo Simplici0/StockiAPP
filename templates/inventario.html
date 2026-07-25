@@ -152,6 +152,68 @@
                 border-color: var(--primary-strong);
             }
 
+            .product-primary-action {
+                min-width: 96px;
+            }
+
+            .stock-indicator {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                color: var(--text);
+                font-weight: 800;
+            }
+
+            .stock-indicator::before {
+                content: "";
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: var(--success);
+                box-shadow: 0 0 0 3px var(--success-soft);
+            }
+
+            .stock-indicator.empty::before {
+                background: var(--danger);
+                box-shadow: 0 0 0 3px var(--danger-soft);
+            }
+
+            .menu-group-label {
+                padding: 7px 12px 4px;
+                color: var(--text-soft);
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+            }
+
+            .menu-separator {
+                height: 1px;
+                margin: 5px 4px;
+                background: var(--border);
+            }
+
+            .menu-panel button.menu-danger {
+                color: var(--danger-ink);
+            }
+
+            .menu-panel button.menu-danger:hover {
+                background: var(--danger-soft);
+                color: var(--danger-ink);
+            }
+
+            .history-drawer {
+                justify-content: flex-end;
+                padding: 0;
+            }
+
+            .history-drawer .modal {
+                width: min(720px, 100%);
+                height: 100%;
+                max-height: 100%;
+                border-radius: 18px 0 0 18px;
+            }
+
             /* KPI summary strip — oculto en esta versión */
             .summary {
                 display: none;
@@ -387,6 +449,12 @@
                 color: var(--danger-ink);
             }
 
+            .status.empty {
+                background: var(--danger-soft);
+                border: 1px solid rgba(220, 38, 38, 0.18);
+                color: var(--danger-ink);
+            }
+
             .status {
                 display: inline-flex;
                 align-items: center;
@@ -490,10 +558,46 @@
                 letter-spacing: 0.1em;
             }
 
-            .units-table th,
-            .units-table td {
+            .units-list {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 8px;
+                margin: 0;
+                padding: 0;
+                list-style: none;
+            }
+
+            .unit-card {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px 12px;
+                margin: 0;
+                padding: 10px 12px;
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                background: var(--bg-card);
+            }
+
+            .unit-field {
+                min-width: 0;
+                display: grid;
+                gap: 2px;
+            }
+
+            .unit-field-label {
+                color: var(--text-soft);
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+            }
+
+            .unit-field-value {
+                min-width: 0;
+                overflow-wrap: anywhere;
+                color: var(--text);
                 font-size: 12px;
-                padding: 7px 10px;
+                font-weight: 650;
             }
 
             .unit-tag {
@@ -778,6 +882,17 @@
                 margin-right: auto;
             }
 
+            .confirm-message {
+                margin: 0;
+                color: var(--text);
+                font-size: 14px;
+                line-height: 1.55;
+            }
+
+            .confirm-modal .modal-actions {
+                margin-top: 8px;
+            }
+
             .modal-error {
                 padding: 10px 14px;
                 border-radius: 8px;
@@ -805,6 +920,22 @@
             .modal-grid {
                 display: grid;
                 gap: 12px;
+            }
+
+            .edit-advanced-section {
+                display: grid;
+                gap: 12px;
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 12px;
+            }
+
+            .edit-advanced-section > summary {
+                min-height: 44px;
+                padding: 10px 4px;
+                color: var(--text);
+                cursor: pointer;
+                font-weight: 750;
             }
 
             .sale-view {
@@ -1678,11 +1809,124 @@
                 }
 
                 .inventory-table .units-panel {
-                    overflow-x: auto;
+                    overflow-x: hidden;
                 }
 
-                .inventory-table .units-table {
-                    min-width: 560px;
+            }
+
+            /* Mobile product cards: preserve all operational information without horizontal scroll. */
+            @media (max-width: 768px) {
+                .inventory-table,
+                .inventory-table tbody,
+                .inventory-table tbody#productTable {
+                    width: 100%;
+                    min-width: 0;
+                }
+
+                .inventory-table tbody#productTable {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    padding: 12px;
+                }
+
+                .inventory-table tbody > tr.inventory-row {
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 14px;
+                    width: 100%;
+                    box-sizing: border-box;
+                    padding: 16px;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td,
+                .inventory-table tbody > tr.inventory-row > td:nth-child(2),
+                .inventory-table tbody > tr.inventory-row > td:nth-child(5) {
+                    display: block;
+                    width: 100%;
+                    box-sizing: border-box;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td::before {
+                    display: block;
+                    margin-bottom: 4px;
+                    color: var(--text-soft);
+                    content: attr(data-label);
+                    font-size: 10px;
+                    font-weight: 800;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td[data-label="Producto"] {
+                    padding-right: 48px;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td[data-label="Producto"]::before,
+                .inventory-table tbody > tr.inventory-row > td[data-label="Más acciones"]::before {
+                    display: none;
+                }
+
+                .inventory-table tbody > tr.inventory-row > td[data-label="Más acciones"] {
+                    position: absolute;
+                    top: 12px;
+                    right: 12px;
+                    width: auto;
+                    padding: 0;
+                }
+
+                .inventory-table .value-cell {
+                    display: grid;
+                    gap: 4px;
+                }
+
+                .inventory-table .actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                    width: 100%;
+                }
+
+                .inventory-table .actions input[type="number"] {
+                    flex: 0 1 72px;
+                }
+
+                .inventory-table .actions > button,
+                .inventory-table .actions > a.button {
+                    flex: 1 1 180px;
+                }
+
+                .inventory-table tbody > tr.units-row:not([hidden]) {
+                    display: block !important;
+                    width: 100%;
+                    margin: -4px 0 8px;
+                }
+
+                .inventory-table tbody > tr.units-row > td.units-panel {
+                    display: block;
+                    width: 100%;
+                    box-sizing: border-box;
+                    padding: 14px;
+                    border: 1px solid var(--border-strong);
+                    border-radius: 0 0 14px 14px;
+                }
+
+                .inventory-table .units-header {
+                    align-items: flex-start;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+
+                .inventory-table .units-list {
+                    grid-template-columns: minmax(0, 1fr);
+                    width: 100%;
+                }
+
+                .inventory-table .unit-card {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    width: 100%;
+                    box-sizing: border-box;
                 }
             }
         </style>
@@ -1776,7 +2020,7 @@
                 </div>
             </main>
 
-            <div id="history-modal" class="modal-backdrop" aria-hidden="true">
+            <div id="history-modal" class="modal-backdrop history-drawer" aria-hidden="true">
                 <div
                     class="modal"
                     role="dialog"
@@ -3755,6 +3999,20 @@
                             </div>
 
                             <div>
+                                <label for="edit-talla">Talla · opcional</label>
+                                <input
+                                    id="edit-talla"
+                                    name="talla"
+                                    type="text"
+                                    maxlength="80"
+                                    placeholder="Ej: S, M, L, 38"
+                                />
+                                <small class="help-text">Si escribes una talla, el sistema entiende que el producto la requiere. Déjala vacía si no aplica.</small>
+                            </div>
+
+                            <details class="edit-advanced-section">
+                                <summary>Opciones avanzadas</summary>
+                            <div>
                                 <label for="edit-location">Locación</label>
                                 <input
                                     id="edit-location"
@@ -3762,29 +4020,6 @@
                                     type="text"
                                     placeholder="Ej: Estante A-03"
                                 />
-                            </div>
-
-                            <div class="modal-row">
-                                <div>
-                                    <label class="checkline">
-                                        <input
-                                            id="edit-talla-requerida"
-                                            name="talla_requerida"
-                                            type="checkbox"
-                                        />
-                                        Este producto requiere talla
-                                    </label>
-                                </div>
-                                <div id="edit-talla-wrap">
-                                    <label for="edit-talla">Talla</label>
-                                    <input
-                                        id="edit-talla"
-                                        name="talla"
-                                        type="text"
-                                        maxlength="80"
-                                        placeholder="Ej: S, M, L, 38"
-                                    />
-                                </div>
                             </div>
 
                             <div class="modal-row">
@@ -3830,6 +4065,7 @@
                                     placeholder="Observaciones internas del producto"
                                 ></textarea>
                             </div>
+                            </details>
 
                             <div class="modal-actions">
                                 {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}
@@ -3906,6 +4142,33 @@
                             Cerrar
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <div id="confirm-modal" class="modal-backdrop" aria-hidden="true">
+                <div
+                    class="modal confirm-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="confirm-title"
+                    aria-describedby="confirm-message"
+                >
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="confirm-title">Confirmar acción</h3>
+                            <div id="confirm-product" class="modal-subtitle"></div>
+                        </div>
+                        <button type="button" class="modal-close" data-modal-close aria-label="Cerrar">
+                            ✕
+                        </button>
+                    </div>
+                    <form id="confirm-form" class="modal-body">
+                        <p id="confirm-message" class="confirm-message"></p>
+                        <div class="modal-actions">
+                            <button type="button" class="secondary" data-modal-close>Cancelar</button>
+                            <button id="confirm-submit" type="submit" class="danger">Confirmar</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -3985,6 +4248,11 @@
               {{- end }}
             ];
             const currentUserRole = "{{if .CurrentUser}}{{.CurrentUser.Role}}{{end}}";
+            const canSell = {{if .CanSell}}true{{else}}false{{end}};
+            const canCredit = {{if .CanCredit}}true{{else}}false{{end}};
+            const canLoan = {{if .CanLoan}}true{{else}}false{{end}};
+            const canSwap = {{if .CanSwap}}true{{else}}false{{end}};
+            const canRetoma = {{if .CanRetoma}}true{{else}}false{{end}};
             const productsById = new Map();
 
             const statusFilter = document.getElementById("statusFilter");
@@ -4245,12 +4513,73 @@
               }
             };
 
+            const inventoryFiltersActive = () =>
+              Boolean(
+                (statusFilter && statusFilter.value !== "all") ||
+                (lineFilter && lineFilter.value !== "all") ||
+                (searchFilter && searchFilter.value.trim()) ||
+                (expiryToggle && expiryToggle.checked)
+              );
+
+            const renderInventoryEmptyState = () => {
+              const cell = document.createElement("td");
+              cell.colSpan = 7;
+              const state = document.createElement("div");
+              state.className = "state-empty";
+              state.setAttribute("role", "status");
+              const icon = document.createElement("span");
+              icon.className = "state-icon";
+              icon.setAttribute("aria-hidden", "true");
+              icon.textContent = "i";
+              const title = document.createElement("h3");
+              title.textContent = inventoryFiltersActive()
+                ? "No hay productos con estos filtros"
+                : "Aún no hay productos";
+              const description = document.createElement("p");
+              description.textContent = inventoryFiltersActive()
+                ? "Limpia o ajusta los filtros para ampliar la búsqueda."
+                : "Crea tu primer producto para comenzar a operar el inventario.";
+              const actions = document.createElement("div");
+              actions.className = "state-actions";
+              if (inventoryFiltersActive()) {
+                const clear = document.createElement("button");
+                clear.type = "button";
+                clear.className = "secondary";
+                clear.textContent = "Limpiar filtros";
+                clear.addEventListener("click", () => {
+                  if (statusFilter) statusFilter.value = "all";
+                  if (lineFilter) lineFilter.value = "all";
+                  if (searchFilter) searchFilter.value = "";
+                  if (expiryToggle) expiryToggle.checked = false;
+                  applyFilters();
+                });
+                actions.appendChild(clear);
+              } else {
+                const create = document.createElement("a");
+                create.className = "button primary";
+                create.href = "/productos/new";
+                create.textContent = "Crear primer producto";
+                actions.appendChild(create);
+              }
+              state.append(icon, title, description, actions);
+              cell.appendChild(state);
+              const row = document.createElement("tr");
+              row.className = "inventory-state-row";
+              row.appendChild(cell);
+              productTable.appendChild(row);
+            };
+
             const renderTable = (items) => {
               if (!productTable) {
                 console.warn("Tabla de productos no disponible: falta #productTable.");
                 return;
               }
               productTable.innerHTML = "";
+
+              if (!items.length) {
+                renderInventoryEmptyState();
+                return;
+              }
 
               items.forEach((product) => {
                 const productId = esc(product.id);
@@ -4277,14 +4606,33 @@
                   isPhysicalLoan ||
                   Number(product.salePrice || 0) > 0 ||
                   (product.entryType === "product" && product.retomaEnabled);
+                const availableUnits = Math.max(0, Number(product.available || 0));
+                const isOutOfStock =
+                  product.entryType === "product" &&
+                  availableUnits === 0 &&
+                  ["", "available"].includes(String(product.statusClass || ""));
+                const visibleStatusClass = isOutOfStock ? "empty" : String(product.statusClass || "");
+                const visibleStatusLabel = isOutOfStock ? "Agotado" : statusLabel(product.statusLabel);
+                const primaryAction = isCredit
+                  ? canCredit
+                    ? `<button class="primary product-primary-action" data-action="installment" data-product="${productId}">Registrar pago</button>`
+                    : ``
+                  : isPhysicalLoan
+                    ? canLoan
+                      ? `<button class="primary product-primary-action" data-action="close-loan" data-product="${productId}">Cerrar préstamo</button>`
+                      : ``
+                    : canSell && availableUnits > 0
+                      ? `<input type="number" min="1" max="${Math.max(availableUnits, 1)}" value="1" data-qty="${productId}" aria-label="Cantidad para ${productName}" />
+                         <button class="primary product-primary-action" data-action="sell" data-product="${productId}">Vender</button>`
+                      : ``;
                 row.innerHTML = `
                   <td data-label="Producto">
                     <div class="product-name" data-product="${productId}">
                       ${productName}
                       ${product.ageAlert ? `<span class="age-pill" title="En stock ${esc(product.ageMonths)} meses (fecha ingreso: ${productIngreso})">+6 meses</span>` : ``}
                     </div>
-                    <div class="fifo-note desktop-product-meta">${isCredit ? `Crédito ${productId} · Producto ${productBaseId}` : isPhysicalLoan ? `Préstamo ${productId} · Producto ${productBaseId}` : `ID ${productId} · ${esc(product.available)} disponibles`}</div>
-                    <div class="fifo-note mobile-product-meta">${isCredit ? `Crédito ${productId} · ${productLine}` : isPhysicalLoan ? `Préstamo ${productId} · ${productLine}` : `ID ${productId} · ${productLine} · ${esc(product.available)} disponibles`}</div>
+                    <div class="fifo-note desktop-product-meta">${isCredit ? `ID ${productId} · Crédito · Producto ${productBaseId}` : isPhysicalLoan ? `ID ${productId} · Préstamo · Producto ${productBaseId}` : `ID ${productId} · ${esc(product.available)} disponibles`}</div>
+                    <div class="fifo-note mobile-product-meta">${isCredit ? `ID ${productId} · Crédito · ${productLine}` : isPhysicalLoan ? `ID ${productId} · Préstamo · ${productLine}` : `ID ${productId} · ${productLine} · ${esc(product.available)} disponibles`}</div>
                     ${product.entryType === "product" && product.location ? `<div class="fifo-note">Locación · ${productLocation}</div>` : ``}
                     ${product.entryType === "product" && product.talla ? `<div class="fifo-note">Talla · ${esc(product.talla)}</div>` : ``}
                     ${isCredit
@@ -4300,7 +4648,7 @@
                       : ``}
                   </td>
                   <td data-label="Línea">${productLine}</td>
-                  <td data-label="Valor" ${hasVisibleValue ? "" : "hidden"}>
+                  <td data-label="Valor">
                     <div class="value-cell">
                       ${isCredit || isPhysicalLoan || Number(product.salePrice || 0) > 0
                         ? `<div class="value-line sale">
@@ -4333,64 +4681,50 @@
                             <span class="value-amount">${product.retomaPrice > 0 ? esc(formatCOP(product.retomaPrice)) : "No definido"}</span>
                           </div>`
                         : ``}
+                      ${product.entryType === "product" && Number(product.salePrice || 0) <= 0
+                        ? `<div class="value-line retoma is-empty">
+                            <span class="value-label">Precio</span>
+                            <span class="value-amount">Sin definir</span>
+                          </div>`
+                        : ``}
                     </div>
                   </td>
-                  <td data-label="Estado"><span class="status ${esc(product.statusClass || "")}">${esc(statusLabel(product.statusLabel))}</span></td>
+                  <td data-label="Estado"><span class="status ${esc(visibleStatusClass)}">${esc(visibleStatusLabel)}</span></td>
                   <td data-label="Stock">
-                    <strong>${esc(isPhysicalLoan ? product.units.length : product.available)}</strong>
+                    <strong class="stock-indicator ${availableUnits > 0 ? "" : "empty"}">${esc(isPhysicalLoan ? product.units.length : availableUnits)}</strong>
                     ${isPhysicalLoan ? `<div class="fifo-note">Prestadas</div>` : ``}
                   </td>
                   <td data-label="Acciones">
                     <div class="actions">
-                      ${isCredit
-                        ? `{{if .CanCredit}}<button class="primary" data-action="installment" data-product="${productId}">Registrar pago</button>{{end}}`
-                        : isPhysicalLoan
-                          ? `{{if .CanLoan}}<button class="primary" data-action="close-loan" data-product="${productId}">Cerrar préstamo</button>{{end}}`
-                        : `
-                      <input type="number" min="1" max="${Math.max(product.available, 1)}" value="1" data-qty="${productId}" />
-                      {{if .CanSell}}
-                      <button class="primary" data-action="sell" data-product="${productId}">Vender</button>
-                      {{end}}
-                      {{if .CanSwap}}
-                      <button class="secondary" data-action="swap" data-product="${productId}">Cambio</button>
-                      {{end}}
-                      {{if .CanRetoma}}
-                      ${product.retomaEnabled ? `<button class="ghost" data-action="retoma" data-product="${productId}">Retoma</button>` : ``}
-                      {{end}}
-                      `}
+                      ${primaryAction}
                     </div>
                   </td>
                   <td data-label="Más acciones">
                     <div class="menu">
-                      <button class="ghost" data-menu="${productId}" aria-label="Más acciones">⋮</button>
+                      <button class="ghost" data-menu="${productId}" aria-haspopup="true" aria-expanded="false" aria-controls="menu-${productId}" aria-label="Más acciones para ${productName}">⋮</button>
                       <div class="menu-panel" id="menu-${productId}">
-                        ${isCredit ? `
-                        {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}
-                        <button type="button" data-menu-action="edit-credit" data-product="${productId}">Editar crédito</button>
-                        {{end}}
-                        <button type="button" data-menu-action="invoice-credit" data-product="${productId}">Generar factura</button>
+                        <div class="menu-group-label">Operar</div>
+                        ${isCredit
+                          ? `<button type="button" data-menu-action="invoice-credit" data-product="${productId}">Generar factura</button>`
+                          : isPhysicalLoan
+                            ? ``
+                            : `
+                              ${canSwap ? `<button type="button" data-menu-action="swap" data-product="${productId}">Registrar cambio</button>` : ``}
+                              <button type="button" data-menu-action="reserve" data-product="${productId}">Reservar unidades</button>
+                              <button type="button" data-menu-action="damage" data-product="${productId}">Registrar daño</button>
+                              ${canLoan ? `<button type="button" data-menu-action="loan-product" data-product="${productId}">Prestar producto</button>` : ``}
+                              ${canRetoma && product.retomaEnabled ? `<button type="button" data-menu-action="retoma" data-product="${productId}">Preparar retoma</button>` : ``}
+                            `}
+                        <div class="menu-separator"></div>
+                        <div class="menu-group-label">Consultar</div>
+                        <button type="button" data-menu-action="units" data-product="${productId}">Ver unidades</button>
                         <button type="button" data-menu-action="history" data-product="${productId}">Ver historial</button>
-                        ` : isPhysicalLoan ? `
-                        {{if .CanLoan}}
-                        <button type="button" data-menu-action="close-loan" data-product="${productId}">Cerrar préstamo</button>
-                        {{end}}
-                        <button type="button" data-menu-action="history" data-product="${productId}">Ver historial</button>
-                        ` : `
-                        <button type="button" data-menu-action="reserve" data-product="${productId}">Reservar unidades</button>
-                        <button type="button" data-menu-action="damage" data-product="${productId}">Registrar daño</button>
-                        {{if .CanLoan}}
-                        <button type="button" data-menu-action="loan-product" data-product="${productId}">Prestar producto</button>
-                        {{end}}
-                        <button type="button" data-menu-action="edit" data-product="${productId}">Editar producto</button>
+                        <div class="menu-separator"></div>
+                        <div class="menu-group-label">Administrar</div>
+                        ${isCredit ? `{{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}<button type="button" data-menu-action="edit-credit" data-product="${productId}">Editar crédito</button>{{end}}` : ``}
+                        ${!isCredit && !isPhysicalLoan ? `<button type="button" data-menu-action="edit" data-product="${productId}">Editar producto</button>
                         <button type="button" data-menu-action="print-label" data-product="${productId}">Imprimir etiqueta</button>
-                        {{if .CanRetoma}}
-                        ${product.retomaEnabled ? `<button type="button" data-menu-action="retoma" data-product="${productId}">Preparar retoma</button>` : ``}
-                        {{end}}
-                        {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "empleado"))}}
-                        <button type="button" data-menu-action="stock" data-product="${productId}">Ajustar stock</button>
-                        {{end}}
-                        <button type="button" data-menu-action="history" data-product="${productId}">Ver historial</button>
-                        `}
+                        {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "empleado"))}}<button type="button" data-menu-action="stock" data-product="${productId}">Ajustar stock</button>{{end}}` : ``}
                       </div>
                     </div>
                   </td>
@@ -4441,30 +4775,19 @@
                         <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${esc(formatOptionalDate(product.dueAt))}</span></span>
                         <span class="credit-meta-item"><strong>Observaciones:</strong><span>${productNotes}</span></span>
                       </div>
-                      <table class="units-table" aria-label="Unidades prestadas">
-                        <thead>
-                          <tr>
-                            <th>ID</th>
-                            <th>Prestado desde</th>
-                            <th>Retorno esperado</th>
-                            <th>Estado</th>
-                            <th>Gestionado por</th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                      <ul class="units-list" aria-label="Unidades prestadas">
                           ${product.units
                             .map((unit) => `
-                              <tr>
-                                <td>${esc(unit.id)}</td>
-                                <td>${productIngreso}</td>
-                                <td>${esc(formatOptionalDate(product.dueAt))}</td>
-                                <td>${esc(statusLabel(unit.statusLabel))}</td>
-                                <td>${productManagedByName}</td>
-                              </tr>
+                              <li class="unit-card">
+                                <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Prestado desde</span><span class="unit-field-value">${productIngreso}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Retorno esperado</span><span class="unit-field-value">${esc(formatOptionalDate(product.dueAt))}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Gestionado por</span><span class="unit-field-value">${productManagedByName}</span></span>
+                              </li>
                             `)
                           .join("")}
-                        </tbody>
-                      </table>
+                      </ul>
                     </td>
                   `;
                   productTable.appendChild(unitsRow);
@@ -4476,35 +4799,23 @@
                       <h4>Unidades</h4>
                       <span class="fifo-note">Selección FIFO</span>
                     </div>
-                    <table class="units-table" aria-label="Unidades del producto">
-                      <thead>
-                        <tr>
-                          <th>ID</th>
-                          <th>Ingreso</th>
-                          <th>Caduca</th>
-                          <th>Ubicación</th>
-                          <th>Estado</th>
-                          <th>FIFO</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                    <ul class="units-list" aria-label="Unidades del producto">
                         ${product.units
                           .map((unit, index) => {
                             const fifoOrder = unit.fifo || (unit.statusClass === "available" ? index + 1 : "-");
                             return `
-                              <tr>
-                                <td>${esc(unit.id)}</td>
-                                <td>${esc(formatOptionalDate(unit.created))}</td>
-                                <td>${esc(formatOptionalDate(unit.expires))}</td>
-                                <td>${productLocation || "-"}</td>
-                                <td>${esc(statusLabel(unit.statusLabel))}</td>
-                                <td><span class="unit-tag">${esc(fifoOrder)}</span></td>
-                              </tr>
+                              <li class="unit-card">
+                                <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Ingreso</span><span class="unit-field-value">${esc(formatOptionalDate(unit.created))}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Caduca</span><span class="unit-field-value">${esc(formatOptionalDate(unit.expires))}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Ubicación</span><span class="unit-field-value">${productLocation || "-"}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
+                                <span class="unit-field"><span class="unit-field-label">FIFO</span><span class="unit-field-value"><span class="unit-tag">${esc(fifoOrder)}</span></span></span>
+                              </li>
                             `;
                         })
                           .join("")}
-                      </tbody>
-                      </table>
+                    </ul>
                     </td>
                   `;
 
@@ -4535,6 +4846,14 @@
             const labelModalSubtitle = document.getElementById("label-modal-subtitle");
             const labelModalLoading = document.getElementById("label-modal-loading");
             const labelPrintBtn = document.getElementById("label-print-btn");
+
+            const confirmModal = document.getElementById("confirm-modal");
+            const confirmForm = document.getElementById("confirm-form");
+            const confirmTitle = document.getElementById("confirm-title");
+            const confirmProduct = document.getElementById("confirm-product");
+            const confirmMessage = document.getElementById("confirm-message");
+            const confirmSubmit = document.getElementById("confirm-submit");
+            let pendingConfirmation = null;
 
             const historyModal = document.getElementById("history-modal");
             const historySubtitle = document.getElementById("history-subtitle");
@@ -4925,10 +5244,6 @@
             const editName = document.getElementById("edit-name");
             const editLine = document.getElementById("edit-line");
             const editLocation = document.getElementById("edit-location");
-            const editTallaRequerida = document.getElementById(
-                "edit-talla-requerida",
-            );
-            const editTallaWrap = document.getElementById("edit-talla-wrap");
             const editTalla = document.getElementById("edit-talla");
             const editRetomaEnabled = document.getElementById(
                 "edit-retoma-enabled",
@@ -5057,8 +5372,54 @@
                     syncActionRetoma,
                 );
 
-            const openModal = (backdrop, subtitleText) => {
+            const modalOpeners = new WeakMap();
+
+            const getFocusableElements = (element) =>
+                Array.from(
+                    element?.querySelectorAll(
+                        'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])',
+                    ) || [],
+                ).filter(
+                    (node) =>
+                        !node.hidden &&
+                        node.getAttribute("aria-hidden") !== "true" &&
+                        node.offsetParent !== null,
+                );
+
+            const trapFocus = (element, event) => {
+                if (!element || event.key !== "Tab") return;
+                const focusable = getFocusableElements(element);
+                if (!focusable.length) {
+                    event.preventDefault();
+                    element.setAttribute("tabindex", "-1");
+                    element.focus();
+                    return;
+                }
+
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
+            };
+
+            const resolveModal = (dialogIdOrElement) =>
+                typeof dialogIdOrElement === "string"
+                    ? document.getElementById(dialogIdOrElement)
+                    : dialogIdOrElement;
+
+            const openModal = (dialogIdOrElement, subtitleText) => {
+                const backdrop = resolveModal(dialogIdOrElement);
                 if (!backdrop) return;
+                const dialog = backdrop.querySelector('[role="dialog"]');
+                const opener = document.activeElement;
+                if (opener && opener !== document.body) {
+                    modalOpeners.set(backdrop, opener);
+                }
                 backdrop.classList.add("open");
                 backdrop.setAttribute("aria-hidden", "false");
                 if (
@@ -5096,14 +5457,13 @@
                 if (subtitleText && backdrop === editModal && editSubtitle)
                     editSubtitle.textContent = subtitleText;
                 document.body.style.overflow = "hidden";
+                const firstFocusable = getFocusableElements(dialog)[0];
+                (firstFocusable || dialog)?.focus();
             };
 
-            const closeModal = (backdrop) => {
+            const closeModal = (dialogIdOrElement) => {
+                const backdrop = resolveModal(dialogIdOrElement);
                 if (!backdrop) return;
-                const activeElement = document.activeElement;
-                if (activeElement && backdrop.contains(activeElement)) {
-                    activeElement.blur();
-                }
                 backdrop.classList.remove("open");
                 backdrop.setAttribute("aria-hidden", "true");
                 if (backdrop === saleModal) {
@@ -5137,8 +5497,18 @@
                     labelIframe.hidden = true;
                     if (labelModalLoading) labelModalLoading.hidden = false;
                 }
+                if (backdrop === confirmModal && pendingConfirmation) {
+                    const resolve = pendingConfirmation.resolve;
+                    pendingConfirmation = null;
+                    resolve?.(false);
+                }
                 if (!document.querySelector(".modal-backdrop.open")) {
                     document.body.style.overflow = "";
+                }
+                const opener = modalOpeners.get(backdrop);
+                modalOpeners.delete(backdrop);
+                if (opener?.isConnected && !opener.disabled) {
+                    opener.focus();
                 }
             };
 
@@ -5152,6 +5522,48 @@
                 actionError.hidden = false;
                 actionError.textContent = msg;
             };
+
+            const openConfirmation = ({
+                title = "Confirmar acción",
+                productName = "",
+                message,
+                confirmLabel = "Confirmar",
+                onConfirm,
+            }) => {
+                if (confirmTitle) confirmTitle.textContent = title;
+                if (confirmProduct) confirmProduct.textContent = productName;
+                if (confirmMessage) confirmMessage.textContent = message;
+                if (confirmSubmit) confirmSubmit.textContent = confirmLabel;
+                pendingConfirmation = { onConfirm };
+                openModal(confirmModal);
+            };
+
+            const requestConfirmation = (options) =>
+                new Promise((resolve) => {
+                    openConfirmation({
+                        ...options,
+                        onConfirm: () => resolve(true),
+                    });
+                    pendingConfirmation.resolve = resolve;
+                });
+
+            if (confirmForm) {
+                confirmForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    const confirmation = pendingConfirmation;
+                    pendingConfirmation = null;
+                    modalOpeners.delete(confirmModal);
+                    closeModal(confirmModal);
+                    await confirmation?.onConfirm?.();
+                    const underlyingModal = Array.from(
+                        document.querySelectorAll(".modal-backdrop.open"),
+                    ).pop();
+                    const underlyingDialog = underlyingModal?.querySelector(
+                        '[role="dialog"]',
+                    );
+                    getFocusableElements(underlyingDialog)[0]?.focus();
+                });
+            }
 
             let actionContext = null;
             let saleContext = null;
@@ -5195,6 +5607,11 @@
                 document
                     .querySelectorAll(".menu-panel.open")
                     .forEach((panel) => {
+                        const menuId = panel.id.replace(/^menu-/, "");
+                        const menuButton = Array.from(
+                            document.querySelectorAll("button[data-menu]"),
+                        ).find((button) => button.dataset.menu === menuId);
+                        menuButton?.setAttribute("aria-expanded", "false");
                         panel.classList.remove("open");
                         panel.style.left = "";
                         panel.style.top = "";
@@ -6527,17 +6944,6 @@
             if (editRetomaEnabled)
                 editRetomaEnabled.addEventListener("change", syncEditRetoma);
 
-            const syncEditTalla = () => {
-                if (!editTallaRequerida || !editTallaWrap || !editTalla) return;
-                editTallaWrap.hidden = !editTallaRequerida.checked;
-                editTalla.disabled =
-                    !editTallaRequerida.checked || !editContext?.isAdmin;
-                editTalla.required = editTallaRequerida.checked;
-                if (!editTallaRequerida.checked) editTalla.value = "";
-            };
-            if (editTallaRequerida)
-                editTallaRequerida.addEventListener("change", syncEditTalla);
-
             const openEditModal = (product) => {
                 if (!product) return;
                 const isAdmin =
@@ -6577,13 +6983,9 @@
                 if (editLocation) {
                     editLocation.value = product.location || "";
                 }
-                if (editTallaRequerida) {
-                    editTallaRequerida.checked = !!product.tallaRequerida;
-                    editTallaRequerida.disabled = !isAdmin;
-                }
                 if (editTalla) {
                     editTalla.value = product.talla || "";
-                    editTalla.disabled = !isAdmin || !product.tallaRequerida;
+                    editTalla.disabled = !isAdmin;
                 }
                 if (editOwner) {
                     editOwner.innerHTML =
@@ -6611,7 +7013,6 @@
                 if (editNotes) editNotes.value = product.notes || "";
                 if (editSubmit) editSubmit.disabled = false;
                 syncEditRetoma();
-                syncEditTalla();
                 openModal(editModal, `${product.name} · ID ${product.id}`);
                 if (editSKU) editSKU.focus();
             };
@@ -7155,9 +7556,12 @@
                 actionDeleteProduct.addEventListener("click", async () => {
                     if (!actionContext || actionContext.mode !== "adjust_stock")
                         return;
-                    const confirmed = window.confirm(
-                        "Esta acción eliminará el producto y sus unidades del inventario. ¿Deseas continuar?",
-                    );
+                    const confirmed = await requestConfirmation({
+                        title: "Eliminar producto",
+                        productName: `${actionContext.productName || "Producto"} · ID ${actionContext.productId}`,
+                        message: "Esta acción eliminará el producto y sus unidades del inventario. No se puede deshacer.",
+                        confirmLabel: "Eliminar producto",
+                    });
                     if (!confirmed) return;
                     if (actionSubmit) actionSubmit.disabled = true;
                     actionDeleteProduct.disabled = true;
@@ -7792,9 +8196,12 @@
             if (creditEditDelete) {
                 creditEditDelete.addEventListener("click", async () => {
                     if (!creditEditContext?.id) return;
-                    const confirmed = window.confirm(
-                        "Esta acción eliminará el crédito y sus pagos registrados. No modifica inventario ni ventas históricas. ¿Deseas continuar?",
-                    );
+                    const confirmed = await requestConfirmation({
+                        title: "Eliminar crédito",
+                        productName: `Crédito ${creditEditContext.id}`,
+                        message: "Esta acción eliminará el crédito y sus pagos registrados. No modifica inventario ni ventas históricas.",
+                        confirmLabel: "Eliminar crédito",
+                    });
                     if (!confirmed) return;
 
                     if (creditEditSubmit) creditEditSubmit.disabled = true;
@@ -8008,15 +8415,6 @@
                         setEditError("Valor de retoma inválido.");
                         return;
                     }
-                    if (
-                        editContext.isAdmin &&
-                        editTallaRequerida?.checked &&
-                        !String(editTalla?.value || "").trim()
-                    ) {
-                        setEditError("Ingresa la talla del producto.");
-                        return;
-                    }
-
                     if (editSubmit) editSubmit.disabled = true;
                     setEditError("");
                     try {
@@ -8032,9 +8430,6 @@
                             body.set("retoma_price", String(parsedRetomaPrice));
                         }
                         if (editContext.isAdmin) {
-                            if (editTallaRequerida?.checked) {
-                                body.set("talla_requerida", "1");
-                            }
                             body.set(
                                 "talla",
                                 String(editTalla?.value || "").trim(),
@@ -8088,9 +8483,12 @@
             if (editDeleteProduct) {
                 editDeleteProduct.addEventListener("click", async () => {
                     if (!editContext?.isAdmin) return;
-                    const confirmed = window.confirm(
-                        "Esta acción eliminará el producto y sus unidades del inventario. ¿Deseas continuar?",
-                    );
+                    const confirmed = await requestConfirmation({
+                        title: "Eliminar producto",
+                        productName: `${editContext.productName || "Producto"} · ID ${editContext.productId}`,
+                        message: "Esta acción eliminará el producto y sus unidades del inventario. No se puede deshacer.",
+                        confirmLabel: "Eliminar producto",
+                    });
                     if (!confirmed) return;
 
                     if (editSubmit) editSubmit.disabled = true;
@@ -8164,6 +8562,7 @@
                             menuPortalHost = host;
                         }
                         panel.classList.add("open");
+                        menuButton.setAttribute("aria-expanded", "true");
                         positionMenuPanel(menuButton, panel);
                         openMenuContext = { button: menuButton, panel };
                     }
@@ -8299,6 +8698,18 @@
                             "_blank",
                             "noopener",
                         );
+                        return;
+                    }
+                    if (action === "units") {
+                        toggleUnitsRow(productId);
+                        return;
+                    }
+                    if (action === "swap") {
+                        const params = new URLSearchParams({
+                            producto_id: productId,
+                            cantidad: String(Math.max(1, defaultQty)),
+                        });
+                        window.location.href = `/cambio/new?${params.toString()}`;
                         return;
                     }
                     if (action === "edit") {
@@ -8481,10 +8892,26 @@
             });
 
             document.addEventListener("keydown", (event) => {
-                if (event.key !== "Escape") return;
-                document
-                    .querySelectorAll(".modal-backdrop.open")
-                    .forEach((backdrop) => closeModal(backdrop));
+                const openBackdrops = Array.from(
+                    document.querySelectorAll(".modal-backdrop.open"),
+                );
+                const activeBackdrop = openBackdrops[openBackdrops.length - 1];
+
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    if (activeBackdrop) {
+                        closeModal(activeBackdrop);
+                    } else if (openMenuContext) {
+                        const opener = openMenuContext.button;
+                        closeOpenMenuPanels();
+                        opener?.focus();
+                    }
+                    return;
+                }
+
+                if (event.key === "Tab" && activeBackdrop) {
+                    trapFocus(activeBackdrop.querySelector('[role="dialog"]'), event);
+                }
             });
 
             const onViewportChange = () => {

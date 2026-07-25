@@ -10,6 +10,81 @@
                 gap: var(--section-gap);
             }
 
+            .settings-nav {
+                display: grid;
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+                gap: 8px;
+                margin-bottom: 20px;
+                padding: 8px;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-lg);
+                background: var(--bg-card);
+                box-shadow: var(--shadow-xs);
+            }
+
+            .settings-nav a {
+                display: grid;
+                justify-items: center;
+                gap: 5px;
+                min-height: 64px;
+                padding: 10px 8px;
+                border: 1px solid transparent;
+                border-radius: 10px;
+                color: var(--text-muted);
+                font-size: 12px;
+                font-weight: 750;
+                text-align: center;
+                text-decoration: none;
+            }
+
+            .settings-nav a:hover,
+            .settings-nav a:focus-visible,
+            .settings-nav a[aria-current="page"] {
+                border-color: var(--primary);
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+            }
+
+            .settings-nav-icon {
+                font-size: 19px;
+                line-height: 1;
+            }
+
+            .settings-panel[hidden] {
+                display: none;
+            }
+
+            .settings-empty-state {
+                display: grid;
+                justify-items: start;
+                gap: 10px;
+                padding: 24px;
+                border: 1px dashed var(--border-strong);
+                border-radius: var(--radius-lg);
+                background: var(--bg-card-muted);
+            }
+
+            .settings-empty-state h3,
+            .settings-empty-state p {
+                margin: 0;
+            }
+
+            .settings-empty-state p {
+                max-width: 620px;
+                color: var(--text-muted);
+            }
+
+            .settings-empty-icon {
+                display: grid;
+                width: 42px;
+                height: 42px;
+                place-items: center;
+                border-radius: 12px;
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+                font-size: 21px;
+            }
+
             .settings-grid {
                 display: grid;
                 gap: 18px;
@@ -633,6 +708,10 @@
             }
 
             @media (max-width: 640px) {
+                .settings-nav {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+
                 .tenant-control-row,
                 .tenant-control-row .actions {
                     display: grid;
@@ -659,13 +738,40 @@
             <div class="flash error">{{.Error}}</div>
             {{end}}
 
+            <nav class="settings-nav" aria-label="Secciones de configuración">
+                <a href="/configuracion?tab=negocio" {{if eq .Section "negocio"}}aria-current="page"{{end}}>
+                    <span class="settings-nav-icon" aria-hidden="true">◉</span>
+                    <span>Negocio</span>
+                </a>
+                <a href="/configuracion?tab=inventario" {{if eq .Section "inventario"}}aria-current="page"{{end}}>
+                    <span class="settings-nav-icon" aria-hidden="true">▦</span>
+                    <span>Inventario</span>
+                </a>
+                <a href="/configuracion?tab=metodos-pago" {{if eq .Section "metodos-pago"}}aria-current="page"{{end}}>
+                    <span class="settings-nav-icon" aria-hidden="true">$</span>
+                    <span>Métodos de pago</span>
+                </a>
+                <a href="/configuracion?tab=usuarios" {{if eq .Section "usuarios"}}aria-current="page"{{end}}>
+                    <span class="settings-nav-icon" aria-hidden="true">♙</span>
+                    <span>Usuarios</span>
+                </a>
+                <a href="/configuracion?tab=integraciones" {{if eq .Section "integraciones"}}aria-current="page"{{end}}>
+                    <span class="settings-nav-icon" aria-hidden="true">↔</span>
+                    <span>Integraciones</span>
+                </a>
+                <a href="/configuracion?tab=avanzado" {{if eq .Section "avanzado"}}aria-current="page"{{end}}>
+                    <span class="settings-nav-icon" aria-hidden="true">⚙</span>
+                    <span>Avanzado</span>
+                </a>
+            </nav>
+
             <section class="settings-shell">
                 <section class="settings-section">
                     <div class="settings-section-head">
                         <h2>Configuración</h2>
                     </div>
 
-                    <details class="settings-accordion">
+                    <details class="settings-accordion settings-panel" data-settings-section="negocio" {{if ne .Section "negocio"}}hidden{{end}}>
                         <summary>
                             <div class="settings-accordion-title">
                                 <h2>General</h2>
@@ -952,7 +1058,7 @@
                     </details>
                 </section>
 
-                <details class="settings-accordion">
+                <details class="settings-accordion settings-panel" data-settings-section="inventario" {{if ne .Section "inventario"}}hidden{{end}}>
                     <summary>
                         <div class="settings-accordion-title">
                             <h2>Inventario</h2>
@@ -1050,17 +1156,29 @@
                                 {{end}}
                             </div>
                             {{else}}
-                            <div class="empty-state">
-                                <h2>Sin líneas configuradas</h2>
+                            <div class="empty-state settings-empty-state">
+                                <span class="settings-empty-icon" aria-hidden="true">▦</span>
+                                <h3>Tu inventario aún no tiene líneas</h3>
                                 <p>
-                                    Todavía no hay líneas de negocio. Crea la
-                                    primera para habilitar el selector de línea
-                                    en productos.
+                                    Las líneas ayudan a organizar productos y habilitan el selector correspondiente al crear inventario.
                                 </p>
+                                <a class="button primary" href="#new_line_name">Crear primera línea</a>
                             </div>
                             {{end}}
                         </section>
 
+                    </div>
+                </details>
+
+                <details class="settings-accordion settings-panel" data-settings-section="metodos-pago" {{if ne .Section "metodos-pago"}}hidden{{end}}>
+                    <summary>
+                        <div class="settings-accordion-title">
+                            <h2>Métodos de pago</h2>
+                            <p>Configura los canales que estarán disponibles en nuevas ventas.</p>
+                        </div>
+                        <span class="settings-accordion-icon" aria-hidden="true">+</span>
+                    </summary>
+                    <div class="settings-accordion-body">
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>Canales de pago</h3>
@@ -1167,13 +1285,13 @@
                                 {{end}}
                             </div>
                             {{else}}
-                            <div class="empty-state">
-                                <h2>Sin canales configurados</h2>
+                            <div class="empty-state settings-empty-state">
+                                <span class="settings-empty-icon" aria-hidden="true">$</span>
+                                <h3>Aún no hay métodos de pago</h3>
                                 <p>
-                                    No hay métodos de pago cargados todavía.
-                                    Crea el primero y se mostrará en el
-                                    formulario de ventas.
+                                    Agrega los canales que tu equipo puede seleccionar al registrar una venta.
                                 </p>
+                                <a class="button primary" href="#new_payment_method">Crear primer método</a>
                             </div>
                             {{end}}
                         </section>
@@ -1181,7 +1299,7 @@
                 </details>
 
                 {{if .CanManageTenants}}
-                <details class="settings-accordion">
+                <details class="settings-accordion settings-panel" data-settings-section="avanzado" {{if ne .Section "avanzado"}}hidden{{end}}>
                     <summary>
                         <div class="settings-accordion-title">
                             <h2>Plataforma: empresas</h2>
@@ -1671,7 +1789,7 @@
                 </details>
                 {{end}}
 
-                <details class="settings-accordion">
+                <details class="settings-accordion settings-panel" data-settings-section="integraciones" {{if ne .Section "integraciones"}}hidden{{end}}>
                     <summary>
                         <div class="settings-accordion-title">
                             <h2>Usuarios / permisos e integraciones</h2>
@@ -1804,16 +1922,25 @@
                                 {{end}}
                             </div>
                             {{else}}
-                            <div class="empty-state">
-                                <h2>Sin API keys configuradas</h2>
-                                <p>Crea la primera key para integraciones externas.</p>
+                            <div class="empty-state settings-empty-state">
+                                <span class="settings-empty-icon" aria-hidden="true">↔</span>
+                                <h3>No hay integraciones conectadas</h3>
+                                <p>Crea una API key para conectar n8n, agentes u otros sistemas externos.</p>
+                                <a class="button primary" href="#new_api_key_name">Crear primera API key</a>
                             </div>
                             {{end}}
                         </section>
                     </div>
                 </details>
 
-                <details class="settings-accordion">
+                <section class="card settings-empty-state settings-panel" data-settings-section="usuarios" {{if ne .Section "usuarios"}}hidden{{end}} aria-labelledby="users-settings-title">
+                    <span class="settings-empty-icon" aria-hidden="true">♙</span>
+                    <h3 id="users-settings-title">Usuarios y permisos</h3>
+                    <p>Administra cuentas, roles, accesos y estado de usuarios desde el panel dedicado. Esta sección mantiene la configuración operativa separada de las credenciales de integración.</p>
+                    <a class="button primary" href="/admin/users">Gestionar usuarios</a>
+                </section>
+
+                <details class="settings-accordion settings-panel" data-settings-section="avanzado" {{if ne .Section "avanzado"}}hidden{{end}}>
                     <summary>
                         <div class="settings-accordion-title">
                             <h2>Ajustes avanzados</h2>
@@ -1890,6 +2017,29 @@
         </main>
 
         <script>
+            const settingsNavLinks = document.querySelectorAll(".settings-nav a");
+            const settingsTabKey = "stocki_settings_tab";
+            settingsNavLinks.forEach((link) => {
+                link.addEventListener("click", () => {
+                    try {
+                        const tab = new URL(link.href).searchParams.get("tab");
+                        if (tab) window.sessionStorage.setItem(settingsTabKey, tab);
+                    } catch (_) {
+                        // La navegación normal sigue funcionando sin storage.
+                    }
+                });
+            });
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const savedTab = window.sessionStorage.getItem(settingsTabKey);
+                if (!params.has("tab") && savedTab && savedTab !== "negocio") {
+                    params.set("tab", savedTab);
+                    window.location.replace(`/configuracion?${params.toString()}`);
+                }
+            } catch (_) {
+                // No bloquear la configuración si sessionStorage está bloqueado.
+            }
+
             const businessNameInput = document.getElementById("business_name");
             const businessNamePreview = document.getElementById(
                 "business_name_preview",

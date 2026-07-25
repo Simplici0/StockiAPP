@@ -334,7 +334,6 @@ Payload:
   "name": "Producto API",
   "line": "Farmacia",
   "location": "Estante A-03",
-  "talla_requerida": true,
   "talla": "M",
   "owner_user_id": 2,
   "quantity": 5,
@@ -350,8 +349,9 @@ Reglas:
 - `name` y `line` son obligatorios
 - `id` es opcional; si no lo envías, el backend genera un `id` visible tenant-scoped
 - `location` es opcional
-- `talla_requerida` es opcional y por defecto es `false`; cuando es `true`, `talla` es obligatoria
-- si `talla_requerida` es `false`, `talla` se ignora y se guarda vacía
+- `talla` es opcional; si contiene un valor, el backend entiende automáticamente que el producto requiere talla
+- `talla_requerida` se conserva como campo legado compatible: `true` sigue exigiendo una talla aunque `talla` esté vacía
+- si `talla` está vacía y no se envía `talla_requerida=true`, el producto queda sin requisito de talla
 - `quantity` debe ser mayor a `0`
 - `owner_user_id` es opcional
 - `retoma_enabled=true` exige `retoma_price` válido

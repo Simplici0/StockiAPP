@@ -1,0 +1,12 @@
+{{define "breadcrumbs"}}
+<nav class="breadcrumbs" aria-label="Migas de pan">
+    {{range $index, $item := .Breadcrumbs}}
+    {{if $index}}<span class="breadcrumbs-separator" aria-hidden="true">›</span>{{end}}
+    {{if $item.Current}}
+    <span class="breadcrumbs-current" aria-current="page">{{$item.Label}}</span>
+    {{else}}
+    <a href="{{$item.URL}}">{{$item.Label}}</a>
+    {{end}}
+    {{end}}
+</nav>
+{{end}}

@@ -12,9 +12,6 @@
       transition: transform 0.22s ease;
     }
 
-    .topbar.topbar-hidden {
-      transform: translateY(-100%);
-    }
 
     .topbar-inner {
       width: var(--shell-width);
@@ -464,7 +461,6 @@
     }
 
     @media (max-width: 767px) {
-      .topbar.topbar-hidden { transform: none; }
 
       body.mobile-navigation-open { overflow: hidden; }
 
@@ -623,6 +619,20 @@
         to { opacity: 1; transform: translateY(0); }
       }
     }
+
+    @media (prefers-reduced-motion: reduce) {
+      .topbar,
+      .topbar-link,
+      .topbar-menu summary,
+      .topbar-menu-caret,
+      .topbar-mobile-toggle-icon,
+      .topbar-mobile-toggle-icon::before,
+      .topbar-mobile-toggle-icon::after,
+      .topbar-mobile-panel {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
 </style>
 
 <header class="topbar">
@@ -648,7 +658,7 @@
             <span class="topbar-mobile-toggle-icon" aria-hidden="true"></span>
         </button>
 
-        <div class="topbar-mobile-panel" id="topbar-mobile-panel">
+        <div class="topbar-mobile-panel" id="topbar-mobile-panel" aria-hidden="true">
         <nav class="topbar-nav" aria-label="Navegación principal">
             <a href="/inventario" class="topbar-link">Inventario</a>
             <a href="/dashboard" class="topbar-link">Dashboard</a>
@@ -745,38 +755,81 @@
             });
         };
 
-        const closeMobileNavigation = () => {
+        let mobileNavigationOpener = null;
+        let previousBodyOverflow = "";
+        const mobileFocusableSelector =
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+        const syncMobileAria = (isOpen) => {
+            if (!mobilePanel) return;
+            const isMobile = window.matchMedia?.("(max-width: 767px)").matches;
+            mobilePanel.setAttribute(
+                "aria-hidden",
+                isMobile && !isOpen ? "true" : "false",
+            );
+        };
+
+        const closeMobileNavigation = ({ restoreFocus = true } = {}) => {
             if (!topbar) return;
             topbar.classList.remove("mobile-navigation-open");
             document.body.classList.remove("mobile-navigation-open");
+            document.body.style.overflow = previousBodyOverflow;
             mobileToggle?.setAttribute("aria-expanded", "false");
             mobileToggle?.setAttribute("aria-label", "Abrir navegación");
+            syncMobileAria(false);
+            if (restoreFocus && mobileNavigationOpener?.isConnected) {
+                mobileNavigationOpener.focus();
+            }
+            mobileNavigationOpener = null;
         };
 
         const toggleMobileNavigation = () => {
             if (!topbar || !mobileToggle) return;
             const willOpen = !topbar.classList.contains("mobile-navigation-open");
+            if (willOpen) {
+                mobileNavigationOpener = document.activeElement;
+                previousBodyOverflow = document.body.style.overflow;
+                document.body.style.overflow = "hidden";
+            }
             topbar.classList.toggle("mobile-navigation-open", willOpen);
             document.body.classList.toggle("mobile-navigation-open", willOpen);
             mobileToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
             mobileToggle.setAttribute("aria-label", willOpen ? "Cerrar navegación" : "Abrir navegación");
-            if (!willOpen) closeMenus();
+            syncMobileAria(willOpen);
+            if (!willOpen) {
+                closeMenus();
+                closeMobileNavigation();
+                return;
+            }
+            window.requestAnimationFrame(() => {
+                mobilePanel?.querySelector(mobileFocusableSelector)?.focus();
+            });
         };
 
         closeMenus();
-        closeMobileNavigation();
+        closeMobileNavigation({ restoreFocus: false });
         window.addEventListener("pageshow", () => {
             closeMenus();
-            closeMobileNavigation();
+            closeMobileNavigation({ restoreFocus: false });
         });
         mobileToggle?.addEventListener("click", toggleMobileNavigation);
+        window.addEventListener("resize", () => {
+            if (!window.matchMedia?.("(max-width: 767px)").matches) {
+                closeMobileNavigation({ restoreFocus: false });
+            } else {
+                syncMobileAria(topbar?.classList.contains("mobile-navigation-open"));
+            }
+        });
 
         const path = window.location.pathname;
         const directLinks = document.querySelectorAll(".topbar-link");
         directLinks.forEach((link) => {
             const href = link.getAttribute("href");
             if (!href) return;
-            if (href === path) link.classList.add("active");
+            if (href === path) {
+                link.classList.add("active");
+                link.setAttribute("aria-current", "page");
+            }
         });
 
         document.querySelectorAll(".topbar-menu").forEach((menu) => {
@@ -788,6 +841,7 @@
                 const cleanHref = href.replace(window.location.origin, "");
                 if (cleanHref === path) {
                     link.classList.add("active");
+                    link.setAttribute("aria-current", "page");
                     hasActiveChild = true;
                 }
             });
@@ -822,6 +876,27 @@
             if (event.key === "Escape") {
                 closeMenus();
                 closeMobileNavigation();
+                return;
+            }
+            if (
+                event.key === "Tab" &&
+                topbar?.classList.contains("mobile-navigation-open") &&
+                mobilePanel
+            ) {
+                const focusable = [
+                    mobileToggle,
+                    ...mobilePanel.querySelectorAll(mobileFocusableSelector),
+                ].filter((element) => element && !element.hidden);
+                if (!focusable.length) return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
             }
         });
 
@@ -854,33 +929,7 @@
             });
         }
 
-        // ── Hide on scroll ──
-        const DEAD_ZONE = 80;
-        let lastY = window.scrollY;
-        let ticking = false;
-
-        window.addEventListener("scroll", () => {
-            if (ticking) return;
-            ticking = true;
-            requestAnimationFrame(() => {
-                const currentY = window.scrollY;
-                const delta = currentY - lastY;
-
-                if (currentY < DEAD_ZONE) {
-                    topbar.classList.remove("topbar-hidden");
-                } else if (delta > 0) {
-                    // Scroll down — close any open menu first, then hide
-                    closeMenus();
-                    topbar.classList.add("topbar-hidden");
-                } else if (delta < 0) {
-                    // Scroll up — show
-                    topbar.classList.remove("topbar-hidden");
-                }
-
-                lastY = currentY;
-                ticking = false;
-            });
-        }, { passive: true });
+        // The topbar remains sticky while scrolling; open menus and modals are never hidden by scroll.
     })();
 </script>
 {{end}}

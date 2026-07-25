@@ -435,6 +435,12 @@ func normalizedProductSize(required bool, size string) (string, error) {
 	return size, nil
 }
 
+// productSizeRequired keeps the legacy explicit flag compatible while making
+// a non-empty size value sufficient for human-facing forms and integrations.
+func productSizeRequired(explicitRequired bool, size string) bool {
+	return explicitRequired || strings.TrimSpace(size) != ""
+}
+
 func normalizeCustomerCSVHeader(value string) string {
 	value = strings.TrimSpace(strings.TrimPrefix(value, "\ufeff"))
 	value = strings.ToLower(value)
@@ -15958,6 +15964,7 @@ func main() {
 		},
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
+		"templates/partials/breadcrumb.html",
 		"templates/admin_users.html",
 		"templates/manual_page.html",
 		"templates/customers.html",
@@ -16128,6 +16135,7 @@ func main() {
 	type businessSettingsPageData struct {
 		Title                string
 		Subtitle             string
+		Section              string
 		Flash                string
 		Error                string
 		VersionLabel         string
@@ -16155,6 +16163,12 @@ func main() {
 		CurrentUser          *User
 	}
 
+	type breadcrumbItem struct {
+		Label   string
+		URL     string
+		Current bool
+	}
+
 	type auditPageData struct {
 		Title       string
 		Subtitle    string
@@ -16165,6 +16179,7 @@ func main() {
 		DateTo      string
 		EventTypes  []string
 		Events      []AuditEvent
+		Breadcrumbs []breadcrumbItem
 		CurrentUser *User
 	}
 
@@ -16224,6 +16239,7 @@ func main() {
 		Error       string
 		Item        productLoanReportItem
 		Timeline    []productLoanTimelineItem
+		Breadcrumbs []breadcrumbItem
 		CurrentUser *User
 	}
 
@@ -16666,15 +16682,19 @@ func main() {
 		sort.Strings(eventTypes)
 
 		data := auditPageData{
-			Title:       "Auditoría",
-			Subtitle:    "Trazabilidad básica de acciones relevantes del sistema.",
-			Flash:       r.URL.Query().Get("mensaje"),
-			Error:       r.URL.Query().Get("error"),
-			EventType:   eventType,
-			DateFrom:    dateFrom,
-			DateTo:      dateTo,
-			EventTypes:  eventTypes,
-			Events:      events,
+			Title:      "Auditoría",
+			Subtitle:   "Trazabilidad básica de acciones relevantes del sistema.",
+			Flash:      r.URL.Query().Get("mensaje"),
+			Error:      r.URL.Query().Get("error"),
+			EventType:  eventType,
+			DateFrom:   dateFrom,
+			DateTo:     dateTo,
+			EventTypes: eventTypes,
+			Events:     events,
+			Breadcrumbs: []breadcrumbItem{
+				{Label: "Inicio", URL: "/inventario"},
+				{Label: "Auditoría", Current: true},
+			},
 			CurrentUser: userFromContext(r),
 		}
 		renderTemplate(w, "audit_events.html", data, "Error al renderizar auditoría")
@@ -16842,12 +16862,17 @@ func main() {
 			return
 		}
 		data := productLoanDetailPageData{
-			Title:       fmt.Sprintf("Prestamo %d", productLoanID),
-			Subtitle:    "Detalle operativo del préstamo físico y su trazabilidad.",
-			Flash:       r.URL.Query().Get("mensaje"),
-			Error:       r.URL.Query().Get("error"),
-			Item:        item,
-			Timeline:    timeline,
+			Title:    fmt.Sprintf("Prestamo %d", productLoanID),
+			Subtitle: "Detalle operativo del préstamo físico y su trazabilidad.",
+			Flash:    r.URL.Query().Get("mensaje"),
+			Error:    r.URL.Query().Get("error"),
+			Item:     item,
+			Timeline: timeline,
+			Breadcrumbs: []breadcrumbItem{
+				{Label: "Inicio", URL: "/inventario"},
+				{Label: "Préstamos de producto", URL: "/prestamos/producto"},
+				{Label: fmt.Sprintf("Préstamo %d", productLoanID), Current: true},
+			},
 			CurrentUser: currentUser,
 		}
 		renderTemplate(w, "product_loan_detail.html", data, "Error al renderizar detalle del préstamo")
@@ -16894,9 +16919,16 @@ func main() {
 				break
 			}
 		}
+		section := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("tab")))
+		switch section {
+		case "negocio", "inventario", "metodos-pago", "usuarios", "integraciones", "avanzado":
+		default:
+			section = "negocio"
+		}
 		data := businessSettingsPageData{
 			Title:                "Configuración",
 			Subtitle:             "Separa branding general del negocio y catálogos operativos desde un único panel.",
+			Section:              section,
 			Flash:                flash,
 			Error:                errText,
 			VersionLabel:         "Versión 1.0.2",
@@ -18188,8 +18220,8 @@ func main() {
 		}
 		linea := strings.TrimSpace(r.FormValue("linea"))
 		location := strings.TrimSpace(r.FormValue("location"))
-		tallaRequerida := r.FormValue("talla_requerida") != ""
 		tallaRaw := r.FormValue("talla")
+		tallaRequerida := productSizeRequired(r.FormValue("talla_requerida") != "", tallaRaw)
 		isCreditProduct := r.FormValue("credit_enabled") != ""
 		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		cantidadRaw := strings.TrimSpace(r.FormValue("cantidad"))
@@ -18603,6 +18635,7 @@ func main() {
 		payload.Line = strings.TrimSpace(payload.Line)
 		payload.Location = strings.TrimSpace(payload.Location)
 		payload.Talla = strings.TrimSpace(payload.Talla)
+		payload.TallaRequerida = productSizeRequired(payload.TallaRequerida, payload.Talla)
 		payload.FechaCaducidad = strings.TrimSpace(payload.FechaCaducidad)
 		activeLines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), true)
 		if err != nil {
@@ -19631,8 +19664,8 @@ func main() {
 		newName := strings.TrimSpace(r.FormValue("nombre"))
 		newLine := strings.TrimSpace(r.FormValue("linea"))
 		locationValue := strings.TrimSpace(r.FormValue("location"))
-		tallaRequeridaValue := r.FormValue("talla_requerida") != ""
 		tallaValue := r.FormValue("talla")
+		tallaRequeridaValue := productSizeRequired(r.FormValue("talla_requerida") != "", tallaValue)
 		ownerUserIDRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
 		priceValue := strings.TrimSpace(r.FormValue("precio_venta"))
 		retomaEnabled := r.FormValue("retoma_enabled") != ""
@@ -22790,6 +22823,7 @@ func main() {
 				}
 				tallaRequerida = parsed
 			}
+			tallaRequerida = productSizeRequired(tallaRequerida, tallaRaw)
 			talla, tallaErr := normalizedProductSize(tallaRequerida, tallaRaw)
 			if tallaErr != nil {
 				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: tallaErr.(requestError).Message})

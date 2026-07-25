@@ -4,89 +4,13 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{{.Title}}</title>
-        <style>
-            .audit-layout {
-                display: grid;
-                gap: 20px;
-            }
-
-            .audit-filters {
-                display: grid;
-                gap: 14px;
-                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-                align-items: end;
-            }
-
-            .audit-actions {
-                display: flex;
-                gap: 12px;
-                align-items: center;
-                flex-wrap: wrap;
-            }
-
-            .audit-table-wrap {
-                overflow-x: auto;
-            }
-
-            .audit-table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-
-            .audit-table th,
-            .audit-table td {
-                padding: 12px 14px;
-                border-bottom: 1px solid var(--border-strong);
-                text-align: left;
-                vertical-align: top;
-                font-size: 14px;
-            }
-
-            .audit-table th {
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.06em;
-                color: var(--secondary);
-            }
-
-            .audit-pill {
-                display: inline-flex;
-                align-items: center;
-                min-height: 28px;
-                padding: 0 10px;
-                border-radius: 999px;
-                background: var(--bg-card);
-                border: 1px solid var(--border-strong);
-                font-size: 12px;
-                font-weight: 700;
-                color: var(--secondary);
-                white-space: nowrap;
-            }
-
-            .audit-payload {
-                margin: 0;
-                white-space: pre-wrap;
-                word-break: break-word;
-                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                font-size: 12px;
-                color: var(--text);
-            }
-
-            .empty-state {
-                padding: 24px;
-                border: 1px dashed var(--border-strong);
-                border-radius: 18px;
-                background: var(--bg-card);
-                color: var(--text-muted);
-                box-shadow: var(--shadow-xs);
-            }
-        </style>
         {{template "app_styles" .}}
     </head>
     <body>
         {{template "header" .}}
 
-        <main class="page-content audit-layout">
+        <main class="page-content audit-page__layout">
+            {{template "breadcrumbs" .}}
             {{if .Flash}}
             <div class="flash">{{.Flash}}</div>
             {{end}} {{if .Error}}
@@ -94,7 +18,7 @@
             {{end}}
 
             <section class="card">
-                <form class="audit-filters" method="GET" action="/auditoria">
+                <form class="audit-page__filters" method="GET" action="/auditoria">
                     <div>
                         <label for="event_type">Tipo de evento</label>
                         <select id="event_type" name="event_type">
@@ -130,25 +54,25 @@
                             value="{{.DateTo}}"
                         />
                     </div>
-                    <div class="audit-actions">
+                    <div class="audit-page__actions">
                         <button class="primary" type="submit">Filtrar</button>
                         <a class="button secondary" href="/auditoria"
                             >Limpiar</a
                         >
                         <a class="button secondary" href="/creditos/editados"
-                            >Creditos editados</a
+                            >Créditos editados</a
                         >
                         <a class="button secondary" href="/prestamos/producto"
-                            >Prestamos fisicos</a
+                            >Préstamos físicos</a
                         >
                     </div>
                 </form>
             </section>
 
             <section class="card">
-                <div class="audit-table-wrap" tabindex="0" aria-label="Eventos de auditoría. Desliza horizontalmente para ver todas las columnas.">
+                <div class="audit-page__table-wrap" tabindex="0" aria-label="Eventos de auditoría. Desliza horizontalmente para ver todas las columnas.">
                     {{if .Events}}
-                    <table class="audit-table">
+                    <table class="audit-page__table">
                         <thead>
                             <tr>
                                 <th>Fecha</th>
@@ -164,7 +88,7 @@
                             <tr>
                                 <td>{{.CreatedAt}}</td>
                                 <td>
-                                    <span class="audit-pill"
+                                    <span class="audit-page__pill"
                                         >{{.EventType}}</span
                                     >
                                 </td>
@@ -178,7 +102,7 @@
                                 </td>
                                 <td>{{.Source}}</td>
                                 <td>
-                                    <pre class="audit-payload">
+                                    <pre class="audit-page__payload">
 {{.PayloadJSON}}</pre
                                     >
                                 </td>
@@ -187,12 +111,15 @@
                         </tbody>
                     </table>
                     {{else}}
-                    <div class="empty-state">
-                        <h2>Sin eventos recientes</h2>
+                    <div class="state-empty">
+                        <span class="state-icon" aria-hidden="true">i</span>
+                        <h2>No hay eventos recientes</h2>
                         <p>
-                            Todavía no hay eventos de auditoría para los filtros
-                            seleccionados.
+                            No hay eventos de auditoría con los filtros actuales.
                         </p>
+                        <div class="state-actions">
+                            <a class="button secondary" href="/auditoria">Limpiar filtros</a>
+                        </div>
                     </div>
                     {{end}}
                 </div>

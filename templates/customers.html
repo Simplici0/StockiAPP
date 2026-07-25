@@ -538,12 +538,17 @@
                 {{end}}
             </section>
             {{else}}
-            <section class="empty-state">
-                <strong>No hay clientes para mostrar.</strong>
+            <section class="state-empty">
+                <span class="state-icon" aria-hidden="true">♙</span>
+                <h2>No hay clientes para mostrar</h2>
                 <p>
-                    Prueba con otro término de búsqueda o crea clientes desde
-                    los flujos operativos existentes.
+                    Limpia la búsqueda para ver todos los clientes o registra uno
+                    nuevo durante una venta, crédito o préstamo.
                 </p>
+                <div class="state-actions">
+                    <a class="button secondary" href="/clientes">Limpiar búsqueda</a>
+                    <a class="button primary" href="#customer-import-toggle">Importar clientes</a>
+                </div>
             </section>
             {{end}}
         </main>

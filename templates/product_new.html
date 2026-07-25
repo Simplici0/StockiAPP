@@ -237,6 +237,81 @@
       gap: 16px;
     }
 
+    .product-form .essential-section,
+    .product-form .advanced-section {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--card);
+    }
+
+    .product-form .essential-section {
+      padding: 20px;
+    }
+
+    .product-form .advanced-section {
+      overflow: hidden;
+    }
+
+    .product-form .advanced-section > summary {
+      min-height: 48px;
+      padding: 14px 16px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 750;
+      list-style-position: inside;
+    }
+
+    .product-form .advanced-section > summary::marker {
+      color: var(--primary);
+    }
+
+    .product-form .advanced-content {
+      display: grid;
+      gap: 16px;
+      padding: 0 20px 20px;
+    }
+
+    .product-form .help-text {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .product-form .error-summary {
+      display: grid;
+      gap: 6px;
+      padding: 14px 16px;
+      border: 1px solid rgba(183, 58, 58, 0.35);
+      border-radius: 12px;
+      background: rgba(183, 58, 58, 0.08);
+      color: #8f2d2d;
+    }
+
+    .product-form .error-summary ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .product-form .field.has-error input,
+    .product-form .field.has-error select {
+      border-color: #b73a3a;
+      box-shadow: 0 0 0 3px rgba(183, 58, 58, 0.1);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .product-form .advanced-content {
+        animation: product-options-in 160ms ease-out;
+      }
+    }
+
+    @keyframes product-options-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
     .product-form .form-section + .form-section {
       border-top: 1px solid var(--border);
       padding-top: 24px;
@@ -320,6 +395,11 @@
         display: grid;
         gap: 4px;
       }
+
+      .product-form .essential-section,
+      .product-form .advanced-content {
+        padding-inline: 16px;
+      }
     }
   </style>
 </head>
@@ -336,31 +416,51 @@
         <a class="button secondary" href="{{.LabelPrintURL}}" target="_blank" rel="noreferrer">Imprimir etiqueta</a>
       </div>
       {{end}}
+      {{if .Errors}}
+      <div class="error-summary" role="alert" aria-labelledby="product-error-summary-title">
+        <strong id="product-error-summary-title">Revisa estos campos antes de guardar:</strong>
+        <ul>
+          {{range $field, $message := .Errors}}
+            <li><a href="#{{$field}}">{{$message}}</a></li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}
       <form class="product-form" method="POST" action="/productos">
-        <section class="form-section">
+        <section class="form-section essential-section" aria-labelledby="essential-title">
+          <h2 id="essential-title" class="section-title">Información esencial</h2>
           <div class="row">
-            <div class="field">
+            <div class="field {{with .Errors}}{{if index . "sku"}}has-error{{end}}{{end}}">
             <label for="sku">ID</label>
-            <input id="sku" name="id" type="text" value="{{.SKU}}" />
-            {{with .Errors}}{{with index . "sku"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            <input id="sku" name="id" type="text" value="{{.SKU}}" placeholder="Ej: PROD-001" {{with .Errors}}{{if index . "sku"}}aria-invalid="true" aria-describedby="sku-error"{{end}}{{end}} />
+            <small class="help-text">Ej: PROD-001.</small>
+            {{with .Errors}}{{with index . "sku"}}<div id="sku-error" class="field-error" role="alert">{{.}}</div>{{end}}{{end}}
             </div>
-            <div class="field">
+            <div class="field {{with .Errors}}{{if index . "cantidad"}}has-error{{end}}{{end}}">
             <label for="cantidad">Cantidad</label>
-            <input id="cantidad" name="cantidad" type="number" min="1" step="1" value="{{.Cantidad}}" />
-            {{with .Errors}}{{with index . "cantidad"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            <input id="cantidad" name="cantidad" type="number" min="1" step="1" value="{{.Cantidad}}" placeholder="Ej: 10" {{with .Errors}}{{if index . "cantidad"}}aria-invalid="true" aria-describedby="cantidad-error"{{end}}{{end}} />
+            <small class="help-text">Ej: 10.</small>
+            {{with .Errors}}{{with index . "cantidad"}}<div id="cantidad-error" class="field-error" role="alert">{{.}}</div>{{end}}{{end}}
             </div>
           </div>
 
-          <div class="field">
+          <div class="field {{with .Errors}}{{if index . "nombre"}}has-error{{end}}{{end}}">
             <label for="nombre">Nombre</label>
-            <input id="nombre" name="nombre" type="text" placeholder="Nombre del producto" value="{{.Nombre}}" />
-            {{with .Errors}}{{with index . "nombre"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+            <input id="nombre" name="nombre" type="text" placeholder="Ej: Camiseta básica" value="{{.Nombre}}" {{with .Errors}}{{if index . "nombre"}}aria-invalid="true" aria-describedby="nombre-error"{{end}}{{end}} />
+            {{with .Errors}}{{with index . "nombre"}}<div id="nombre-error" class="field-error" role="alert">{{.}}</div>{{end}}{{end}}
+          </div>
+
+          <div class="field {{with .Errors}}{{if index . "talla"}}has-error{{end}}{{end}}">
+            <label for="talla">Talla <span aria-hidden="true">·</span> opcional</label>
+            <input id="talla" name="talla" type="text" maxlength="80" placeholder="Ej: S, M, L, 38" value="{{.Talla}}" {{with .Errors}}{{if index . "talla"}}aria-invalid="true" aria-describedby="talla-error"{{end}}{{end}} />
+            <small class="help-text">Si escribes una talla, el sistema entiende que el producto la requiere. Déjala vacía si no aplica.</small>
+            {{with .Errors}}{{with index . "talla"}}<div id="talla-error" class="field-error" role="alert">{{.}}</div>{{end}}{{end}}
           </div>
 
           <div class="row">
-            <div class="field">
+            <div class="field {{with .Errors}}{{if index . "linea"}}has-error{{end}}{{end}}">
               <label for="linea">Línea</label>
-              <select id="linea" name="linea" {{if not .HasLineas}}disabled{{end}}>
+              <select id="linea" name="linea" {{if not .HasLineas}}disabled{{end}} {{with .Errors}}{{if index . "linea"}}aria-invalid="true" aria-describedby="linea-error"{{end}}{{end}}>
                 <option value="">{{if .HasLineas}}Selecciona una línea{{else}}Sin líneas activas{{end}}</option>
                 {{range .Lineas}}
                   <option value="{{.}}" {{if eq $.Linea .}}selected{{end}}>{{.}}</option>
@@ -369,40 +469,39 @@
               {{if not .HasLineas}}
                 <div class="note compact-note">Crea una línea activa en <a href="/configuracion">Configuración</a> para continuar.</div>
               {{end}}
-              {{with .Errors}}{{with index . "linea"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+              {{with .Errors}}{{with index . "linea"}}<div id="linea-error" class="field-error" role="alert">{{.}}</div>{{end}}{{end}}
             </div>
-            <div class="field">
-              <label for="location">Locación <span aria-hidden="true">·</span> opcional</label>
-              <input id="location" name="location" type="text" placeholder="Ej: Estante A-03" value="{{.Location}}" />
+            <div class="field {{with .Errors}}{{if index . "precio_venta"}}has-error{{end}}{{end}}">
+              <label for="precio_venta">Precio de venta</label>
+              <input id="precio_venta" name="precio_venta" type="text" inputmode="numeric" placeholder="Ej: 999.99" value="{{.PrecioVenta}}" {{with .Errors}}{{if index . "precio_venta"}}aria-invalid="true" aria-describedby="precio-venta-error"{{end}}{{end}} />
+            <small class="help-text">Ej: 999.99.</small>
+              {{with .Errors}}{{with index . "precio_venta"}}<div id="precio-venta-error" class="field-error" role="alert">{{.}}</div>{{end}}{{end}}
             </div>
           </div>
         </section>
 
-        <section class="form-section">
-          <h2 class="section-title">Detalles opcionales</h2>
+        <details id="product-advanced" class="advanced-section form-section" {{if .Errors}}open{{end}}>
+          <summary>Opciones avanzadas</summary>
+          <div class="advanced-content">
           <div class="row">
             <div class="field">
+              <label for="location">Locación <span aria-hidden="true">·</span> opcional</label>
+              <input id="location" name="location" type="text" placeholder="Ej: Estante A-03" value="{{.Location}}" />
+              <small class="help-text">Ej: Estante A-03.</small>
+            </div>
+            <div class="field {{with .Errors}}{{if index . "owner_user_id"}}has-error{{end}}{{end}}">
               <label for="owner_user_id">Usuario asignado</label>
-              <select id="owner_user_id" name="owner_user_id">
+              <select id="owner_user_id" name="owner_user_id" {{with .Errors}}{{if index . "owner_user_id"}}aria-invalid="true" aria-describedby="owner-error"{{end}}{{end}}>
                 <option value="">Sin asignar</option>
                 {{range .AssignableUsers}}
                   <option value="{{.ID}}" {{if eq $.OwnerUserID (printf "%d" .ID)}}selected{{end}}>{{.Username}}</option>
                 {{end}}
               </select>
-              {{with .Errors}}{{with index . "owner_user_id"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
-            </div>
-            <div class="field">
-              <label for="precio_venta">Precio de venta</label>
-              <input id="precio_venta" name="precio_venta" type="text" inputmode="numeric" placeholder="0" value="{{.PrecioVenta}}" />
-              {{with .Errors}}{{with index . "precio_venta"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
+              {{with .Errors}}{{with index . "owner_user_id"}}<div id="owner-error" class="field-error" role="alert">{{.}}</div>{{end}}{{end}}
             </div>
           </div>
 
           <div class="toggle-strip">
-            <label class="toggle" for="talla_requerida">
-              <input id="talla_requerida" name="talla_requerida" type="checkbox" {{if .TallaRequerida}}checked{{end}} />
-              <span>Requiere talla</span>
-            </label>
             <label class="toggle" for="retoma_enabled">
               <input id="retoma_enabled" name="retoma_enabled" type="checkbox" {{if .RetomaEnabled}}checked{{end}} />
               <span>Permitir retoma</span>
@@ -414,28 +513,25 @@
           </div>
 
           <div class="conditional-grid">
-            <div id="talla_wrap" class="field">
-              <label for="talla">Talla</label>
-              <input id="talla" name="talla" type="text" maxlength="80" placeholder="Ej: S, M, L, 38" value="{{.Talla}}" />
-              {{with .Errors}}{{with index . "talla"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
-            </div>
-
-            <div id="retoma_price_wrap" class="field">
+            <div id="retoma_price_wrap" class="field {{with .Errors}}{{if index . "retoma_price"}}has-error{{end}}{{end}}">
               <label for="retoma_price">Valor de retoma</label>
               <input id="retoma_price" name="retoma_price" type="text" inputmode="numeric" placeholder="0" value="{{.RetomaPrice}}" />
+            <small class="help-text">Valor reconocido al recibir el producto.</small>
               {{with .Errors}}{{with index . "retoma_price"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
             </div>
 
-            <div id="caducidad_wrap" class="field">
+            <div id="caducidad_wrap" class="field {{with .Errors}}{{if index . "fecha_caducidad"}}has-error{{end}}{{end}}">
               <label for="fecha_caducidad">Fecha de caducidad</label>
               <input id="fecha_caducidad" name="fecha_caducidad" type="date" value="{{.Caducidad}}" />
+              <small class="help-text">Usa la fecha de vencimiento indicada por el proveedor.</small>
               {{with .Errors}}{{with index . "fecha_caducidad"}}<div class="field-error">{{.}}</div>{{end}}{{end}}
             </div>
           </div>
-        </section>
+          </div>
+        </details>
 
         <div class="actions">
-          <button class="primary" type="submit">Guardar producto</button>
+          <button class="primary" type="submit">Crear producto</button>
         </div>
       </form>
     </div>
@@ -449,9 +545,6 @@
     const retomaEnabled = document.getElementById("retoma_enabled");
     const retomaPriceWrap = document.getElementById("retoma_price_wrap");
     const retomaPrice = document.getElementById("retoma_price");
-    const tallaRequerida = document.getElementById("talla_requerida");
-    const tallaWrap = document.getElementById("talla_wrap");
-    const talla = document.getElementById("talla");
     const parseCOP = (raw) => {
       const digits = String(raw || "").replace(/[^\d]/g, "");
       if (!digits) return NaN;
@@ -466,22 +559,12 @@
       if (!aplica || !fecha || !caducidadWrap) return;
       caducidadWrap.style.display = aplica.checked ? "block" : "none";
       fecha.disabled = !aplica.checked;
-      if (!aplica.checked) fecha.value = "";
     };
 
     const syncRetoma = () => {
       if (!retomaEnabled || !retomaPriceWrap || !retomaPrice) return;
       retomaPriceWrap.style.display = retomaEnabled.checked ? "block" : "none";
       retomaPrice.disabled = !retomaEnabled.checked;
-      if (!retomaEnabled.checked) retomaPrice.value = "";
-    };
-
-    const syncTalla = () => {
-      if (!tallaRequerida || !tallaWrap || !talla) return;
-      tallaWrap.style.display = tallaRequerida.checked ? "block" : "none";
-      talla.disabled = !tallaRequerida.checked;
-      talla.required = tallaRequerida.checked;
-      if (!tallaRequerida.checked) talla.value = "";
     };
 
     if (precioVenta) {
@@ -515,10 +598,32 @@
     }
     if (aplica) aplica.addEventListener("change", sync);
     if (retomaEnabled) retomaEnabled.addEventListener("change", syncRetoma);
-    if (tallaRequerida) tallaRequerida.addEventListener("change", syncTalla);
     sync();
     syncRetoma();
-    syncTalla();
+
+    const advancedOptions = document.getElementById("product-advanced");
+    const advancedPreferenceKey = "stocki_product_form_advanced";
+    if (advancedOptions) {
+      try {
+        const savedPreference = window.localStorage.getItem(advancedPreferenceKey);
+        if (savedPreference === "open") advancedOptions.open = true;
+        if (savedPreference === "closed" && !advancedOptions.querySelector(".field-error")) {
+          advancedOptions.open = false;
+        }
+      } catch (_) {
+        // El formulario continúa funcionando si localStorage está bloqueado.
+      }
+      advancedOptions.addEventListener("toggle", () => {
+        try {
+          window.localStorage.setItem(
+            advancedPreferenceKey,
+            advancedOptions.open ? "open" : "closed"
+          );
+        } catch (_) {
+          // Degradación elegante: no impedir el envío del formulario.
+        }
+      });
+    }
   </script>
 </body>
 </html>
