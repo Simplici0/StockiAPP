@@ -1084,7 +1084,7 @@ func defaultBusinessSettings() BusinessSettings {
 		ContactPhone:      "",
 		ContactEmail:      "",
 		SocialMedia:       "",
-		PrimaryColor:      "#0ea5c9",
+		PrimaryColor:      "#5B5BD6",
 		Currency:          "COP",
 		DateFormat:        "2006-01-02",
 		LabelPaperWidth:   "58mm",
@@ -4272,11 +4272,11 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 	}
 	visibilitySQL, visibilityArgs := productVisibilityPredicate("p", user)
 	salesDateExpr := sqlDatePrefixExpr("v.fecha")
-	userSeriesColors := []string{"#2c6bed", "#e85d3c", "#22a88b", "#7d4cf6", "#f5a524", "#0ea5c9"}
+	userSeriesColors := []string{"#5B5BD6", "#16A34A", "#F59E0B", "#DC2626", "#BB86FC", "#6B7280"}
 	categoryColors := map[string]string{
-		"venta":   "#2c6bed",
-		"credito": "#22a88b",
-		"retoma":  "#f5a524",
+		"venta":   "#5B5BD6",
+		"credito": "#16A34A",
+		"retoma":  "#F59E0B",
 	}
 
 	var rangeTotal float64
@@ -15514,7 +15514,7 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		contact_phone TEXT NOT NULL DEFAULT '',
 		contact_email TEXT NOT NULL DEFAULT '',
 		social_media TEXT NOT NULL DEFAULT '',
-		primary_color TEXT NOT NULL DEFAULT '#0ea5c9',
+		primary_color TEXT NOT NULL DEFAULT '#5B5BD6',
 		currency TEXT NOT NULL DEFAULT 'COP',
 		date_format TEXT NOT NULL DEFAULT '2006-01-02',
 		label_paper_width TEXT NOT NULL DEFAULT '58mm',

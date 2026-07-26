@@ -168,11 +168,11 @@
                 gap: 6px;
                 padding: 16px;
                 border-radius: 16px;
-                border: 1px solid rgba(15, 40, 80, 0.08);
+                border: 1px solid var(--border);
                 background: linear-gradient(
                     180deg,
-                    rgba(255, 255, 255, 0.95) 0%,
-                    rgba(244, 248, 252, 0.92) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
             }
 
@@ -219,8 +219,8 @@
                 border-color: var(--border);
                 background: linear-gradient(
                     180deg,
-                    rgba(14, 23, 36, 0.96) 0%,
-                    rgba(10, 18, 29, 0.92) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
                 box-shadow: var(--shadow-xs);
             }
@@ -233,8 +233,8 @@
             }
 
             [data-theme="dark"] .status-chip {
-                background: rgba(79, 157, 255, 0.14);
-                border-color: rgba(79, 157, 255, 0.24);
+                background: var(--primary-soft);
+                border-color: var(--info-border);
                 color: var(--text);
             }
 

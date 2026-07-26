@@ -7,6 +7,9 @@
         <link rel="icon" href="{{businessLogoPath .}}" />
         <link rel="shortcut icon" href="{{businessLogoPath .}}" />
         <link rel="apple-touch-icon" href="{{businessLogoPath .}}" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Montserrat:wght@600;700&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet" />
         <script>
             (function () {
                 var root = document.documentElement;
@@ -29,35 +32,56 @@
         <style>
             :root {
               color-scheme: light;
-              --bg-base: #f8fafc;
+              --font-sans: "Inter", "Segoe UI", sans-serif;
+              --font-heading: "Montserrat", "Inter", "Segoe UI", sans-serif;
+              --font-mono: "Roboto Mono", "SFMono-Regular", Consolas, monospace;
+              --bg-base: #ffffff;
               --card: #ffffff;
-              --card-muted: #f1f5f9;
-              --text: #1e293b;
-              --muted: #64748b;
+              --card-muted: #f5f7fa;
+              --surface-elevated: #ffffff;
+              --text: #212121;
+              --muted: #6b7280;
               --primary: {{businessPrimaryColor .}};
               --primary-hover: {{businessPrimaryStrong .}};
-              --border: #e2e8f0;
-              --border-strong: #cbd5e1;
+              --border: #d6d9de;
+              --border-strong: #d6d9de;
               --danger: #dc2626;
-              --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+              --shadow: 0 16px 40px rgba(33, 33, 33, 0.08);
+              --shadow-soft: 0 8px 18px rgba(33, 33, 33, 0.08);
+              --focus-ring: color-mix(in srgb, var(--primary) 16%, transparent);
+              --toggle-thumb-start: #ffffff;
+              --toggle-thumb-end: #f5f7fa;
+              --toggle-icon-sun: #f59e0b;
+              --toggle-icon-moon: var(--primary);
+              --toggle-ring: color-mix(in srgb, var(--primary) 12%, transparent);
             }
 
             :root[data-theme="dark"] {
               color-scheme: dark;
-              --bg-base: #060e20;
-              --card: #16213e;
-              --card-muted: #0f1930;
-              --text: #dee5ff;
-              --muted: #9fb0c5;
-              --border: rgba(170, 193, 226, 0.16);
-              --border-strong: rgba(170, 193, 226, 0.24);
-              --danger: #ffb4b4;
-              --shadow: 0 20px 44px rgba(1, 6, 14, 0.36);
+              --bg-base: #121212;
+              --card: #1f1f1f;
+              --card-muted: #2d2d2d;
+              --surface-elevated: #2d2d2d;
+              --text: #e5e5e5;
+              --muted: #9ca3af;
+              --primary: #d1d5db;
+              --primary-hover: #b6bcc4;
+              --border: #37474f;
+              --border-strong: #37474f;
+              --danger: #ef4444;
+              --shadow: 0 20px 44px rgba(0, 0, 0, 0.36);
+              --shadow-soft: 0 8px 18px rgba(0, 0, 0, 0.28);
+              --focus-ring: rgba(209, 213, 219, 0.3);
+              --toggle-thumb-start: #2d2d2d;
+              --toggle-thumb-end: #1f1f1f;
+              --toggle-icon-sun: #fca327;
+              --toggle-icon-moon: #d1d5db;
+              --toggle-ring: rgba(209, 213, 219, 0.14);
             }
 
             * {
               box-sizing: border-box;
-              font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              font-family: var(--font-sans);
             }
 
             body {
@@ -99,6 +123,7 @@
             }
 
             h1 {
+              font-family: var(--font-heading);
               margin: 0 0 6px;
               font-size: 24px;
               font-weight: 700;
@@ -211,7 +236,7 @@
               align-items: center;
               justify-content: center;
               overflow: hidden;
-              box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+              box-shadow: var(--shadow-soft);
               flex: 0 0 auto;
             }
 
@@ -257,32 +282,31 @@
               justify-content: flex-start;
               cursor: pointer;
               z-index: 2;
-              box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+              box-shadow: var(--shadow-soft);
               transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
             }
 
             .theme-toggle:hover {
               border-color: var(--border-strong);
-              box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
+              box-shadow: var(--shadow);
             }
 
             .theme-toggle:focus-visible {
               outline: none;
               box-shadow:
-                0 0 0 4px color-mix(in srgb, var(--primary) 16%, transparent),
-                0 10px 22px rgba(15, 23, 42, 0.12);
+                0 0 0 4px var(--focus-ring),
+                var(--shadow);
             }
 
             .theme-toggle-thumb {
               width: 22px;
               height: 22px;
               border-radius: 999px;
-              border: 1px solid rgba(15, 40, 80, 0.08);
+              border: 1px solid var(--border-strong);
               background:
-                radial-gradient(circle at 34% 34%, rgba(255,255,255,0.98) 0%, rgba(244, 247, 252, 0.98) 62%, rgba(216, 226, 241, 0.98) 100%);
+                radial-gradient(circle at 34% 34%, var(--toggle-thumb-start) 0%, var(--toggle-thumb-end) 100%);
               box-shadow:
-                0 6px 14px rgba(15, 40, 80, 0.16),
-                inset 0 1px 0 rgba(255, 255, 255, 0.92);
+                var(--shadow-soft);
               position: relative;
               transform: translateX(0);
               transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
@@ -302,8 +326,8 @@
               top: 50%;
               left: 50%;
               transform: translate(-50%, -50%) scale(1);
-              background: rgba(255, 211, 89, 0.96);
-              box-shadow: 0 0 0 4px rgba(255, 211, 89, 0.18);
+              background: var(--toggle-icon-sun);
+              box-shadow: 0 0 0 4px var(--toggle-ring);
               opacity: 1;
             }
 
@@ -313,27 +337,27 @@
               top: 50%;
               left: 50%;
               transform: translate(-50%, -50%) scale(0.7);
-              background: rgba(172, 200, 255, 0.96);
-              box-shadow: 4px -2px 0 0 rgba(12, 21, 34, 0.88);
+              background: var(--toggle-icon-moon);
+              box-shadow: 4px -2px 0 0 var(--card);
               opacity: 0;
             }
 
             :root[data-theme="dark"] .theme-toggle {
-              border-color: rgba(170, 193, 226, 0.16);
-              background: rgba(12, 21, 34, 0.92);
-              box-shadow: 0 10px 22px rgba(1, 6, 14, 0.28);
+              border-color: var(--border-strong);
+              background: var(--card-muted);
+              box-shadow: var(--shadow);
             }
 
             :root[data-theme="dark"] .theme-toggle:hover {
-              border-color: rgba(170, 193, 226, 0.22);
-              box-shadow: 0 12px 24px rgba(1, 6, 14, 0.34), 0 0 0 4px rgba(79, 167, 255, 0.1);
+              border-color: var(--border-strong);
+              box-shadow: var(--shadow), 0 0 0 4px var(--toggle-ring);
             }
 
             :root[data-theme="dark"] .theme-toggle-thumb {
               transform: translateX(18px);
-              border-color: rgba(170, 193, 226, 0.18);
+              border-color: var(--border-strong);
               background:
-                radial-gradient(circle at 34% 34%, rgba(233, 242, 255, 0.98) 0%, rgba(208, 223, 247, 0.98) 58%, rgba(170, 193, 226, 0.98) 100%);
+                radial-gradient(circle at 34% 34%, var(--toggle-thumb-start) 0%, var(--toggle-thumb-end) 100%);
             }
 
             :root[data-theme="dark"] .theme-toggle-thumb::before {

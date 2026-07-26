@@ -305,7 +305,7 @@
                 );
                 border-radius: 16px;
                 border: 1px solid var(--border);
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+                box-shadow: var(--shadow-xs);
             }
 
             .timeline-grid {
@@ -407,9 +407,9 @@
                 border-radius: 999px;
                 font-size: 11.5px;
                 font-weight: 700;
-                background: rgba(59, 130, 246, 0.12);
+                background: var(--info-soft);
                 color: var(--secondary);
-                border: 1px solid rgba(59, 130, 246, 0.2);
+                border: 1px solid var(--info-border);
                 box-shadow: var(--shadow-xs);
             }
 
@@ -711,8 +711,8 @@
             [data-theme="dark"] .dashboard-toolbar {
                 background: linear-gradient(
                     135deg,
-                    rgba(15, 24, 38, 0.96) 0%,
-                    rgba(11, 19, 31, 0.92) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
             }
 
@@ -758,23 +758,23 @@
             [data-theme="dark"] .dashboard-panel summary {
                 background: linear-gradient(
                     180deg,
-                    rgba(255, 255, 255, 0.04) 0%,
-                    rgba(255, 255, 255, 0) 100%
+                    var(--secondary-soft) 0%,
+                    transparent 100%
                 );
             }
 
             [data-theme="dark"] .dashboard-panel summary:hover {
                 background: linear-gradient(
                     180deg,
-                    rgba(255, 255, 255, 0.08) 0%,
-                    rgba(255, 255, 255, 0.02) 100%
+                    var(--secondary-hover) 0%,
+                    transparent 100%
                 );
             }
 
             [data-theme="dark"] .panel-summary-pill,
             [data-theme="dark"] .badge {
-                background: rgba(79, 157, 255, 0.14);
-                border-color: rgba(79, 157, 255, 0.24);
+                background: var(--primary-soft);
+                border-color: var(--info-border);
                 color: var(--text);
             }
 
@@ -782,14 +782,14 @@
             [data-theme="dark"] .panel-body {
                 background: linear-gradient(
                     180deg,
-                    rgba(14, 23, 36, 0.98) 0%,
-                    rgba(10, 18, 29, 0.94) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
             }
 
             [data-theme="dark"] .state-list a:hover {
-                background: rgba(79, 157, 255, 0.12);
-                border-color: rgba(79, 157, 255, 0.22);
+                background: var(--primary-soft);
+                border-color: var(--info-border);
             }
 
             @media (max-width: 720px) {
@@ -1292,7 +1292,7 @@
                   }
                 });
 
-              const safeCssColor = (value, fallback = "#2c6bed") => {
+              const safeCssColor = (value, fallback) => {
                 const raw = String(value ?? "").trim();
                 if (/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8})$/.test(raw)) return raw;
                 if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(raw)) return raw;
@@ -1308,13 +1308,13 @@
               };
 
               const dashboardPalette = () => ({
-                chartTrack: themeValue("--chart-track", "#eef2ff"),
-                chartGrid: themeValue("--chart-grid", "rgba(38, 34, 31, 0.1)"),
-                chartAxis: themeValue("--chart-axis", "#d9d2cb"),
-                chartLabel: themeValue("--chart-label", "#6f6a65"),
-                chartText: themeValue("--chart-text", "#26221f"),
-                chartAccent: themeValue("--chart-accent", "#2c6bed"),
-                chartHighlight: themeValue("--chart-highlight", "#e85d3c"),
+                chartTrack: themeValue("--chart-track", ""),
+                chartGrid: themeValue("--chart-grid", ""),
+                chartAxis: themeValue("--chart-axis", ""),
+                chartLabel: themeValue("--chart-label", ""),
+                chartText: themeValue("--chart-text", ""),
+                chartAccent: themeValue("--chart-accent", ""),
+                chartHighlight: themeValue("--chart-highlight", ""),
               });
 
               const appendTextCell = (row, value, className) => {

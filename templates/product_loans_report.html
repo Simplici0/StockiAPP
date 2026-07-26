@@ -47,8 +47,8 @@
     }
 
     .report-actions a.button:hover {
-      background: rgba(2, 132, 199, 0.07);
-      border-color: rgba(2, 132, 199, 0.18);
+      background: var(--secondary-hover);
+      border-color: var(--secondary-hover-border);
       color: var(--secondary);
     }
 
@@ -130,37 +130,37 @@
     }
 
     .status-chip.loaned {
-      color: #4c1d95;
-      border-color: rgba(139, 92, 246, 0.24);
-      background: rgba(245, 243, 255, 0.96);
+      color: var(--info-ink);
+      border-color: var(--info-border);
+      background: var(--info-soft);
     }
 
     .status-chip.returned {
-      color: #166534;
-      border-color: rgba(34, 197, 94, 0.2);
-      background: rgba(240, 253, 244, 0.96);
+      color: var(--success-ink);
+      border-color: var(--status-available-border);
+      background: var(--success-soft);
     }
 
     .status-chip.paid {
-      color: #9a3412;
-      border-color: rgba(249, 115, 22, 0.2);
-      background: rgba(255, 247, 237, 0.96);
+      color: var(--warning-ink);
+      border-color: var(--status-sold-border);
+      background: var(--warning-soft);
     }
 
     .status-chip.cancelled {
-      color: #475569;
-      border-color: rgba(148, 163, 184, 0.24);
-      background: rgba(248, 250, 252, 0.96);
+      color: var(--text-muted);
+      border-color: var(--border-strong);
+      background: var(--bg-card-muted);
     }
 
     .overdue-chip.overdue {
-      color: #b91c1c;
-      border-color: rgba(239, 68, 68, 0.2);
-      background: rgba(254, 242, 242, 0.96);
+      color: var(--danger-ink);
+      border-color: var(--danger-border);
+      background: var(--danger-soft);
     }
 
     .overdue-chip.ok {
-      color: #475569;
+      color: var(--text-muted);
     }
 
     .empty-state {

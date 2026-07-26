@@ -232,7 +232,7 @@
             }
 
             .platform-block {
-                border-color: rgba(242, 207, 150, 0.38);
+                border-color: var(--status-sold-border);
                 background: var(--bg-card);
             }
 
@@ -242,7 +242,7 @@
                 font-weight: 900;
                 letter-spacing: 0.08em;
                 text-transform: uppercase;
-                color: #8a5510;
+                color: var(--warning-ink);
             }
 
             .tenant-scope-note {
@@ -288,13 +288,13 @@
                 margin-top: 16px;
                 padding: 16px 18px;
                 border-radius: 16px;
-                border: 1px solid rgba(217, 75, 99, 0.22);
+                border: 1px solid var(--danger-border);
                 background: var(--bg-card);
             }
 
             .reset-warning h4 {
                 margin: 0;
-                color: #9f2445;
+                color: var(--danger-ink);
                 font-size: 14px;
             }
 
@@ -313,7 +313,7 @@
                 gap: 10px;
                 padding: 12px 14px;
                 border-radius: 14px;
-                border: 1px solid rgba(217, 75, 99, 0.18);
+                border: 1px solid var(--danger-border);
                 background: var(--bg-card);
             }
 
@@ -324,20 +324,20 @@
             }
 
             .destructive {
-                color: #9f2445 !important;
-                border-color: rgba(217, 75, 99, 0.22) !important;
-                background: rgba(217, 75, 99, 0.08) !important;
+                color: var(--danger-ink) !important;
+                border-color: var(--danger-border) !important;
+                background: var(--danger-soft) !important;
                 box-shadow: none !important;
             }
 
             .destructive:hover {
-                background: rgba(217, 75, 99, 0.14) !important;
+                background: var(--danger-hover) !important;
             }
 
             .flash.error {
-                color: #9f2445;
-                background: rgba(217, 75, 99, 0.08);
-                border-color: rgba(217, 75, 99, 0.18);
+                color: var(--danger-ink);
+                background: var(--danger-soft);
+                border-color: var(--danger-border);
             }
 
             .actions {
@@ -389,7 +389,7 @@
             }
 
             [data-theme="dark"] .line-row {
-                border-color: rgba(170, 193, 226, 0.14);
+                border-color: var(--border);
                 background: var(--bg-card);
                 box-shadow: none;
             }
@@ -404,46 +404,46 @@
             }
 
             [data-theme="dark"] .line-status {
-                background: rgba(79, 157, 255, 0.12);
-                border-color: rgba(79, 157, 255, 0.22);
+                background: var(--info-soft);
+                border-color: var(--info-border);
                 color: var(--text);
             }
 
             [data-theme="dark"] .line-status.inactive {
-                color: #ffb0be;
-                border-color: rgba(255, 130, 154, 0.24);
-                background: rgba(217, 75, 99, 0.16);
+                color: var(--danger-ink);
+                border-color: var(--danger-border);
+                background: var(--danger-soft);
             }
 
             [data-theme="dark"] .line-row .secondary {
                 background: var(--bg-card-muted);
-                border-color: rgba(170, 193, 226, 0.14);
+                border-color: var(--border);
                 color: var(--text);
                 box-shadow: none;
             }
 
             [data-theme="dark"] .line-row .secondary:hover {
-                background: rgba(79, 157, 255, 0.12);
-                border-color: rgba(79, 157, 255, 0.22);
+                background: var(--info-soft);
+                border-color: var(--info-border);
             }
 
             [data-theme="dark"] .settings-accordion-icon::before,
             [data-theme="dark"] .settings-accordion-icon::after {
-                background: #dfe8f5;
+                background: var(--text);
             }
 
             [data-theme="dark"] .settings-accordion[open] .settings-accordion-icon {
-                background: rgba(79, 157, 255, 0.14);
-                border-color: rgba(79, 157, 255, 0.24);
+                background: var(--primary-soft);
+                border-color: var(--info-border);
             }
 
             [data-theme="dark"] .platform-kicker {
-                color: #f3c067;
+                color: var(--warning-ink);
             }
 
             [data-theme="dark"] .reset-warning h4,
             [data-theme="dark"] .destructive {
-                color: #ff9aae !important;
+                color: var(--danger-ink) !important;
             }
 
             .line-card {
@@ -491,8 +491,8 @@
 
             .line-status.inactive {
                 color: var(--danger);
-                border-color: rgba(217, 75, 99, 0.18);
-                background: rgba(217, 75, 99, 0.08);
+                border-color: var(--danger-border);
+                background: var(--danger-soft);
             }
 
             .line-form {

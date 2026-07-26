@@ -2,6 +2,9 @@
 <link rel="icon" href="{{businessLogoPath .}}" />
 <link rel="shortcut icon" href="{{businessLogoPath .}}" />
 <link rel="apple-touch-icon" href="{{businessLogoPath .}}" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Montserrat:wght@600;700&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet" />
 <script>
     (function () {
         var storageKey = "stocki.theme";
@@ -26,6 +29,8 @@
     :root {
       color-scheme: light;
       --font-sans: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
+      --font-heading: "Montserrat", "Inter", "Segoe UI", sans-serif;
+      --font-mono: "Roboto Mono", "SFMono-Regular", Consolas, monospace;
       --font-normal: 400;
       --font-medium: 500;
       --font-bold: 700;
@@ -35,88 +40,96 @@
       --text-lg: 1.125rem;
       --text-xl: 1.5rem;
 
-      --page-bg:        #eef2f7;
-      --page-accent:    #dbeafe;
-      --page-glow:      rgba(219, 234, 254, 0.45);
-      --page-glow-soft: rgba(255, 255, 255, 0.55);
+      --page-bg:        #ffffff;
+      --page-accent:    #f5f7fa;
+      --page-glow:      rgba(91, 91, 214, 0.08);
+      --page-glow-soft: rgba(245, 247, 250, 0.72);
       --page-film:      rgba(255, 255, 255, 0.12);
       --surface-1:      #ffffff;
-      --surface-2:      #eef2f7;
-      --surface-3:      #dbe3ee;
+      --surface-2:      #f5f7fa;
+      --surface-3:      #eceff3;
       --surface-overlay: rgba(255, 255, 255, 0.97);
       --surface-gradient-start: #ffffff;
-      --surface-gradient-end: #eef2f7;
+      --surface-gradient-end: #f5f7fa;
       --surface-elevated: #ffffff;
       --input-surface:  #ffffff;
       --input-hover:    #ffffff;
       --input-focus:    #ffffff;
       --nav-surface:    #ffffff;
-      --nav-soft:       rgba(2, 132, 199, 0.08);
-      --nav-strong:     linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      --nav-soft:       rgba(91, 91, 214, 0.08);
+      --nav-strong:     linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
       --nav-panel:      #ffffff;
 
-      --text:           #1e293b;
-      --text-muted:     #334155;
-      --text-soft:      #475569;
+      --text:           #212121;
+      --text-muted:     #6b7280;
+      --text-soft:      #6b7280;
       --text-inverse:   #ffffff;
 
       --primary:        {{businessPrimaryColor .}};
       --primary-strong: {{businessPrimaryStrong .}};
       --primary-soft:   {{businessPrimarySoft .}};
 
-      --secondary:      #1e293b;
-      --secondary-soft: #dfe8f3;
-      --focus-ring:     rgba(2, 132, 199, 0.16);
-      --table-head-bg:  rgba(248, 250, 252, 0.98);
-      --table-row-hover: rgba(226, 232, 240, 0.8);
-      --chart-grid:     rgba(148, 163, 184, 0.22);
-      --chart-axis:     rgba(148, 163, 184, 0.28);
-      --chart-label:    #64748b;
-      --chart-text:     #1e293b;
-      --chart-track:    #eef2ff;
-      --chart-accent:   #0284c7;
-      --chart-highlight:#e85d3c;
+      --secondary:      #212121;
+      --secondary-soft: #f5f7fa;
+      --focus-ring:     rgba(91, 91, 214, 0.22);
+      --table-head-bg:  rgba(245, 247, 250, 0.98);
+      --table-row-hover: rgba(245, 247, 250, 0.88);
+      --chart-grid:     rgba(107, 114, 128, 0.2);
+      --chart-axis:     rgba(107, 114, 128, 0.28);
+      --chart-label:    #6b7280;
+      --chart-text:     #212121;
+      --chart-track:    #f5f7fa;
+      --chart-accent:   #5b5bd6;
+      --chart-highlight:#5b5bd6;
 
-      --success:        #059669;
-      --warning:        #d97706;
+      --success:        #16a34a;
+      --warning:        #f59e0b;
       --danger:         #dc2626;
-      --info:           #0284c7;
-      --success-soft:   #ecfdf5;
-      --warning-soft:   #fffbeb;
-      --danger-soft:    #fef2f2;
-      --info-soft:      #eff6ff;
-      --status-loaned-soft: rgba(124, 58, 237, 0.16);
-      --success-ink:    #065f46;
-      --warning-ink:    #92400e;
-      --danger-ink:     #991b1b;
-      --info-ink:       #1e3a8a;
-      --info-border:    rgba(14, 165, 201, 0.2);
-      --primary-shadow: rgba(14, 165, 201, 0.22);
-      --secondary-hover: rgba(2, 132, 199, 0.08);
-      --secondary-hover-border: rgba(2, 132, 199, 0.18);
+      --info:           #5b5bd6;
+      --success-soft:   rgba(22, 163, 74, 0.12);
+      --warning-soft:   rgba(245, 158, 11, 0.14);
+      --danger-soft:    rgba(220, 38, 38, 0.12);
+      --info-soft:      rgba(91, 91, 214, 0.1);
+      --status-loaned-soft: rgba(91, 91, 214, 0.12);
+      --success-ink:    #16803c;
+      --warning-ink:    #9a5e00;
+      --danger-ink:     #b91c1c;
+      --info-ink:       #4545b0;
+      --info-border:    rgba(91, 91, 214, 0.24);
+      --primary-shadow: rgba(91, 91, 214, 0.24);
+      --secondary-hover: rgba(91, 91, 214, 0.08);
+      --secondary-hover-border: rgba(91, 91, 214, 0.2);
       --danger-border: rgba(220, 38, 38, 0.24);
       --danger-hover: rgba(220, 38, 38, 0.14);
       --danger-hover-border: rgba(220, 38, 38, 0.32);
       --focus-inner: rgba(255, 255, 255, 0.5);
+      --toggle-thumb-start: #ffffff;
+      --toggle-thumb-end: #f5f7fa;
+      --toggle-icon-sun: var(--warning);
+      --toggle-icon-moon: var(--primary);
+      --toggle-ring: rgba(91, 91, 214, 0.12);
+      --print-paper: #ffffff;
+      --print-ink: #212121;
+      --print-border: #d6d9de;
 
-      --status-available-text: #047857;
-      --status-available-border: rgba(5, 150, 105, 0.22);
-      --status-reserved-text: #0369a1;
-      --status-reserved-border: rgba(14, 165, 201, 0.22);
-      --status-loaned-text: #6d28d9;
-      --status-loaned-border: rgba(124, 58, 237, 0.22);
-      --status-sold-text: #92400e;
-      --status-sold-border: rgba(217, 119, 6, 0.22);
-      --status-damaged-text: #991b1b;
-      --status-damaged-border: rgba(220, 38, 38, 0.22);
+      --status-available-text: var(--success-ink);
+      --status-available-border: rgba(22, 163, 74, 0.26);
+      --status-reserved-text: var(--info-ink);
+      --status-reserved-border: rgba(91, 91, 214, 0.24);
+      --status-loaned-text: var(--info-ink);
+      --status-loaned-border: rgba(91, 91, 214, 0.24);
+      --status-sold-text: var(--warning-ink);
+      --status-sold-border: rgba(245, 158, 11, 0.26);
+      --status-damaged-text: var(--danger-ink);
+      --status-damaged-border: rgba(220, 38, 38, 0.24);
 
-      --border:         #e2e8f0;
-      --border-strong:  #cbd5e1;
+      --border:         #d6d9de;
+      --border-strong:  #d6d9de;
 
-      --shadow-xs:  0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 24px rgba(15, 23, 42, 0.05);
-      --shadow-sm:  0 2px 8px rgba(15, 23, 42, 0.06), 0 16px 32px rgba(15, 23, 42, 0.06);
-      --shadow-md:  0 8px 20px rgba(15, 23, 42, 0.08), 0 22px 44px rgba(15, 23, 42, 0.08);
-      --overlay:    rgba(15, 23, 42, 0.54);
+      --shadow-xs:  0 1px 2px rgba(33, 33, 33, 0.05), 0 12px 24px rgba(33, 33, 33, 0.05);
+      --shadow-sm:  0 2px 8px rgba(33, 33, 33, 0.06), 0 16px 32px rgba(33, 33, 33, 0.06);
+      --shadow-md:  0 8px 20px rgba(33, 33, 33, 0.08), 0 22px 44px rgba(33, 33, 33, 0.08);
+      --overlay:    rgba(33, 33, 33, 0.54);
 
       --radius-sm:  10px;
       --radius-md:  16px;
@@ -154,84 +167,103 @@
       --bg-nav-soft:    var(--nav-soft);
       --bg-nav-strong:  var(--nav-strong);
       --bg-nav-panel:   var(--nav-panel);
+
+      /* Aliases maintained for legacy page-local styles. */
+      --bg:             var(--bg-page);
+      --card:           var(--bg-card);
+      --card-muted:     var(--bg-card-muted);
+      --muted:          var(--text-muted);
+      --shadow-soft:    var(--shadow-xs);
     }
 
     :root[data-theme="dark"] {
       color-scheme: dark;
-      --page-bg:        #060e20;
-      --page-accent:    #0f2235;
-      --page-glow:      rgba(57, 184, 253, 0.12);
-      --page-glow-soft: rgba(57, 184, 253, 0.06);
+      --page-bg:        #121212;
+      --page-accent:    #121212;
+      --page-glow:      rgba(209, 213, 219, 0.1);
+      --page-glow-soft: rgba(209, 213, 219, 0.05);
       --page-film:      rgba(255, 255, 255, 0.02);
-      --surface-1:      #0f1930;
-      --surface-2:      #16213e;
-      --surface-3:      #1d2c48;
-      --surface-overlay: rgba(12, 21, 34, 0.88);
-      --surface-gradient-start: #0f1930;
-      --surface-gradient-end: #16213e;
-      --surface-elevated: #142235;
-      --input-surface:  #101b2a;
-      --input-hover:    #142235;
-      --input-focus:    #16213e;
-      --nav-surface:    #0f1930;
-      --nav-soft:       rgba(57, 184, 253, 0.08);
-      --nav-strong:     linear-gradient(180deg, #0f1930 0%, #0b1528 100%);
-      --nav-panel:      #16213e;
+      --surface-1:      #1f1f1f;
+      --surface-2:      #2d2d2d;
+      --surface-3:      #2d2d2d;
+      --surface-overlay: rgba(45, 45, 45, 0.96);
+      --surface-gradient-start: #1f1f1f;
+      --surface-gradient-end: #1f1f1f;
+      --surface-elevated: #2d2d2d;
+      --input-surface:  #1f1f1f;
+      --input-hover:    #2d2d2d;
+      --input-focus:    #2d2d2d;
+      --nav-surface:    #1f1f1f;
+      --nav-soft:       rgba(209, 213, 219, 0.14);
+      --nav-strong:     linear-gradient(180deg, #1f1f1f 0%, #1f1f1f 100%);
+      --nav-panel:      #2d2d2d;
 
-      --text:           #e8eef7;
-      --text-muted:     #9fb0c5;
-      --text-soft:      #70839c;
-      --text-inverse:   #060e20;
+      --text:           #e5e5e5;
+      --text-muted:     #9ca3af;
+      --text-soft:      #9ca3af;
+      --text-inverse:   #121212;
 
-      --secondary:      #dee5ff;
-      --secondary-soft: rgba(222, 229, 255, 0.14);
-      --focus-ring:     rgba(79, 167, 255, 0.26);
-      --table-head-bg:  rgba(15, 25, 48, 0.98);
-      --table-row-hover: rgba(23, 38, 59, 0.9);
-      --chart-grid:     rgba(222, 229, 255, 0.12);
-      --chart-axis:     rgba(182, 196, 220, 0.2);
-      --chart-label:    #8fa3bd;
-      --chart-text:     #dde7f5;
-      --chart-track:    rgba(74, 96, 128, 0.24);
-      --chart-accent:   #39b8fd;
-      --chart-highlight:#ff9a76;
+      --primary:        #d1d5db;
+      --primary-strong: #b6bcc4;
+      --primary-soft:   rgba(209, 213, 219, 0.16);
+      --secondary:      #e5e5e5;
+      --secondary-soft: rgba(229, 229, 229, 0.1);
+      --focus-ring:     rgba(209, 213, 219, 0.3);
+      --table-head-bg:  #2d2d2d;
+      --table-row-hover: rgba(45, 45, 45, 0.9);
+      --chart-grid:     rgba(156, 163, 175, 0.2);
+      --chart-axis:     rgba(156, 163, 175, 0.28);
+      --chart-label:    #9ca3af;
+      --chart-text:     #e5e5e5;
+      --chart-track:    #2d2d2d;
+      --chart-accent:   #d1d5db;
+      --chart-highlight:#d1d5db;
 
-      --success-soft:   rgba(5, 150, 105, 0.16);
-      --warning-soft:   rgba(217, 119, 6, 0.16);
-      --danger-soft:    rgba(220, 38, 38, 0.16);
-      --info-soft:      rgba(14, 165, 201, 0.16);
-      --status-loaned-soft: rgba(167, 139, 250, 0.16);
-      --success-ink:    #bbf7d0;
-      --warning-ink:    #fcd34d;
-      --danger-ink:     #fca5a5;
-      --info-ink:       #93c5fd;
-      --info-border:    rgba(14, 165, 201, 0.28);
-      --primary-shadow: rgba(57, 184, 253, 0.28);
-      --secondary-hover: rgba(57, 184, 253, 0.1);
-      --secondary-hover-border: rgba(57, 184, 253, 0.24);
-      --danger-border: rgba(248, 113, 113, 0.3);
-      --danger-hover: rgba(220, 38, 38, 0.24);
-      --danger-hover-border: rgba(248, 113, 113, 0.42);
+      --success:        #00bf6b;
+      --warning:        #fca327;
+      --danger:         #ef4444;
+      --info:           #d1d5db;
+      --success-soft:   rgba(0, 191, 107, 0.16);
+      --warning-soft:   rgba(252, 163, 39, 0.16);
+      --danger-soft:    rgba(239, 68, 68, 0.16);
+      --info-soft:      rgba(209, 213, 219, 0.16);
+      --status-loaned-soft: rgba(209, 213, 219, 0.16);
+      --success-ink:    #00bf6b;
+      --warning-ink:    #fca327;
+      --danger-ink:     #ef4444;
+      --info-ink:       #d1d5db;
+      --info-border:    rgba(209, 213, 219, 0.3);
+      --primary-shadow: rgba(209, 213, 219, 0.28);
+      --secondary-hover: rgba(209, 213, 219, 0.14);
+      --secondary-hover-border: rgba(209, 213, 219, 0.3);
+      --danger-border: rgba(239, 68, 68, 0.3);
+      --danger-hover: rgba(239, 68, 68, 0.24);
+      --danger-hover-border: rgba(239, 68, 68, 0.42);
       --focus-inner: rgba(255, 255, 255, 0.08);
+      --toggle-thumb-start: #2d2d2d;
+      --toggle-thumb-end: #1f1f1f;
+      --toggle-icon-sun: var(--warning);
+      --toggle-icon-moon: var(--primary);
+      --toggle-ring: rgba(209, 213, 219, 0.14);
 
-      --status-available-text: #86efac;
-      --status-available-border: rgba(16, 185, 129, 0.28);
-      --status-reserved-text: #7dd3fc;
-      --status-reserved-border: rgba(14, 165, 233, 0.28);
-      --status-loaned-text: #d8b4fe;
-      --status-loaned-border: rgba(167, 139, 250, 0.28);
-      --status-sold-text: #fcd34d;
-      --status-sold-border: rgba(245, 158, 11, 0.28);
-      --status-damaged-text: #fca5a5;
-      --status-damaged-border: rgba(248, 113, 113, 0.28);
+      --status-available-text: var(--success);
+      --status-available-border: rgba(0, 191, 107, 0.3);
+      --status-reserved-text: var(--primary);
+      --status-reserved-border: rgba(209, 213, 219, 0.3);
+      --status-loaned-text: var(--primary);
+      --status-loaned-border: rgba(209, 213, 219, 0.3);
+      --status-sold-text: var(--warning);
+      --status-sold-border: rgba(252, 163, 39, 0.3);
+      --status-damaged-text: var(--danger);
+      --status-damaged-border: rgba(239, 68, 68, 0.3);
 
-      --border:         rgba(170, 193, 226, 0.12);
-      --border-strong:  rgba(170, 193, 226, 0.22);
+      --border:         #37474f;
+      --border-strong:  #37474f;
 
-      --shadow-xs:  0 8px 18px rgba(1, 6, 14, 0.28), 0 1px 0 rgba(255, 255, 255, 0.02);
-      --shadow-sm:  0 18px 36px rgba(1, 6, 14, 0.34), 0 1px 0 rgba(255, 255, 255, 0.02);
-      --shadow-md:  0 26px 52px rgba(1, 6, 14, 0.42), 0 1px 0 rgba(255, 255, 255, 0.03);
-      --overlay:    rgba(1, 6, 14, 0.72);
+      --shadow-xs:  0 8px 18px rgba(0, 0, 0, 0.28), 0 1px 0 rgba(255, 255, 255, 0.02);
+      --shadow-sm:  0 18px 36px rgba(0, 0, 0, 0.34), 0 1px 0 rgba(255, 255, 255, 0.02);
+      --shadow-md:  0 26px 52px rgba(0, 0, 0, 0.42), 0 1px 0 rgba(255, 255, 255, 0.03);
+      --overlay:    rgba(0, 0, 0, 0.72);
 
       --bg-page:        var(--page-bg);
       --bg-page-accent: var(--page-accent);
@@ -255,6 +287,13 @@
     * {
       box-sizing: border-box;
       font-family: var(--font-sans);
+    }
+
+    code,
+    pre,
+    kbd,
+    samp {
+      font-family: var(--font-mono);
     }
 
     html {
@@ -562,7 +601,7 @@
     .audit-page__table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-strong); text-align: left; vertical-align: top; font-size: var(--text-sm); }
     .audit-page__table th { color: var(--secondary); font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; }
     .audit-page__pill { display: inline-flex; align-items: center; min-height: 28px; padding: 0 var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--chip-radius); background: var(--bg-card); color: var(--secondary); font-size: var(--text-xs); font-weight: var(--font-bold); white-space: nowrap; }
-    .audit-page__payload { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-xs); color: var(--text); }
+    .audit-page__payload { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text); }
 
     /* ── Módulo: cambios ── */
     .swap-page__card { width: min(820px, 100%); margin: 0 auto; }
@@ -606,11 +645,21 @@
     }
 
     /* ── Tipografía ── */
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    .page-title {
+      font-family: var(--font-heading);
+    }
+
     h1 {
       margin: 0;
       color: var(--secondary);
       font-size: clamp(1.48rem, 2.2vw, 2rem);
-      font-weight: 780;
+      font-weight: 700;
       letter-spacing: -0.05em;
       line-height: 1.01;
     }
@@ -619,7 +668,7 @@
       margin: 0;
       color: var(--secondary);
       font-size: 1.06rem;
-      font-weight: 760;
+      font-weight: 600;
       letter-spacing: -0.025em;
     }
 
@@ -627,7 +676,7 @@
       margin: 0;
       color: var(--text-muted);
       font-size: 0.73rem;
-      font-weight: 750;
+      font-weight: 600;
       letter-spacing: 0.09em;
       text-transform: uppercase;
     }

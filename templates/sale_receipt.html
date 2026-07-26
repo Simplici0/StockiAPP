@@ -139,17 +139,17 @@
                 border-radius: 18px;
                 background: linear-gradient(
                     135deg,
-                    rgba(16, 42, 76, 0.96) 0%,
-                    rgba(11, 29, 54, 0.98) 100%
+                    var(--primary) 0%,
+                    var(--primary-strong) 100%
                 );
-                color: #ffffff;
+                color: var(--text-inverse);
             }
 
             .receipt-total strong {
                 font-size: 12px;
                 letter-spacing: 0.08em;
                 text-transform: uppercase;
-                color: rgba(255, 255, 255, 0.74);
+                color: color-mix(in srgb, var(--text-inverse) 72%, transparent);
             }
 
             .receipt-total span {

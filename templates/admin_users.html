@@ -5,36 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{.Title}}</title>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f8fafc;
-      --card: #ffffff;
-      --card-muted: #f1f5f9;
-      --text: #1e293b;
-      --muted: #475569;
-      --primary: #0284c7;
-      --primary-strong: #0369a1;
-      --primary-soft: #eff6ff;
-      --border: #e2e8f0;
-      --border-strong: #cbd5e1;
-      --danger: #dc2626;
-      --shadow-soft: 0 8px 18px rgba(15, 23, 42, 0.08);
-    }
-
-    :root[data-theme="dark"] {
-      color-scheme: dark;
-      --bg: #060e20;
-      --card: #16213e;
-      --card-muted: #0f1930;
-      --text: #dee5ff;
-      --muted: #99acc2;
-      --border: rgba(170, 193, 226, 0.16);
-      --border-strong: rgba(170, 193, 226, 0.24);
-      --danger: #ffb4b4;
-      --shadow-soft: 0 18px 36px rgba(1, 6, 14, 0.34);
-      --primary-soft: rgba(79, 157, 255, 0.14);
-    }
-
     * {
       box-sizing: border-box;
       font-family: "Inter", "Segoe UI", sans-serif;
@@ -116,7 +86,7 @@
 
     .nav-button:hover {
       background: var(--primary);
-      color: #ffffff;
+      color: var(--text-inverse);
     }
 
     .page-content {
@@ -171,14 +141,14 @@
     .status-pill.inactive {
       background: var(--bg-card-muted);
       color: var(--danger);
-      border: 1px solid rgba(220, 38, 38, 0.2);
+      border: 1px solid var(--danger-border);
     }
 
     .flash {
       margin-bottom: 16px;
-      background: rgba(5, 150, 105, 0.1);
-      color: #047857;
-      border: 1px solid rgba(5, 150, 105, 0.2);
+      background: var(--success-soft);
+      color: var(--success-ink);
+      border: 1px solid var(--status-available-border);
       padding: 12px 16px;
       border-radius: 12px;
       font-size: 14px;
@@ -186,9 +156,9 @@
     }
 
     .flash.error {
-      background: rgba(220, 38, 38, 0.1);
-      color: var(--danger);
-      border-color: rgba(220, 38, 38, 0.2);
+      background: var(--danger-soft);
+      color: var(--danger-ink);
+      border-color: var(--danger-border);
     }
 
     .scope-banner {
@@ -233,15 +203,15 @@
     }
 
     .role-pill.platform {
-      background: rgba(245, 158, 11, 0.12);
-      border-color: rgba(245, 158, 11, 0.24);
-      color: #b45309;
+      background: var(--warning-soft);
+      border-color: var(--status-sold-border);
+      color: var(--warning-ink);
     }
 
     .role-pill.tenant {
-      background: rgba(79, 157, 255, 0.12);
-      border-color: rgba(79, 157, 255, 0.24);
-      color: #2563eb;
+      background: var(--info-soft);
+      border-color: var(--info-border);
+      color: var(--info-ink);
     }
 
     .section-kicker {
@@ -344,7 +314,7 @@
     select:focus {
       outline: none;
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.16);
+      box-shadow: 0 0 0 3px var(--focus-ring);
     }
 
     .row {
@@ -376,8 +346,8 @@
     button.primary {
       background: var(--primary);
       border-color: var(--primary);
-      color: #ffffff;
-      box-shadow: 0 8px 18px rgba(2, 132, 199, 0.18);
+      color: var(--text-inverse);
+      box-shadow: 0 8px 18px var(--primary-shadow);
     }
 
     button.primary:hover {
@@ -388,7 +358,7 @@
     button.danger {
       background: var(--danger);
       border-color: var(--danger);
-      color: #ffffff;
+      color: var(--text-inverse);
     }
 
     button.danger:hover {
@@ -527,43 +497,43 @@
 
     :root[data-theme="dark"] .status-pill,
     :root[data-theme="dark"] .role-pill {
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--bg-card-muted);
       border-color: var(--border);
       color: var(--text);
     }
 
     :root[data-theme="dark"] .role-pill.tenant {
-      background: rgba(79, 157, 255, 0.14);
-      border-color: rgba(79, 157, 255, 0.24);
-      color: #dbeafe;
+      background: var(--info-soft);
+      border-color: var(--info-border);
+      color: var(--info-ink);
     }
 
     :root[data-theme="dark"] .status-pill.inactive,
     :root[data-theme="dark"] .flash.error {
-      background: rgba(220, 38, 38, 0.16);
-      border-color: rgba(220, 38, 38, 0.24);
-      color: #ffb4b4;
+      background: var(--danger-soft);
+      border-color: var(--danger-border);
+      color: var(--danger-ink);
     }
 
     :root[data-theme="dark"] .flash {
-      background: rgba(5, 150, 105, 0.16);
-      border-color: rgba(5, 150, 105, 0.24);
-      color: #9be8c7;
+      background: var(--success-soft);
+      border-color: var(--status-available-border);
+      color: var(--success-ink);
     }
 
     :root[data-theme="dark"] .role-pill.platform {
-      background: rgba(242, 207, 150, 0.14);
-      border-color: rgba(242, 207, 150, 0.24);
-      color: #f4c77d;
+      background: var(--warning-soft);
+      border-color: var(--status-sold-border);
+      color: var(--warning-ink);
     }
 
     :root[data-theme="dark"] input:focus,
     :root[data-theme="dark"] select:focus {
-      box-shadow: 0 0 0 3px rgba(79, 157, 255, 0.16);
+      box-shadow: 0 0 0 3px var(--focus-ring);
     }
 
     :root[data-theme="dark"] .logo-placeholder {
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--bg-card-muted);
       border-color: var(--border);
       color: var(--text);
     }

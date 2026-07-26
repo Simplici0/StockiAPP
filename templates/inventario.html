@@ -54,8 +54,8 @@
                 color: var(--secondary);
             }
             .filters-actions button.secondary:hover {
-                background: rgba(2, 132, 199, 0.08);
-                border-color: rgba(2, 132, 199, 0.18);
+                background: var(--secondary-hover);
+                border-color: var(--secondary-hover-border);
             }
 
             /* Editar créditos / Ver préstamos: outline visible, no transparente */
@@ -391,8 +391,8 @@
                 gap: 4px;
                 padding: 5px 9px;
                 border-radius: 999px;
-                background: rgba(245, 158, 11, 0.12);
-                border: 1px solid rgba(245, 158, 11, 0.22);
+                background: var(--warning-soft);
+                border: 1px solid var(--status-sold-border);
             }
 
             .credit-badge {
@@ -401,8 +401,8 @@
                 gap: 6px;
                 padding: 4px 10px;
                 border-radius: 999px;
-                background: rgba(245, 158, 11, 0.12);
-                border: 1px solid rgba(245, 158, 11, 0.22);
+                background: var(--warning-soft);
+                border: 1px solid var(--status-sold-border);
                 color: var(--warning-ink);
                 font-size: 11px;
                 font-weight: 700;
@@ -461,25 +461,25 @@
 
             .status.credit_completed {
                 background: var(--success-soft);
-                border-color: rgba(16, 185, 129, 0.22);
+                border-color: var(--status-available-border);
                 color: var(--success-ink);
             }
 
             .status.credit_suspended {
                 background: var(--warning-soft);
-                border-color: rgba(234, 88, 12, 0.18);
+                border-color: var(--status-sold-border);
                 color: var(--warning-ink);
             }
 
             .status.credit_cancelled {
                 background: var(--danger-soft);
-                border-color: rgba(220, 38, 38, 0.18);
+                border-color: var(--danger-border);
                 color: var(--danger-ink);
             }
 
             .status.empty {
                 background: var(--danger-soft);
-                border: 1px solid rgba(220, 38, 38, 0.18);
+                border: 1px solid var(--danger-border);
                 color: var(--danger-ink);
             }
 
@@ -554,7 +554,7 @@
                 font-weight: 700;
                 color: var(--warning-ink);
                 background: var(--warning-soft);
-                border: 1px solid rgba(217, 119, 6, 0.18);
+                border: 1px solid var(--status-sold-border);
                 vertical-align: middle;
             }
 
@@ -633,9 +633,9 @@
                 border-radius: 999px;
                 font-size: 11px;
                 font-weight: 600;
-                background: rgba(59, 130, 246, 0.12);
+                background: var(--info-soft);
                 color: var(--secondary);
-                border: 1px solid rgba(59, 130, 246, 0.2);
+                border: 1px solid var(--info-border);
             }
 
             /* Context menu */
@@ -697,7 +697,7 @@
             }
 
             .menu-panel button:hover {
-                background: rgba(2, 132, 199, 0.08);
+                background: var(--secondary-hover);
             }
 
             /* ── Modal etiqueta ── */
@@ -744,7 +744,7 @@
                 align-items: center;
                 justify-content: center;
                 padding: 16px;
-                background: rgba(8, 18, 38, 0.42);
+                background: var(--overlay);
                 backdrop-filter: blur(6px);
                 z-index: 1000;
                 width: 100vw;
@@ -759,10 +759,10 @@
             .modal {
                 width: min(800px, 100%);
                 max-width: calc(100vw - 32px);
-                background: rgba(255, 255, 255, 0.98);
-                border: 1px solid rgba(15, 40, 80, 0.1);
+                background: var(--bg-card-overlay);
+                border: 1px solid var(--border);
                 border-radius: 20px;
-                box-shadow: 0 26px 48px rgba(10, 25, 55, 0.18);
+                box-shadow: var(--shadow-md);
                 overflow: hidden;
                 animation: modalIn 0.16s ease-out;
                 backdrop-filter: blur(14px);
@@ -789,11 +789,11 @@
                 align-items: flex-start;
                 gap: 16px;
                 padding: 16px 20px;
-                border-bottom: 1px solid rgba(15, 40, 80, 0.08);
+                border-bottom: 1px solid var(--border);
                 background: linear-gradient(
                     180deg,
-                    rgba(248, 250, 252, 0.98) 0%,
-                    rgba(255, 255, 255, 0.94) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
             }
 
@@ -801,14 +801,14 @@
                 margin: 0;
                 font-size: 16px;
                 font-weight: 800;
-                color: #0d2b55;
+                color: var(--secondary);
                 letter-spacing: -0.02em;
             }
 
             .modal-subtitle {
                 margin-top: 3px;
                 font-size: 12px;
-                color: #7a93ae;
+                color: var(--text-muted);
             }
 
             .modal-close {
@@ -816,9 +816,9 @@
                 min-height: 44px;
                 padding: 0;
                 border-radius: 999px;
-                border: 1px solid rgba(15, 40, 80, 0.1);
-                background: #ffffff;
-                color: #7a93ae;
+                border: 1px solid var(--border);
+                background: var(--bg-card);
+                color: var(--text-muted);
                 font-size: 18px;
                 display: inline-flex;
                 align-items: center;
@@ -836,10 +836,10 @@
             .modal-loading,
             .modal-empty {
                 padding: 12px 14px;
-                border: 1px solid rgba(15, 40, 80, 0.1);
+                border: 1px solid var(--border);
                 border-radius: 12px;
-                background: rgba(248, 250, 252, 0.92);
-                color: #7a93ae;
+                background: var(--bg-card-muted);
+                color: var(--text-muted);
                 font-size: 13.5px;
                 font-weight: 600;
             }
@@ -862,32 +862,32 @@
             .move-tag.venta {
                 background: var(--danger-soft);
                 color: var(--danger-ink);
-                border-color: rgba(220, 38, 38, 0.18);
+                border-color: var(--danger-border);
             }
             .move-tag.reservar {
                 background: var(--info-soft);
                 color: var(--info-ink);
-                border-color: rgba(29, 78, 216, 0.18);
+                border-color: var(--info-border);
             }
             .move-tag.dano {
                 background: var(--danger-soft);
                 color: var(--danger-ink);
-                border-color: rgba(220, 38, 38, 0.18);
+                border-color: var(--danger-border);
             }
             .move-tag.cambio_salida {
                 background: var(--warning-soft);
                 color: var(--warning-ink);
-                border-color: rgba(217, 119, 6, 0.18);
+                border-color: var(--status-sold-border);
             }
             .move-tag.ajuste_stock_entrada {
                 background: var(--success-soft);
                 color: var(--success-ink);
-                border-color: rgba(5, 150, 105, 0.18);
+                border-color: var(--status-available-border);
             }
             .move-tag.ajuste_stock_salida {
                 background: var(--warning-soft);
                 color: var(--warning-ink);
-                border-color: rgba(217, 119, 6, 0.18);
+                border-color: var(--status-sold-border);
             }
 
             .modal-actions {
@@ -901,8 +901,8 @@
                 position: sticky;
                 bottom: 0;
                 z-index: 2;
-                background: rgba(255, 255, 255, 0.98);
-                border-top: 1px solid rgba(15, 40, 80, 0.08);
+                background: var(--bg-card-overlay);
+                border-top: 1px solid var(--border);
                 backdrop-filter: blur(8px);
             }
 
@@ -924,9 +924,9 @@
             .modal-error {
                 padding: 10px 14px;
                 border-radius: 8px;
-                border: 1px solid rgba(220, 38, 38, 0.2);
+                border: 1px solid var(--danger-border);
                 background: var(--danger-soft);
-                color: #991b1b;
+                color: var(--danger-ink);
                 font-size: 13px;
                 font-weight: 600;
             }
@@ -934,7 +934,7 @@
             .modal-hint {
                 margin-top: 5px;
                 font-size: 12px;
-                color: #7a93ae;
+                color: var(--text-muted);
             }
 
             .modal .customer-lookup-results {
@@ -1410,8 +1410,8 @@
                 border-color: var(--border);
                 background: linear-gradient(
                     180deg,
-                    rgba(14, 23, 36, 0.98) 0%,
-                    rgba(10, 18, 29, 0.94) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
                 box-shadow: var(--shadow-xs);
             }
@@ -1439,8 +1439,8 @@
             [data-theme="dark"] .modal-actions {
                 background: linear-gradient(
                     180deg,
-                    rgba(12, 21, 34, 0.96) 0%,
-                    rgba(8, 15, 24, 0.98) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
                 border-top-color: var(--border);
             }
@@ -1448,8 +1448,8 @@
             [data-theme="dark"] .sale-receipt-request {
                 background: linear-gradient(
                     180deg,
-                    rgba(16, 27, 42, 0.98) 0%,
-                    rgba(12, 21, 34, 0.98) 100%
+                    var(--surface-gradient-start) 0%,
+                    var(--surface-gradient-end) 100%
                 );
                 border-color: var(--border);
             }
@@ -1459,8 +1459,8 @@
             [data-theme="dark"] .actions button.ghost:hover,
             [data-theme="dark"] .menu > button.ghost:hover,
             [data-theme="dark"] .credit-kind-option.active {
-                background: rgba(79, 157, 255, 0.14);
-                border-color: rgba(79, 157, 255, 0.24);
+                background: var(--primary-soft);
+                border-color: var(--info-border);
                 color: var(--text);
             }
 
@@ -1470,7 +1470,7 @@
             }
 
             [data-theme="dark"] tbody tr:hover td {
-                background: rgba(79, 157, 255, 0.06);
+                background: var(--secondary-hover);
             }
 
             [data-theme="dark"] .menu-panel button {
@@ -1478,7 +1478,7 @@
             }
 
             [data-theme="dark"] .menu-panel button:hover {
-                background: rgba(79, 157, 255, 0.12);
+                background: var(--primary-soft);
                 color: var(--text);
             }
 
@@ -1520,21 +1520,21 @@
             [data-theme="dark"] .credit-badge,
             [data-theme="dark"] .status.credit_active,
             [data-theme="dark"] .move-tag {
-                background: rgba(79, 157, 255, 0.14);
-                border-color: rgba(79, 157, 255, 0.24);
+                background: var(--primary-soft);
+                border-color: var(--info-border);
                 color: var(--text);
             }
 
             [data-theme="dark"] .age-pill {
-                background: rgba(217, 119, 6, 0.16);
-                border-color: rgba(217, 119, 6, 0.24);
+                background: var(--warning-soft);
+                border-color: var(--status-sold-border);
                 color: var(--warning-ink);
             }
 
             [data-theme="dark"] .status.credit_completed {
-                background: rgba(5, 150, 105, 0.16);
-                border-color: rgba(5, 150, 105, 0.24);
-                color: #86efac;
+                background: var(--success-soft);
+                border-color: var(--status-available-border);
+                color: var(--success-ink);
             }
 
             [data-theme="dark"] .status.credit_suspended,
@@ -1545,9 +1545,9 @@
             [data-theme="dark"] .move-tag.cambio_salida,
             [data-theme="dark"] .move-tag.ajuste_stock_entrada,
             [data-theme="dark"] .move-tag.ajuste_stock_salida {
-                background: rgba(217, 119, 6, 0.16);
-                border-color: rgba(217, 119, 6, 0.24);
-                color: #facc15;
+                background: var(--warning-soft);
+                border-color: var(--status-sold-border);
+                color: var(--warning-ink);
             }
 
             [data-theme="dark"] #label-iframe,
@@ -8759,12 +8759,9 @@
                                 try {
                                     const doc = labelIframe.contentDocument;
                                     const s = doc.createElement("style");
-                                    const iframeBg =
-                                        document.documentElement.getAttribute(
-                                            "data-theme",
-                                        ) === "dark"
-                                            ? "#101b2a"
-                                            : "#f0f4f8";
+                                    const iframeBg = getComputedStyle(
+                                        document.documentElement,
+                                    ).getPropertyValue("--bg-page").trim();
                                     s.textContent =
                                         ".topbar,.page-header,.label-toolbar{display:none!important}" +
                                         ".label-shell{padding:16px}" +

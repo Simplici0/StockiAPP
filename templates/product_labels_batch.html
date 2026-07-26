@@ -11,7 +11,7 @@
             .labels-intro h1 { margin: 0 0 6px; font-size: clamp(24px, 3vw, 32px); }
             .labels-intro p { max-width: 620px; margin: 0; color: var(--text-muted); }
             .labels-notice { margin: 0; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-card-muted); color: var(--text); font-size: 14px; }
-            .labels-notice.error { border-color: #f0b7ae; color: #a93828; background: #fff7f5; }
+            .labels-notice.error { border-color: var(--danger-border); color: var(--danger-ink); background: var(--danger-soft); }
 
             .label-editor { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-card); overflow: hidden; }
             .label-editor > summary { min-height: 64px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; list-style: none; cursor: pointer; }
@@ -44,22 +44,22 @@
 
             .label-editor-preview { position: sticky; top: 14px; display: grid; gap: 10px; }
             .label-editor-preview > strong { color: var(--text); font-size: 13px; }
-            .label-preview-stage { min-height: 250px; padding: 16px; display: grid; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: #edf1f5; overflow: hidden; }
-            .label-preview-sheet { width: min(100%, 250px); padding: 8px; display: grid; min-height: 0; overflow: hidden; border: 1px solid #aab4c2; border-radius: 4px; background: #fff; box-shadow: 0 8px 20px rgba(15, 23, 42, .1); }
-            .label-preview-label { min-width: 0; min-height: 0; height: 100%; padding: 6px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; border: 1px solid #d6dce5; color: #172033; background: #fff; }
+            .label-preview-stage { min-height: 250px; padding: 16px; display: grid; place-items: center; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--bg-card-muted); overflow: hidden; }
+            .label-preview-sheet { width: min(100%, 250px); padding: 8px; display: grid; min-height: 0; overflow: hidden; border: 1px solid var(--print-border); border-radius: 4px; background: var(--print-paper); box-shadow: var(--shadow-xs); }
+            .label-preview-label { min-width: 0; min-height: 0; height: 100%; padding: 6px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; border: 1px solid var(--print-border); color: var(--print-ink); background: var(--print-paper); }
             .label-preview-business, .label-preview-meta, .label-preview-id, .label-preview-reference { overflow: hidden; font-size: 6px; font-weight: 800; line-height: 1.1; white-space: nowrap; text-overflow: ellipsis; }
             .label-preview-business { letter-spacing: .06em; }
             .label-preview-name { overflow: hidden; font-size: 8px; font-weight: 400; line-height: 1.1; }
-            .label-preview-price { display: flex; justify-content: space-between; gap: 4px; padding: 3px 0; border-top: 1px solid #172033; font-size: 6px; font-weight: 800; }
+            .label-preview-price { display: flex; justify-content: space-between; gap: 4px; padding: 3px 0; border-top: 1px solid var(--print-ink); font-size: 6px; font-weight: 800; }
             .label-preview-price strong { font-size: 8px; }
-            .label-preview-bars { min-height: 13px; flex: 1 1 13px; background: repeating-linear-gradient(90deg, #172033 0 2px, transparent 2px 3px, #172033 3px 4px, transparent 4px 6px); }
+            .label-preview-bars { min-height: 13px; flex: 1 1 13px; background: repeating-linear-gradient(90deg, var(--print-ink) 0 2px, transparent 2px 3px, var(--print-ink) 3px 4px, transparent 4px 6px); }
             .label-preview-label.is-compact { display: grid; grid-template-columns: 46px minmax(0, 1fr); grid-template-rows: 30px 14px minmax(28px, 1fr) 18px; gap: 3px 5px; }
             .label-preview-label.is-compact .label-preview-logo { grid-column: 1; grid-row: 1 / 4; justify-self: center; align-self: start; display: block; width: 35px; height: 35px; max-width: 35px; max-height: 35px; filter: grayscale(1) contrast(1.8) brightness(.7); object-fit: contain; }
             .label-preview-label.is-compact .label-preview-business { grid-column: 1; grid-row: 1 / 4; align-self: start; text-align: center; }
             .label-preview-label.is-compact .label-preview-price { grid-column: 2; grid-row: 4; padding: 0; border: 0; align-self: end; }
             .label-preview-label.is-compact .label-preview-price > span { display: none; }
             .label-preview-label.is-compact .label-preview-name { grid-column: 2; grid-row: 1; font-weight: 850; align-self: center; }
-            .label-preview-label.is-compact .label-preview-reference { grid-column: 2; grid-row: 2; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 8px; letter-spacing: .03em; }
+            .label-preview-label.is-compact .label-preview-reference { grid-column: 2; grid-row: 2; font-family: var(--font-mono); font-size: 8px; letter-spacing: .03em; }
             .label-preview-label.is-compact .label-preview-meta, .label-preview-label.is-compact .label-preview-id { display: none; }
             .label-preview-label.is-compact .label-preview-contact { grid-column: 1 / -1; grid-row: 4; box-sizing: border-box; padding-right: 54px; overflow: hidden; font-size: 6.5px; font-weight: 800; line-height: 1.1; white-space: nowrap; text-overflow: ellipsis; align-self: end; }
             .label-preview-label.is-compact .label-preview-bars { grid-column: 2; grid-row: 3; min-height: 28px; }
@@ -94,7 +94,7 @@
             .labels-output-actions button { width: 100%; min-height: 46px; }
             .labels-output-actions .secondary { background: var(--bg-card-muted); border-color: var(--border-strong); color: var(--text); }
             .labels-status { min-height: 18px; margin: 0; color: var(--text-muted); font-size: 12px; }
-            .labels-status.error { color: #b42318; font-weight: 700; }
+            .labels-status.error { color: var(--danger-ink); font-weight: 700; }
             @media (max-width: 860px) { .labels-layout, .label-editor-panel { grid-template-columns: 1fr; } .labels-summary, .label-editor-preview { position: static; } }
             @media (max-width: 560px) { .labels-intro, .labels-list-toolbar { align-items: stretch; flex-direction: column; } .label-editor-picker { grid-template-columns: 1fr; } .label-editor-picker p { margin: 0; } .label-editor-fields { grid-template-columns: 1fr; } .labels-product-row { grid-template-columns: 28px minmax(0, 1fr) 66px; gap: 8px; padding-inline: 10px; } }
         </style>
