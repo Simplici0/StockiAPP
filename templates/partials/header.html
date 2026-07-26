@@ -663,20 +663,17 @@
             <a href="/inventario" class="topbar-link">Inventario</a>
             <a href="/dashboard" class="topbar-link">Dashboard</a>
             <a href="/clientes" class="topbar-link">Clientes</a>
-            {{if .CurrentUser}}{{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin") (eq .CurrentUser.Role "empleado")}}
-            <a href="/productos/etiquetas/masivas" class="topbar-link">Etiquetas</a>
-            {{end}}{{end}}
         </nav>
 
         <div class="topbar-admin-nav" aria-label="Menús administrativos">
-            {{if .CurrentUser}} {{if or (eq .CurrentUser.Role "admin") (eq
-            .CurrentUser.Role "platform_admin")}}
+            {{if .CurrentUser}} {{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin") (eq .CurrentUser.Role "empleado")}}
             <details class="topbar-menu">
                 <summary>
                     Productos
                     <span class="topbar-menu-caret" aria-hidden="true">▾</span>
                 </summary>
                 <div class="topbar-menu-panel">
+                    {{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin")}}
                     <a href="/productos/new">
                         <span>Nuevo producto</span>
                     </a>
@@ -695,8 +692,13 @@
                         <span>Editar créditos</span>
                     </button>
                     {{end}}
+                    {{end}}
+                    <a href="/productos/etiquetas/masivas">
+                        <span>Etiquetas</span>
+                    </a>
                 </div>
             </details>
+            {{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin")}}
             <details class="topbar-menu">
                 <summary>
                     Gestión
@@ -720,7 +722,8 @@
                     </a>
                 </div>
             </details>
-        {{end}} {{end}}
+            {{end}}
+            {{end}} {{end}}
         </div>
 
         {{if .CurrentUser}}

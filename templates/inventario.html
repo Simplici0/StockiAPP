@@ -73,9 +73,9 @@
             }
 
             .filters-row {
-                display: flex;
+                display: grid;
+                grid-template-columns: minmax(280px, 2fr) repeat(2, minmax(150px, 0.7fr));
                 gap: var(--space-3);
-                flex-wrap: wrap;
                 align-items: flex-end;
             }
 
@@ -83,11 +83,39 @@
                 display: flex;
                 flex-direction: column;
                 gap: 6px;
-                flex: 1 1 150px;
+                min-width: 0;
             }
 
             .filter-group.search-group {
-                flex: 2 1 220px;
+                min-width: 280px;
+            }
+
+            .search-group label {
+                color: var(--secondary);
+            }
+
+            .search-group input {
+                min-height: 52px;
+                font-size: 15px;
+                border-color: var(--border-strong);
+                box-shadow: var(--shadow-xs);
+            }
+
+            .filter-group--secondary label {
+                color: var(--text-soft);
+                font-size: 11px;
+            }
+
+            .filter-group--secondary select {
+                background: var(--bg-card-muted);
+                border-color: var(--border);
+                color: var(--text-muted);
+            }
+
+            .filter-group--secondary select:hover {
+                background: var(--bg-card);
+                border-color: var(--border-strong);
+                color: var(--text);
             }
 
             .actions {
@@ -1572,12 +1600,12 @@
                 }
 
                 .filters-row {
-                    flex-direction: column;
+                    grid-template-columns: 1fr;
                 }
 
                 .filter-group,
                 .filter-group.search-group {
-                    flex: 1 1 100%;
+                    min-width: 0;
                 }
             }
 
@@ -1953,7 +1981,15 @@
                     {{end}}
                 </div>
                 <div class="filters-row">
-                    <div class="filter-group">
+                    <div class="filter-group search-group">
+                        <label for="searchFilter">Búsqueda</label>
+                        <input
+                            id="searchFilter"
+                            type="search"
+                            placeholder="Nombre, ID, línea, deudor o documento"
+                        />
+                    </div>
+                    <div class="filter-group filter-group--secondary">
                         <label for="statusFilter">Estado</label>
                         <select id="statusFilter">
                             <option value="all">Todos</option>
@@ -1979,19 +2015,11 @@
                             <option value="damaged">Dañado</option>
                         </select>
                     </div>
-                    <div class="filter-group">
+                    <div class="filter-group filter-group--secondary">
                         <label for="lineFilter">Línea</label>
                         <select id="lineFilter">
                             <option value="all">Todas</option>
                         </select>
-                    </div>
-                    <div class="filter-group search-group">
-                        <label for="searchFilter">Búsqueda</label>
-                        <input
-                            id="searchFilter"
-                            type="search"
-                            placeholder="Nombre, ID, línea, deudor o documento"
-                        />
                     </div>
                 </div>
                 <input id="expiryToggle" type="checkbox" hidden />
