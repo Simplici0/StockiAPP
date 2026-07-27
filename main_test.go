@@ -917,6 +917,7 @@ func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handle
 	mux.HandleFunc("/api/credits/edited", handleAPICreditsEditedReport(db))
 	mux.HandleFunc("/api/credits/", handleAPICreditRoutes(db))
 	mux.HandleFunc("/api/credits/installments", handleAPICreditInstallments(db))
+	mux.HandleFunc("/api/credits/installments/", handleAPICreditInstallmentReceipt(db))
 	mux.HandleFunc("/api/agent/credits", handleAPIAgentCredits(db))
 	mux.HandleFunc("/api/swaps", handleAPISwaps(db))
 	return authMiddleware(db, mux)
@@ -4627,6 +4628,25 @@ func TestAPICreditInstallmentsEndpointRespectsTenantScopeByAPIKey(t *testing.T) 
 	if int(validBody["credit_sale_id"].(float64)) != tenantCreditID {
 		t.Fatalf("unexpected credit installments response: %+v", validBody)
 	}
+	installmentID := int(validBody["credit_installment_id"].(float64))
+	if installmentID <= 0 || strings.TrimSpace(validBody["receipt_url"].(string)) == "" || strings.TrimSpace(validBody["thermal_ticket_url"].(string)) == "" {
+		t.Fatalf("expected payment receipt URLs, got %+v", validBody)
+	}
+	if _, err := db.Exec(`UPDATE credit_sales SET installments_total = 99 WHERE tenant_id = ? AND id = ?`, tenant.ID, tenantCreditID); err != nil {
+		t.Fatalf("edit credit after payment: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE productos SET nombre = 'Producto editado' WHERE tenant_id = ? AND id = ?`, tenant.ID, "T2-CREDIT-INS-001"); err != nil {
+		t.Fatalf("edit product after payment: %v", err)
+	}
+	receipt := performAPIJSONRequest(t, handler, http.MethodGet, fmt.Sprintf("/api/credits/installments/%d/receipt", installmentID), token, nil)
+	if receipt.Code != http.StatusOK {
+		t.Fatalf("expected 200 payment receipt, got %d body=%s", receipt.Code, receipt.Body.String())
+	}
+	receiptBody := decodeAPIResponse(t, receipt)
+	receiptItem, ok := receiptBody["item"].(map[string]any)
+	if !ok || int(receiptItem["credit_installment_id"].(float64)) != installmentID || receiptItem["product_name"] != "Credito Tenant Dos" || receiptItem["amount_paid"].(float64) != 28000 || receiptItem["total_installments"].(float64) != 4 || receiptItem["pending_installments"].(float64) != 2 {
+		t.Fatalf("unexpected payment receipt response: %+v", receiptBody)
+	}
 
 	var installmentsCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM credit_installments WHERE tenant_id = ? AND credit_sale_id = ?`, tenant.ID, tenantCreditID).Scan(&installmentsCount); err != nil {
@@ -5565,6 +5585,9 @@ func TestAddCreditInstallmentAbonoDoesNotIncreaseInstallmentsPaid(t *testing.T) 
 	if result.CurrentDebt != 40000 {
 		t.Fatalf("unexpected current debt after abono: %+v", result)
 	}
+	if result.InstallmentID <= 0 || result.PendingInstallments != 3 || result.PaymentCreatedAt == "" {
+		t.Fatalf("unexpected payment receipt result: %+v", result)
+	}
 
 	var installmentsPaid int
 	if err := db.QueryRow(`SELECT installments_paid FROM credit_sales WHERE tenant_id = 1 AND id = ?`, creditSaleID).Scan(&installmentsPaid); err != nil {
@@ -5579,6 +5602,36 @@ func TestAddCreditInstallmentAbonoDoesNotIncreaseInstallmentsPaid(t *testing.T) 
 	}
 	if paymentType != "abono" {
 		t.Fatalf("expected payment_type abono, got %q", paymentType)
+	}
+	var snapshot struct {
+		ProductName         string
+		CustomerName        string
+		AmountPaid          float64
+		CurrentDebt         float64
+		PaidInstallments    int
+		TotalInstallments   int
+		PendingInstallments int
+		PaidAt              string
+	}
+	if err := db.QueryRow(`
+		SELECT receipt_product_name, receipt_customer_name, receipt_amount_paid, receipt_current_debt,
+		       receipt_paid_installments, receipt_total_installments, receipt_pending_installments, receipt_paid_at
+		FROM credit_installments
+		WHERE tenant_id = 1 AND id = ?
+	`, result.InstallmentID).Scan(
+		&snapshot.ProductName,
+		&snapshot.CustomerName,
+		&snapshot.AmountPaid,
+		&snapshot.CurrentDebt,
+		&snapshot.PaidInstallments,
+		&snapshot.TotalInstallments,
+		&snapshot.PendingInstallments,
+		&snapshot.PaidAt,
+	); err != nil {
+		t.Fatalf("query payment receipt snapshot: %v", err)
+	}
+	if snapshot.ProductName != "Producto Abono" || snapshot.CustomerName != "Pedro Pago" || snapshot.AmountPaid != 5000 || snapshot.CurrentDebt != 40000 || snapshot.PaidInstallments != 1 || snapshot.TotalInstallments != 4 || snapshot.PendingInstallments != 3 || snapshot.PaidAt != result.PaymentCreatedAt {
+		t.Fatalf("unexpected payment receipt snapshot: %+v", snapshot)
 	}
 }
 

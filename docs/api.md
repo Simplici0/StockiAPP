@@ -1846,7 +1846,68 @@ curl -X POST "https://login.stockiapp.co/api/credits/installments" \
     "credit_sale_id": 10,
     "amount_paid": 5000,
     "payment_type": "abono"
-  }'
+}'
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "credit_installment_id": 42,
+  "credit_sale_id": 10,
+  "product_name": "Puma Dama 40605802",
+  "amount_paid": 5000,
+  "paid_installments": 2,
+  "total_installments": 6,
+  "pending_installments": 4,
+  "current_debt": 70000,
+  "paid_at": "2026-07-26T15:30:00-05:00",
+  "receipt_url": "/creditos/comprobante-pago?installment_id=42",
+  "thermal_ticket_url": "/creditos/ticket-pago?installment_id=42"
+}
+```
+
+`receipt_url` y `thermal_ticket_url` corresponden exclusivamente al pago recién registrado. Los datos del comprobante se guardan como snapshot y no cambian si luego se registra otro pago o se edita el crédito.
+
+### `GET /api/credits/installments/{id}/receipt`
+
+Recupera el snapshot inmutable y las URLs del comprobante de un pago específico.
+
+Reglas:
+- `{id}` es `credit_installment_id`, no `credit_sale_id`
+- respeta tenant y ownership del crédito
+- no recibe `tenant_id`
+- pagos históricos sin snapshot responden `404`; no se recalculan con el estado actual del crédito
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" \
+  "https://login.stockiapp.co/api/credits/installments/42/receipt"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "item": {
+    "credit_installment_id": 42,
+    "credit_sale_id": 10,
+    "customer_name": "Laura Perez",
+    "product_name": "Puma Dama 40605802",
+    "payment_type": "abono",
+    "amount_paid": 5000,
+    "current_debt": 70000,
+    "paid_installments": 2,
+    "total_installments": 6,
+    "pending_installments": 4,
+    "paid_at": "2026-07-26T15:30:00-05:00",
+    "receipt_url": "/creditos/comprobante-pago?installment_id=42",
+    "thermal_ticket_url": "/creditos/ticket-pago?installment_id=42"
+  }
+}
 ```
 
 ## Endpoints Para Agente

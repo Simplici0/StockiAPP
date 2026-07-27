@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}} - Ticket térmico</title>
+        <style>
+            :root { --thermal-width: {{.PaperWidthMM}}; }
+            .payment-ticket-shell { width: min(100%, calc(var(--thermal-width) * 1mm + 32px)); margin: 0 auto; }
+            .payment-ticket-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+            .payment-ticket {
+                width: calc(var(--thermal-width) * 1mm); max-width: 100%; margin: 0 auto; padding: 12px 10px 16px;
+                border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #111827;
+                font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 12px; line-height: 1.45;
+            }
+            .payment-ticket__center { text-align: center; }
+            .payment-ticket__logo { max-width: 120px; max-height: 54px; object-fit: contain; filter: grayscale(1) contrast(1.1); }
+            .payment-ticket__rule { border-top: 1px dashed #111827; margin: 10px 0; }
+            .payment-ticket__row { display: flex; justify-content: space-between; gap: 10px; }
+            .payment-ticket__row span:last-child { text-align: right; }
+            .payment-ticket__total { font-size: 13px; font-weight: 700; }
+            @page { size: {{.PaperWidthMM}}mm auto; margin: 4mm; }
+            @media print {
+                .topbar, .page-header, .payment-ticket-actions { display: none !important; }
+                .page-content { padding: 0; }
+                .payment-ticket-shell { width: {{.PaperWidthMM}}mm; margin: 0; }
+                .payment-ticket { width: 100%; border: 0; border-radius: 0; padding: 0; }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="payment-ticket-shell">
+                <div class="payment-ticket-actions"><a class="button secondary" href="{{.ReceiptURL}}">Ver comprobante</a><button class="button primary" type="button" onclick="window.print()">Imprimir ticket</button></div>
+                <article class="payment-ticket">
+                    <header class="payment-ticket__center">
+                        {{if businessLogoPath .}}<img class="payment-ticket__logo" src="{{businessLogoPath .}}" alt="{{businessName .}}" />{{end}}
+                        <strong>{{businessName .}}</strong><br />
+                        <span>COMPROBANTE DE PAGO</span>
+                    </header>
+                    <div class="payment-ticket__rule"></div>
+                    <div class="payment-ticket__row"><strong>Ticket</strong><span>{{.ReceiptNumber}}</span></div>
+                    <div class="payment-ticket__row"><strong>Fecha</strong><span>{{.PaymentDate}} {{.PaymentTime}}</span></div>
+                    <div class="payment-ticket__row"><strong>Cliente</strong><span>{{.CustomerName}}</span></div>
+                    <div class="payment-ticket__row"><strong>Crédito</strong><span>#{{.CreditSaleID}}</span></div>
+                    <div class="payment-ticket__rule"></div>
+                    <div><strong>{{.ProductName}}</strong></div>
+                    <div class="payment-ticket__row"><strong>Tipo</strong><span>{{.PaymentType}}</span></div>
+                    <div class="payment-ticket__row payment-ticket__total"><strong>Recibido</strong><span>{{.AmountPaid}}</span></div>
+                    <div class="payment-ticket__rule"></div>
+                    <div class="payment-ticket__row"><strong>Deuda restante</strong><span>{{.CurrentDebt}}</span></div>
+                    <div class="payment-ticket__row"><strong>Cuotas</strong><span>{{.PaidInstallments}} pagadas / {{.PendingInstallments}} pendientes</span></div>
+                </article>
+            </div>
+        </main>
+    </body>
+</html>

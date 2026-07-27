@@ -112,6 +112,38 @@ type saleReceiptData struct {
 	Settings         BusinessSettings
 }
 
+type creditPaymentReceiptData struct {
+	Title               string
+	Subtitle            string
+	PaperWidthMM        int
+	PaperDPI            int
+	PaperClass          string
+	InstallmentID       int
+	CreditSaleID        int
+	ReceiptNumber       string
+	CustomerName        string
+	ProductName         string
+	PaymentType         string
+	PaymentTypeCode     string
+	AmountPaid          string
+	AmountPaidValue     float64
+	CurrentDebt         string
+	CurrentDebtValue    float64
+	PaidInstallments    int
+	TotalInstallments   int
+	PendingInstallments int
+	PaymentDate         string
+	PaymentTime         string
+	PaymentDateTime     string
+	PaymentCreatedAt    string
+	ReceiptURL          string
+	ThermalURL          string
+	CanLoan             bool
+	CanCredit           bool
+	CurrentUser         *User
+	Settings            BusinessSettings
+}
+
 type productLabelItem struct {
 	ID             string
 	Name           string
@@ -1499,6 +1531,8 @@ func apiKeyRequestAllowed(r *http.Request) bool {
 	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/credits":
 		return true
 	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/api/credits/installments":
+		return true
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/credits/installments/"):
 		return true
 	case r.Method == http.MethodGet && path == "/api/credits/edited":
 		return false
@@ -7394,23 +7428,26 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 }
 
 type creditInstallmentResult struct {
-	CreditSaleID      int
-	CustomerID        int
-	Kind              creditSaleKind
-	ProductID         string
-	ProductName       string
-	DebtorName        string
-	InstallmentsTotal int
-	InstallmentsPaid  int
-	TotalValue        float64
-	DebtTotal         float64
-	TotalPaid         float64
-	CurrentDebt       float64
-	InterestPercent   float64
-	InstallmentValue  float64
-	AmountPaid        float64
-	InstallmentNumber int
-	PaymentType       creditPaymentType
+	InstallmentID       int
+	CreditSaleID        int
+	CustomerID          int
+	Kind                creditSaleKind
+	ProductID           string
+	ProductName         string
+	DebtorName          string
+	InstallmentsTotal   int
+	InstallmentsPaid    int
+	PendingInstallments int
+	TotalValue          float64
+	DebtTotal           float64
+	TotalPaid           float64
+	CurrentDebt         float64
+	InterestPercent     float64
+	InstallmentValue    float64
+	AmountPaid          float64
+	InstallmentNumber   int
+	PaymentType         creditPaymentType
+	PaymentCreatedAt    string
 }
 
 func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput, source string, decoratePayload func(map[string]any) map[string]any) (creditSaleCreateResult, error) {
@@ -7962,12 +7999,25 @@ func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64
 	if internalProductSKU == "" {
 		installmentProductID = nil
 	}
-	if _, err := tx.Exec(`
-		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, tenantID, result.CreditSaleID, installmentProductID, result.InstallmentNumber, amountPaid, string(paymentType), now, nullableUserID(currentUser)); err != nil {
+	if paymentType == creditPaymentTypeCuota {
+		result.InstallmentsPaid = result.InstallmentNumber
+	}
+	result.TotalPaid = math.Round((result.TotalPaid+amountPaid)*100) / 100
+	result.CurrentDebt = creditCurrentDebt(result.DebtTotal, result.TotalPaid)
+	result.PendingInstallments = max(result.InstallmentsTotal-result.InstallmentsPaid, 0)
+	result.PaymentCreatedAt = now
+
+	installmentID, err := insertAndReturnID(tx, `
+		INSERT INTO credit_installments (
+			tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by,
+			receipt_product_name, receipt_customer_name, receipt_amount_paid, receipt_current_debt,
+			receipt_paid_installments, receipt_total_installments, receipt_pending_installments, receipt_paid_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, tenantID, result.CreditSaleID, installmentProductID, result.InstallmentNumber, amountPaid, string(paymentType), now, nullableUserID(currentUser), result.ProductName, result.DebtorName, result.AmountPaid, result.CurrentDebt, result.InstallmentsPaid, result.InstallmentsTotal, result.PendingInstallments, result.PaymentCreatedAt)
+	if err != nil {
 		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el pago."}
 	}
+	result.InstallmentID = int(installmentID)
 	if paymentType == creditPaymentTypeCuota {
 		if _, err := tx.Exec(`
 			UPDATE credit_sales
@@ -7977,12 +8027,6 @@ func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64
 			return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar el crédito."}
 		}
 	}
-	result.TotalPaid = math.Round((result.TotalPaid+amountPaid)*100) / 100
-	result.CurrentDebt = creditCurrentDebt(result.DebtTotal, result.TotalPaid)
-	if paymentType == creditPaymentTypeCuota {
-		result.InstallmentsPaid = result.InstallmentNumber
-	}
-
 	auditPayload := map[string]any{
 		"credit_sale_id":     result.CreditSaleID,
 		"customer_id":        result.CustomerID,
@@ -9326,6 +9370,19 @@ func saleThermalTicketViewURLWithBuyer(saleID int, buyerName, buyerDocument stri
 	return "/venta/ticket?" + values.Encode()
 }
 
+func creditPaymentReceiptViewURL(installmentID int) string {
+	return fmt.Sprintf("/creditos/comprobante-pago?installment_id=%d", installmentID)
+}
+
+func creditPaymentThermalTicketViewURL(installmentID int, paper string) string {
+	values := url.Values{}
+	values.Set("installment_id", strconv.Itoa(installmentID))
+	if paper = strings.TrimSpace(paper); paper != "" {
+		values.Set("paper", paper)
+	}
+	return "/creditos/ticket-pago?" + values.Encode()
+}
+
 func invoiceViewURL(invoiceID int) string {
 	return fmt.Sprintf("/facturas/%d", invoiceID)
 }
@@ -10387,6 +10444,102 @@ func saleReceiptNumber(saleID int, saleDate string) string {
 		compactDate = time.Now().In(appTimeLocation).Format("20060102")
 	}
 	return fmt.Sprintf("CV-%s-%06d", compactDate, saleID)
+}
+
+func creditPaymentReceiptNumber(installmentID int, paymentDate string) string {
+	compactDate := strings.ReplaceAll(strings.TrimSpace(paymentDate), "-", "")
+	if compactDate == "" {
+		compactDate = time.Now().In(appTimeLocation).Format("20060102")
+	}
+	return fmt.Sprintf("CP-%s-%06d", compactDate, installmentID)
+}
+
+func loadCreditPaymentReceiptData(db *sql.DB, currentUser *User, installmentID int) (creditPaymentReceiptData, error) {
+	if installmentID <= 0 {
+		return creditPaymentReceiptData{}, requestError{Status: http.StatusBadRequest, Message: "Pago inválido."}
+	}
+	accessSQL, accessArgs := creditVisibilityPredicate("cs", currentUser)
+	args := append([]any{tenantIDFromUser(currentUser), installmentID}, accessArgs...)
+	var (
+		data           creditPaymentReceiptData
+		paymentType    string
+		paymentDateRaw string
+	)
+	err := db.QueryRow(`
+		SELECT
+			ci.id,
+			ci.credit_sale_id,
+			COALESCE(ci.receipt_customer_name, ''),
+			COALESCE(ci.receipt_product_name, ''),
+			COALESCE(ci.payment_type, 'cuota'),
+			COALESCE(ci.receipt_amount_paid, 0),
+			COALESCE(ci.receipt_current_debt, 0),
+			COALESCE(ci.receipt_paid_installments, 0),
+			COALESCE(ci.receipt_total_installments, 0),
+			COALESCE(ci.receipt_pending_installments, 0),
+			COALESCE(ci.receipt_paid_at, '')
+		FROM credit_installments ci
+		JOIN credit_sales cs ON cs.tenant_id = ci.tenant_id AND cs.id = ci.credit_sale_id
+		WHERE ci.tenant_id = ? AND ci.id = ? AND `+accessSQL+`
+		LIMIT 1
+	`, args...).Scan(
+		&data.InstallmentID,
+		&data.CreditSaleID,
+		&data.CustomerName,
+		&data.ProductName,
+		&paymentType,
+		&data.AmountPaidValue,
+		&data.CurrentDebtValue,
+		&data.PaidInstallments,
+		&data.TotalInstallments,
+		&data.PendingInstallments,
+		&paymentDateRaw,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return creditPaymentReceiptData{}, requestError{Status: http.StatusNotFound, Message: "Comprobante de pago no encontrado."}
+		}
+		return creditPaymentReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el comprobante de pago."}
+	}
+	if strings.TrimSpace(paymentDateRaw) == "" {
+		return creditPaymentReceiptData{}, requestError{Status: http.StatusNotFound, Message: "Este pago histórico no tiene comprobante disponible."}
+	}
+
+	paymentType = string(normalizeCreditPaymentType(paymentType))
+	data.PaymentTypeCode = paymentType
+	if paymentType == string(creditPaymentTypeAbono) {
+		data.PaymentType = "Abono"
+	} else {
+		data.PaymentType = "Cuota"
+	}
+	data.PaymentDate = paymentDateRaw
+	data.PaymentDateTime = paymentDateRaw
+	data.PaymentCreatedAt = paymentDateRaw
+	if parsed, ok := parseFlexibleTime(paymentDateRaw); ok {
+		data.PaymentDate = formatDateWithSettings(parsed.Format("2006-01-02"))
+		data.PaymentTime = parsed.In(appTimeLocation).Format("15:04")
+		data.PaymentDateTime = parsed.In(appTimeLocation).Format("2006-01-02 15:04")
+	}
+	settings, err := loadBusinessSettingsForTenant(db, tenantIDFromUser(currentUser))
+	if err != nil {
+		settings = currentBusinessSettings()
+	}
+	_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+	if err != nil {
+		return creditPaymentReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron cargar los movimientos disponibles."}
+	}
+	data.Title = "Comprobante de pago"
+	data.Subtitle = "Comprobante generado al registrar un pago de crédito."
+	data.ReceiptNumber = creditPaymentReceiptNumber(data.InstallmentID, paymentDateRaw[:min(10, len(paymentDateRaw))])
+	data.AmountPaid = formatCurrency(data.AmountPaidValue)
+	data.CurrentDebt = formatCurrency(data.CurrentDebtValue)
+	data.ReceiptURL = creditPaymentReceiptViewURL(data.InstallmentID)
+	data.ThermalURL = creditPaymentThermalTicketViewURL(data.InstallmentID, settings.TicketPaperWidth)
+	data.CanLoan = movementEnabled(movementEnabledMap, "prestamo")
+	data.CanCredit = movementEnabled(movementEnabledMap, "credito")
+	data.CurrentUser = currentUser
+	data.Settings = settings
+	return data, nil
 }
 
 func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceiptData, error) {
@@ -13526,23 +13679,77 @@ func handleAPICreditInstallments(db *sql.DB) http.HandlerFunc {
 				message = "Abono registrado correctamente."
 			}
 			writeAPIJSON(w, http.StatusCreated, map[string]any{
-				"ok":                 true,
-				"credit_sale_id":     result.CreditSaleID,
-				"kind":               string(result.Kind),
-				"kind_label":         creditKindLabel(result.Kind),
-				"product_id":         result.ProductID,
-				"product_name":       result.ProductName,
-				"amount_paid":        result.AmountPaid,
-				"installment_number": result.InstallmentNumber,
-				"payment_type":       string(result.PaymentType),
-				"paid_installments":  result.InstallmentsPaid,
-				"total_paid":         result.TotalPaid,
-				"current_debt":       result.CurrentDebt,
-				"message":            message,
+				"ok":                    true,
+				"credit_installment_id": result.InstallmentID,
+				"credit_sale_id":        result.CreditSaleID,
+				"kind":                  string(result.Kind),
+				"kind_label":            creditKindLabel(result.Kind),
+				"product_id":            result.ProductID,
+				"product_name":          result.ProductName,
+				"amount_paid":           result.AmountPaid,
+				"installment_number":    result.InstallmentNumber,
+				"payment_type":          string(result.PaymentType),
+				"paid_installments":     result.InstallmentsPaid,
+				"total_installments":    result.InstallmentsTotal,
+				"pending_installments":  result.PendingInstallments,
+				"total_paid":            result.TotalPaid,
+				"current_debt":          result.CurrentDebt,
+				"paid_at":               result.PaymentCreatedAt,
+				"receipt_url":           creditPaymentReceiptViewURL(result.InstallmentID),
+				"thermal_ticket_url":    creditPaymentThermalTicketViewURL(result.InstallmentID, ""),
+				"message":               message,
 			})
 		default:
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 		}
+	}
+}
+
+func handleAPICreditInstallmentReceipt(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/credits/installments/"), "/")
+		parts := strings.Split(path, "/")
+		if len(parts) != 2 || parts[1] != "receipt" {
+			writeAPIError(w, http.StatusNotFound, "Ruta de comprobante no encontrada.", nil)
+			return
+		}
+		installmentID, err := strconv.Atoi(parts[0])
+		if err != nil || installmentID <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "Pago inválido.", map[string]string{"installment_id": "Pago inválido."})
+			return
+		}
+		data, err := loadCreditPaymentReceiptData(db, userFromContext(r), installmentID)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el comprobante de pago.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok": true,
+			"item": map[string]any{
+				"credit_installment_id": data.InstallmentID,
+				"credit_sale_id":        data.CreditSaleID,
+				"customer_name":         data.CustomerName,
+				"product_name":          data.ProductName,
+				"payment_type":          data.PaymentTypeCode,
+				"amount_paid":           data.AmountPaidValue,
+				"current_debt":          data.CurrentDebtValue,
+				"paid_installments":     data.PaidInstallments,
+				"total_installments":    data.TotalInstallments,
+				"pending_installments":  data.PendingInstallments,
+				"paid_at":               data.PaymentCreatedAt,
+				"receipt_url":           data.ReceiptURL,
+				"thermal_ticket_url":    data.ThermalURL,
+			},
+		})
 	}
 }
 
@@ -15275,6 +15482,14 @@ func ensureCustomerCRMBase(db *sql.DB) error {
 		{table: "credit_sales", name: "kind", definition: "TEXT NOT NULL DEFAULT 'product_credit'"},
 		{table: "credit_sales", name: "status", definition: "TEXT NOT NULL DEFAULT 'active'"},
 		{table: "credit_installments", name: "payment_type", definition: "TEXT NOT NULL DEFAULT 'cuota'"},
+		{table: "credit_installments", name: "receipt_product_name", definition: "TEXT NOT NULL DEFAULT ''"},
+		{table: "credit_installments", name: "receipt_customer_name", definition: "TEXT NOT NULL DEFAULT ''"},
+		{table: "credit_installments", name: "receipt_amount_paid", definition: "REAL NOT NULL DEFAULT 0"},
+		{table: "credit_installments", name: "receipt_current_debt", definition: "REAL NOT NULL DEFAULT 0"},
+		{table: "credit_installments", name: "receipt_paid_installments", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{table: "credit_installments", name: "receipt_total_installments", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{table: "credit_installments", name: "receipt_pending_installments", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{table: "credit_installments", name: "receipt_paid_at", definition: "TEXT NOT NULL DEFAULT ''"},
 	}
 	for _, column := range customerCRMColumns {
 		cols, err := tableColumns(db, column.table)
@@ -15634,6 +15849,14 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		product_id TEXT,
 		installment_number INTEGER NOT NULL,
 		amount_paid REAL NOT NULL DEFAULT 0,
+		receipt_product_name TEXT NOT NULL DEFAULT '',
+		receipt_customer_name TEXT NOT NULL DEFAULT '',
+		receipt_amount_paid REAL NOT NULL DEFAULT 0,
+		receipt_current_debt REAL NOT NULL DEFAULT 0,
+		receipt_paid_installments INTEGER NOT NULL DEFAULT 0,
+		receipt_total_installments INTEGER NOT NULL DEFAULT 0,
+		receipt_pending_installments INTEGER NOT NULL DEFAULT 0,
+		receipt_paid_at TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
 		created_by INTEGER
 	);
@@ -16009,6 +16232,8 @@ func main() {
 		"templates/venta_confirm.html",
 		"templates/sale_receipt.html",
 		"templates/sale_ticket_thermal.html",
+		"templates/credit_payment_receipt.html",
+		"templates/credit_payment_ticket_thermal.html",
 		"templates/invoice_new.html",
 		"templates/invoice_document.html",
 		"templates/product_labels.html",
@@ -21289,6 +21514,8 @@ func main() {
 
 	mux.HandleFunc("/api/credits/installments", handleAPICreditInstallments(db))
 
+	mux.HandleFunc("/api/credits/installments/", handleAPICreditInstallmentReceipt(db))
+
 	mux.HandleFunc("/venta/new", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
 		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
@@ -21579,6 +21806,50 @@ func main() {
 			return
 		}
 		_, _ = w.Write(buf.Bytes())
+	})
+
+	renderCreditPaymentReceipt := func(w http.ResponseWriter, r *http.Request, thermal bool) {
+		currentUser := userFromContext(r)
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		if currentUser == nil || !isStaffRole(currentUser.Role) {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		installmentID, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("installment_id")))
+		if err != nil || installmentID <= 0 {
+			http.Error(w, "Pago inválido", http.StatusBadRequest)
+			return
+		}
+		data, err := loadCreditPaymentReceiptData(db, currentUser, installmentID)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "No se pudo cargar el comprobante de pago.", http.StatusInternalServerError)
+			return
+		}
+		if thermal {
+			paper := strings.TrimSpace(r.URL.Query().Get("paper"))
+			if paper == "" {
+				paper = data.Settings.TicketPaperWidth
+			}
+			_, data.PaperWidthMM, data.PaperDPI, data.PaperClass = thermalPaperDimensions(paper)
+			data.ThermalURL = creditPaymentThermalTicketViewURL(installmentID, paper)
+			renderTemplate(w, "credit_payment_ticket_thermal.html", data, "Error al renderizar el ticket de pago")
+			return
+		}
+		renderTemplate(w, "credit_payment_receipt.html", data, "Error al renderizar el comprobante de pago")
+	}
+	mux.HandleFunc("/creditos/comprobante-pago", func(w http.ResponseWriter, r *http.Request) {
+		renderCreditPaymentReceipt(w, r, false)
+	})
+	mux.HandleFunc("/creditos/ticket-pago", func(w http.ResponseWriter, r *http.Request) {
+		renderCreditPaymentReceipt(w, r, true)
 	})
 
 	mux.HandleFunc("/facturas/nueva", func(w http.ResponseWriter, r *http.Request) {

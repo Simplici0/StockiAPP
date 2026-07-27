@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            .payment-receipt {
+                width: min(760px, 100%);
+                margin: 0 auto;
+                background: var(--bg-card-strong);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                box-shadow: var(--shadow-sm);
+                overflow: hidden;
+            }
+            .payment-receipt__head,
+            .payment-receipt__body {
+                padding: 24px;
+            }
+            .payment-receipt__head {
+                display: flex;
+                justify-content: space-between;
+                gap: 24px;
+                flex-wrap: wrap;
+                border-bottom: 1px solid var(--border);
+                background: var(--bg-card-muted);
+            }
+            .payment-receipt__brand {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+            .payment-receipt__brand img {
+                width: 48px;
+                height: 48px;
+                object-fit: contain;
+                border-radius: 8px;
+            }
+            .payment-receipt__eyebrow,
+            .payment-receipt__label {
+                margin: 0;
+                color: var(--text-muted);
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .payment-receipt__head h1 {
+                margin: 4px 0;
+                font-size: 1.25rem;
+            }
+            .payment-receipt__head p:not(.payment-receipt__eyebrow) {
+                margin: 0;
+                color: var(--text-muted);
+            }
+            .payment-receipt__meta {
+                display: grid;
+                gap: 8px;
+                font-size: 13px;
+            }
+            .payment-receipt__meta div,
+            .payment-receipt__total {
+                display: flex;
+                justify-content: space-between;
+                gap: 24px;
+            }
+            .payment-receipt__body {
+                display: grid;
+                gap: 16px;
+            }
+            .payment-receipt__section {
+                padding: 16px;
+                border: 1px solid var(--border);
+                border-radius: 8px;
+            }
+            .payment-receipt__grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 16px;
+                margin-top: 12px;
+            }
+            .payment-receipt__field {
+                display: grid;
+                gap: 4px;
+            }
+            .payment-receipt__value {
+                font-weight: 650;
+            }
+            .payment-receipt__total {
+                align-items: center;
+                padding: 18px;
+                border-radius: 8px;
+                background: var(--primary);
+                color: var(--text-inverse);
+            }
+            .payment-receipt__total strong {
+                font-size: 1.4rem;
+            }
+            .payment-receipt__actions {
+                width: min(760px, 100%);
+                margin: 16px auto 0;
+            }
+            @media print {
+                .topbar,
+                .page-header,
+                .payment-receipt__actions {
+                    display: none !important;
+                }
+                .page-content {
+                    padding: 0;
+                }
+                .payment-receipt {
+                    border: 0;
+                    box-shadow: none;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <article class="payment-receipt">
+                <header class="payment-receipt__head">
+                    <div class="payment-receipt__brand">
+                        {{if businessLogoPath .}}<img src="{{businessLogoPath .}}" alt="{{businessName .}}" />{{end}}
+                        <div>
+                            <p class="payment-receipt__eyebrow">Comprobante de pago</p>
+                            <h1>{{businessName .}}</h1>
+                            <p>{{.Subtitle}}</p>
+                        </div>
+                    </div>
+                    <div class="payment-receipt__meta">
+                        <div><span>Comprobante</span><strong>{{.ReceiptNumber}}</strong></div>
+                        <div><span>Pago</span><strong>#{{.InstallmentID}}</strong></div>
+                        <div><span>Fecha</span><strong>{{.PaymentDate}}</strong></div>
+                    </div>
+                </header>
+                <div class="payment-receipt__body">
+                    <section class="payment-receipt__section">
+                        <p class="payment-receipt__label">Cliente y crédito</p>
+                        <div class="payment-receipt__grid">
+                            <div class="payment-receipt__field"><span class="payment-receipt__label">Cliente</span><span class="payment-receipt__value">{{.CustomerName}}</span></div>
+                            <div class="payment-receipt__field"><span class="payment-receipt__label">Producto o motivo</span><span class="payment-receipt__value">{{.ProductName}}</span></div>
+                            <div class="payment-receipt__field"><span class="payment-receipt__label">Tipo</span><span class="payment-receipt__value">{{.PaymentType}}</span></div>
+                        </div>
+                    </section>
+                    <section class="payment-receipt__section">
+                        <p class="payment-receipt__label">Estado después del pago</p>
+                        <div class="payment-receipt__grid">
+                            <div class="payment-receipt__field"><span class="payment-receipt__label">Cuotas pagadas</span><span class="payment-receipt__value">{{.PaidInstallments}}</span></div>
+                            <div class="payment-receipt__field"><span class="payment-receipt__label">Cuotas pendientes</span><span class="payment-receipt__value">{{.PendingInstallments}}</span></div>
+                            <div class="payment-receipt__field"><span class="payment-receipt__label">Cuotas totales</span><span class="payment-receipt__value">{{.TotalInstallments}}</span></div>
+                            <div class="payment-receipt__field"><span class="payment-receipt__label">Deuda restante</span><span class="payment-receipt__value">{{.CurrentDebt}}</span></div>
+                        </div>
+                    </section>
+                    <section class="payment-receipt__total"><span>Valor recibido</span><strong>{{.AmountPaid}}</strong></section>
+                </div>
+            </article>
+            <div class="payment-receipt__actions">
+                <button class="button primary" type="button" onclick="window.open('{{.ThermalURL}}', '_blank', 'noreferrer')">Imprimir ticket</button>
+            </div>
+        </main>
+    </body>
+</html>
