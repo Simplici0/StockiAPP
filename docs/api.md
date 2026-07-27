@@ -1902,6 +1902,8 @@ Uso recomendado:
 
 Busca productos visibles por `id`, nombre, línea o locación.
 
+El filtro `q` es opcional y se compara por tokens: todos los términos deben aparecer en alguno de esos campos o en el nombre del deudor, sin importar el orden ni palabras intermedias. La comparación no distingue mayúsculas ni tildes. Por ejemplo, `q=Puma 40605802` encuentra `Puma Dama 40605802` y `q=camion` encuentra `Camión`.
+
 ### `GET /api/agent/customers/search?q=`
 
 Búsqueda compacta de clientes para agente/n8n.
@@ -1969,7 +1971,14 @@ Notas:
 
 Consulta rápida de disponibilidad con formato compacto para automatización.
 
-También permite encontrar productos por locación.
+También permite encontrar productos por locación. El filtro `q` es opcional y usa la misma búsqueda por tokens, sin distinguir mayúsculas ni tildes, que `GET /api/agent/products/search`.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" \
+  "https://login.stockiapp.co/api/agent/inventory?q=Puma%2040605802"
+```
 
 ### `GET /api/agent/product-loans?customer_id=`
 

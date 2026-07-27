@@ -41,6 +41,7 @@ import (
 	pgxstdlib "github.com/jackc/pgx/v5/stdlib"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/text/unicode/norm"
 )
 
 var appTimeLocation = func() *time.Location {
@@ -8325,6 +8326,32 @@ func agentProductItem(product productOption, counts productInventoryCounts, incl
 		item["owner_user_id"] = product.OwnerUserID
 	}
 	return item
+}
+
+func normalizeAgentProductSearch(value string) string {
+	value = norm.NFD.String(strings.ToLower(strings.TrimSpace(value)))
+	var normalized strings.Builder
+	normalized.Grow(len(value))
+	for _, r := range value {
+		if !unicode.Is(unicode.Mn, r) {
+			normalized.WriteRune(r)
+		}
+	}
+	return normalized.String()
+}
+
+func matchesAgentProductSearch(product productOption, query string) bool {
+	tokens := strings.Fields(normalizeAgentProductSearch(query))
+	if len(tokens) == 0 {
+		return true
+	}
+	haystack := normalizeAgentProductSearch(product.ID + " " + product.Name + " " + product.Line + " " + product.Location + " " + product.DebtorName)
+	for _, token := range tokens {
+		if !strings.Contains(haystack, token) {
+			return false
+		}
+	}
+	return true
 }
 
 func findVisibleProduct(products []productOption, productID string) (productOption, bool) {
@@ -20975,7 +21002,7 @@ func main() {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 			return
 		}
-		q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+		q := r.URL.Query().Get("q")
 		currentUser := userFromContext(r)
 		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
@@ -20986,11 +21013,8 @@ func main() {
 		productIDs := make([]string, 0, len(productsSnapshot))
 		filtered := make([]productOption, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
-			if q != "" {
-				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line + " " + product.Location + " " + product.DebtorName)
-				if !strings.Contains(haystack, q) {
-					continue
-				}
+			if !matchesAgentProductSearch(product, q) {
+				continue
 			}
 			filtered = append(filtered, product)
 			productIDs = append(productIDs, product.ID)
@@ -21055,7 +21079,7 @@ func main() {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 			return
 		}
-		q := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+		q := r.URL.Query().Get("q")
 		currentUser := userFromContext(r)
 		productsSnapshot, err := loadVisibleProductsForUser(db, userFromContext(r))
 		if err != nil {
@@ -21066,11 +21090,8 @@ func main() {
 		productIDs := make([]string, 0, len(productsSnapshot))
 		filtered := make([]productOption, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
-			if q != "" {
-				haystack := strings.ToLower(product.ID + " " + product.Name + " " + product.Line + " " + product.Location + " " + product.DebtorName)
-				if !strings.Contains(haystack, q) {
-					continue
-				}
+			if !matchesAgentProductSearch(product, q) {
+				continue
 			}
 			filtered = append(filtered, product)
 			productIDs = append(productIDs, product.ID)

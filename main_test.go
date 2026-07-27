@@ -108,6 +108,35 @@ func TestRebindPostgresPlaceholders(t *testing.T) {
 	}
 }
 
+func TestMatchesAgentProductSearch(t *testing.T) {
+	product := productOption{
+		ID:         "P-006",
+		Name:       "Puma Dama 40605802",
+		Line:       "Calzado",
+		Location:   "Camión central",
+		DebtorName: "José Niño",
+	}
+
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		{query: "P-006", want: true},
+		{query: "Puma 40605802", want: true},
+		{query: "40605802 puma", want: true},
+		{query: "camion", want: true},
+		{query: "jose nino", want: true},
+		{query: "Puma 999", want: false},
+		{query: "   ", want: true},
+	}
+
+	for _, test := range tests {
+		if got := matchesAgentProductSearch(product, test.query); got != test.want {
+			t.Errorf("matchesAgentProductSearch(%q) = %t, want %t", test.query, got, test.want)
+		}
+	}
+}
+
 func TestLoadDatabaseConfigPostgres(t *testing.T) {
 	t.Setenv("DB_ENGINE", "postgres")
 	t.Setenv("DB_DSN", "postgres://stocki:secret@localhost:5432/stocki")
