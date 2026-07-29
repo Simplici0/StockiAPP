@@ -648,7 +648,7 @@
             <div class="user-ident">
               <strong>{{.Username}}</strong>
               <p class="user-meta">
-                {{if .Name}}{{.Name}}{{else}}Usuario operativo{{end}}{{if .Email}} · {{.Email}}{{end}}{{if .TelegramID}} · Telegram {{.TelegramID}}{{end}}
+                {{if .Name}}{{.Name}}{{else}}Usuario operativo{{end}}{{if .Email}} · {{.Email}}{{end}}{{if .TelegramID}} · Telegram {{.TelegramID}}{{end}}{{if eq $.CurrentUser.Role "platform_admin"}} · Tenant {{.TenantID}}{{end}}
               </p>
             </div>
           </td>
@@ -666,7 +666,7 @@
               <span class="status-pill">Activo</span>
             {{else}}
               <span class="status-pill inactive">Inactivo</span>
-            {{end}}
+            {{end}} {{if .PasswordResetRequired}}<span class="status-pill inactive">Cambio pendiente</span>{{end}}
           </td>
           <td>{{.CreatedAt}}</td>
           <td>
@@ -729,6 +729,7 @@
                 </form>
               </div>
 
+              {{if eq $.CurrentUser.Role "platform_admin"}}
               <div class="expand-section">
                 <div class="expand-section-title">Nueva contraseña</div>
                 <form method="POST" action="/admin/users/password">
@@ -743,7 +744,15 @@
                     </div>
                   </div>
                 </form>
+                <form method="POST" action="/admin/users/password" onsubmit="return confirm('Se cerrarán las sesiones del usuario y se generará una contraseña temporal. ¿Continuar?');">
+                  <input type="hidden" name="id" value="{{.ID}}" />
+                  <input type="hidden" name="mode" value="temporary_reset" />
+                  <div class="expand-actions">
+                    <button class="secondary" type="submit">Generar contraseña temporal</button>
+                  </div>
+                </form>
               </div>
+              {{end}}
 
               <div class="expand-actions">
                 <form method="POST" action="/admin/users/delete" onsubmit="return confirm('¿Eliminar este usuario?');">

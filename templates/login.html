@@ -175,6 +175,66 @@
               border-color: var(--border-strong);
             }
 
+            .password-field {
+              position: relative;
+              margin-bottom: 14px;
+            }
+
+            .password-field input {
+              margin-bottom: 0;
+              padding-right: 48px;
+            }
+
+            .password-toggle {
+              position: absolute;
+              top: 0;
+              right: 0;
+              width: 44px;
+              height: 44px;
+              padding: 0;
+              border: 0;
+              border-radius: 0 11px 11px 0;
+              background: transparent;
+              color: var(--muted);
+              box-shadow: none;
+              display: grid;
+              place-items: center;
+            }
+
+            .password-toggle:hover {
+              transform: none;
+              color: var(--text);
+              background: var(--card-muted);
+            }
+
+            .password-toggle svg {
+              width: 20px;
+              height: 20px;
+              fill: none;
+              stroke: currentColor;
+              stroke-width: 1.8;
+            }
+
+            .password-help {
+              margin-top: 16px;
+              color: var(--muted);
+              font-size: 13px;
+            }
+
+            .password-help summary {
+              min-height: 44px;
+              display: flex;
+              align-items: center;
+              color: var(--primary);
+              cursor: pointer;
+              font-weight: 650;
+            }
+
+            .password-help p {
+              margin: 0;
+              font-size: 13px;
+            }
+
             button {
               width: 100%;
               border: none;
@@ -419,9 +479,21 @@
                     required
                 />
                 <label for="password">Contraseña</label>
-                <input id="password" name="password" type="password" required />
+                <div class="password-field">
+                    <input id="password" name="password" type="password" autocomplete="current-password" required />
+                    <button class="password-toggle" id="password-toggle" type="button" aria-label="Mostrar contraseña" aria-pressed="false">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+                            <circle cx="12" cy="12" r="2.8" />
+                        </svg>
+                    </button>
+                </div>
                 <button type="submit">Entrar</button>
             </form>
+            <details class="password-help">
+                <summary>¿Olvidaste tu contraseña?</summary>
+                <p>Solicita al administrador global una contraseña temporal. Al ingresar con ella deberás definir una nueva.</p>
+            </details>
         </div>
         <script>
             (function () {
@@ -453,6 +525,18 @@
                         window.localStorage.setItem("stocki.theme", next);
                     } catch (_) {}
                     syncLabel();
+                });
+            })();
+            (function () {
+                var input = document.getElementById("password");
+                var toggle = document.getElementById("password-toggle");
+                if (!input || !toggle) return;
+                toggle.addEventListener("click", function () {
+                    var visible = input.type === "text";
+                    input.type = visible ? "password" : "text";
+                    toggle.setAttribute("aria-pressed", visible ? "false" : "true");
+                    toggle.setAttribute("aria-label", visible ? "Mostrar contraseña" : "Ocultar contraseña");
+                    input.focus();
                 });
             })();
         </script>

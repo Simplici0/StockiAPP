@@ -30,14 +30,17 @@ Dominios ya implementados:
 - créditos de producto (`product_credit`)
 - préstamos de dinero (`cash_loan`)
 - cuotas y abonos de créditos
+- comprobantes de pago de cuotas/abonos con snapshot inmutable
 - facturas operativas
 - clientes (`customers`) con trazabilidad (`customer_events`)
 - préstamos físicos de producto (`product_loans`)
 - usuarios multi-tenant con `telegram_id`
+- reset de contraseña exclusivo de `platform_admin`, con temporal y cambio obligatorio
 - etiquetas de producto
 - ticket térmico de venta
 - locación por producto
 - auditoría operativa
+- exportaciones CSV operativas por tenant
 
 UI SSR ya disponible:
 - `/dashboard`
@@ -45,6 +48,7 @@ UI SSR ya disponible:
 - `/clientes`
 - `/clientes/{id}`
 - `/admin/users`
+- `/password/change`
 - `/configuracion`
 - `/auditoria`
 - `/creditos/editados`
@@ -52,10 +56,13 @@ UI SSR ya disponible:
 - `/prestamos/producto/{id}`
 - `/productos/new`
 - `/productos/etiquetas`
+- `/csv/export`
 - `/facturas/nueva`
 - `/facturas/{id}`
 - `/venta/comprobante`
 - `/venta/ticket`
+- `/creditos/comprobante-pago`
+- `/creditos/ticket-pago`
 
 Regla práctica:
 - antes de proponer una feature nueva, revisar si el dominio ya existe parcialmente en `main.go`
@@ -347,6 +354,7 @@ Endpoints generales ya disponibles:
 - `GET /api/credits/edited`
 - `POST /api/credits`
 - `POST /api/credits/installments`
+- `GET /api/credits/installments/{id}/receipt`
 - `GET /api/invoices`
 - `POST /api/invoices`
 - `GET /api/invoices/{id}`
@@ -376,7 +384,8 @@ Eventos que hoy ya forman parte del flujo operativo:
 - `retoma_registered`
 - `sale_registered`
 - `credit_sale_created`
-- `credit_installment_paid`
+- `credit_installment_added`
+- `change_registered`
 - `sale_receipt_generated`
 - `invoice_created`
 - `customer_created`
@@ -389,6 +398,8 @@ Eventos que hoy ya forman parte del flujo operativo:
 - `tenant_activated`
 - `tenant_deactivated`
 - `tenant_initial_api_key_rotated`
+- `user_password_reset_issued`
+- `user_password_reset_completed`
 
 Regla:
 - para llamadas API usar `source = "api"` salvo que exista una capa explícita `n8n` o `agent`

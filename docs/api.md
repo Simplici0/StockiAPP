@@ -1221,7 +1221,13 @@ Validación importante:
 
 ### `POST /api/users/{id}/password`
 
-Actualiza la contraseña del usuario dentro del tenant autenticado y cierra sus sesiones activas.
+Actualiza la contraseña del usuario y cierra sus sesiones activas.
+
+Reglas:
+- solo una sesión de `platform_admin` puede ejecutar esta operación
+- un `admin` de tenant recibe `403`
+- las API keys no pueden acceder a rutas sensibles `/api/users/{id}`
+- el reset temporal con cambio obligatorio se opera desde la UI global de `/admin/users`
 
 Ejemplo:
 

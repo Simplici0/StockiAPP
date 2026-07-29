@@ -4737,11 +4737,12 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 }
 
 type User struct {
-	ID       int
-	Username string
-	Role     string
-	IsActive bool
-	TenantID int
+	ID                    int
+	Username              string
+	Role                  string
+	IsActive              bool
+	TenantID              int
+	PasswordResetRequired bool
 }
 
 type managedUserInput struct {
@@ -4755,15 +4756,16 @@ type managedUserInput struct {
 }
 
 type managedUserRecord struct {
-	ID         int
-	Username   string
-	Name       string
-	Email      string
-	Role       string
-	IsActive   bool
-	TenantID   int
-	CreatedAt  string
-	TelegramID string
+	ID                    int
+	Username              string
+	Name                  string
+	Email                 string
+	Role                  string
+	IsActive              bool
+	TenantID              int
+	CreatedAt             string
+	TelegramID            string
+	PasswordResetRequired bool
 }
 
 type contextKey string
@@ -11486,6 +11488,35 @@ func generateToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(tokenBytes), nil
 }
 
+func generateTemporaryPassword() (string, error) {
+	passwordBytes := make([]byte, 15)
+	if _, err := rand.Read(passwordBytes); err != nil {
+		return "", err
+	}
+	return "Tmp-" + base64.RawURLEncoding.EncodeToString(passwordBytes), nil
+}
+
+func validateNewPassword(password string) string {
+	if len(password) < 10 {
+		return "La contraseña debe tener al menos 10 caracteres."
+	}
+	var hasUpper, hasLower, hasDigit bool
+	for _, r := range password {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit {
+		return "La contraseña debe incluir mayúscula, minúscula y número."
+	}
+	return ""
+}
+
 func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
@@ -12590,19 +12621,20 @@ func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
 	var (
 		user            User
 		isActive        int
+		resetRequired   int
 		sessionTenantID int
 		userTenantID    int
 		expiresRaw      string
 	)
 	query := `
-		SELECT u.id, u.username, u.role, u.is_active,
+		SELECT u.id, u.username, u.role, u.is_active, COALESCE(u.password_reset_required, 0),
 		       s.tenant_id,
 		       u.tenant_id,
 		       s.expires_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token = ?`
-	if err := db.QueryRow(query, cookie.Value).Scan(&user.ID, &user.Username, &user.Role, &isActive, &sessionTenantID, &userTenantID, &expiresRaw); err != nil {
+	if err := db.QueryRow(query, cookie.Value).Scan(&user.ID, &user.Username, &user.Role, &isActive, &resetRequired, &sessionTenantID, &userTenantID, &expiresRaw); err != nil {
 		return nil, err
 	}
 	expiresAt, err := time.Parse(time.RFC3339, expiresRaw)
@@ -12624,6 +12656,7 @@ func userFromRequest(db *sql.DB, r *http.Request) (*User, error) {
 		return nil, sql.ErrNoRows
 	}
 	user.IsActive = isActive == 1
+	user.PasswordResetRequired = resetRequired == 1
 	user.TenantID = userTenantID
 	if !user.IsActive {
 		invalidateSessionToken(db, cookie.Value)
@@ -14719,6 +14752,10 @@ func handleAPIUserRoutes(db *sql.DB, usersCols map[string]bool) http.HandlerFunc
 				writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
 				return
 			}
+			if !isPlatformAdmin(currentUser) {
+				writeAPIError(w, http.StatusForbidden, "Solo el administrador global puede cambiar contraseñas de usuarios.", nil)
+				return
+			}
 			if !canManagePlatformUser(currentUser, record.Role) {
 				writeAPIError(w, http.StatusForbidden, "Solo un platform admin puede cambiar la contraseña de ese usuario.", nil)
 				return
@@ -14740,7 +14777,7 @@ func handleAPIUserRoutes(db *sql.DB, usersCols map[string]bool) http.HandlerFunc
 				writeAPIError(w, http.StatusInternalServerError, "No se pudo procesar la contraseña.", nil)
 				return
 			}
-			setCols := []string{"password_hash = ?"}
+			setCols := []string{"password_hash = ?", "password_reset_required = 0", "password_reset_at = ''"}
 			args := []any{string(hashed)}
 			if usersCols["password_salt"] {
 				setCols = append(setCols, "password_salt = ?")
@@ -14920,6 +14957,10 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 				writeAPIError(w, http.StatusUnauthorized, "Autenticación requerida para la API.", nil)
 				return
 			}
+			if authMode == "session" && user.PasswordResetRequired {
+				writeAPIError(w, http.StatusForbidden, "Debes cambiar tu contraseña temporal antes de continuar.", nil)
+				return
+			}
 			ctx := context.WithValue(r.Context(), userContextKey, user)
 			tenant, err := resolveTenantByID(db, user.TenantID)
 			if err != nil || !tenant.Active {
@@ -14962,6 +15003,10 @@ func authMiddleware(db *sql.DB, next http.Handler) http.Handler {
 		}
 		ctx = context.WithValue(ctx, tenantContextKey, tenant)
 		reqWithCtx := r.WithContext(ctx)
+		if user.PasswordResetRequired && r.URL.Path != "/password/change" && r.URL.Path != "/logout" {
+			http.Redirect(w, r, "/password/change", http.StatusSeeOther)
+			return
+		}
 		applyRequestBodyLimit(w, reqWithCtx)
 		if requestMutatesState(reqWithCtx.Method) && !requestPassesCSRFSameOriginCheck(reqWithCtx) {
 			http.Error(w, "La validación CSRF falló para esta operación.", http.StatusForbidden)
@@ -15068,13 +15113,19 @@ func managedUserSelectColumns(usersCols map[string]bool) []string {
 	} else {
 		cols = append(cols, "'' AS created_at")
 	}
+	if usersCols["password_reset_required"] {
+		cols = append(cols, "COALESCE(password_reset_required, 0)")
+	} else {
+		cols = append(cols, "0 AS password_reset_required")
+	}
 	return cols
 }
 
 func scanManagedUserRecord(scanner managedUserScanner) (managedUserRecord, error) {
 	var (
-		record   managedUserRecord
-		isActive int
+		record        managedUserRecord
+		isActive      int
+		resetRequired int
 	)
 	if err := scanner.Scan(
 		&record.ID,
@@ -15086,10 +15137,12 @@ func scanManagedUserRecord(scanner managedUserScanner) (managedUserRecord, error
 		&record.TenantID,
 		&isActive,
 		&record.CreatedAt,
+		&resetRequired,
 	); err != nil {
 		return managedUserRecord{}, err
 	}
 	record.IsActive = isActive == 1
+	record.PasswordResetRequired = resetRequired == 1
 	record.TenantID = normalizeTenantID(record.TenantID)
 	if strings.TrimSpace(record.Name) == "" {
 		record.Name = record.Username
@@ -15127,13 +15180,17 @@ func normalizeManagedUserInput(input managedUserInput, usersCols map[string]bool
 
 func listManagedUsersForTenant(db *sql.DB, currentUser *User, tenantID int, usersCols map[string]bool) ([]managedUserRecord, error) {
 	tenantID = normalizeTenantID(tenantID)
-	query := fmt.Sprintf("SELECT %s FROM users WHERE tenant_id = ?", strings.Join(managedUserSelectColumns(usersCols), ", "))
-	args := []any{tenantID}
-	if !isPlatformAdmin(currentUser) {
+	query := fmt.Sprintf("SELECT %s FROM users", strings.Join(managedUserSelectColumns(usersCols), ", "))
+	args := []any{}
+	if isPlatformAdmin(currentUser) {
+		query += " ORDER BY tenant_id, id"
+	} else {
+		query += " WHERE tenant_id = ?"
+		args = append(args, tenantID)
 		query += " AND role <> ?"
 		args = append(args, rolePlatformAdmin)
+		query += " ORDER BY id"
 	}
-	query += " ORDER BY id"
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -15157,13 +15214,123 @@ func listManagedUsersForTenant(db *sql.DB, currentUser *User, tenantID int, user
 
 func managedUserByIDForTenant(db *sql.DB, currentUser *User, tenantID, userID int, usersCols map[string]bool) (managedUserRecord, error) {
 	tenantID = normalizeTenantID(tenantID)
-	query := fmt.Sprintf("SELECT %s FROM users WHERE id = ? AND tenant_id = ?", strings.Join(managedUserSelectColumns(usersCols), ", "))
-	args := []any{userID, tenantID}
+	query := fmt.Sprintf("SELECT %s FROM users WHERE id = ?", strings.Join(managedUserSelectColumns(usersCols), ", "))
+	args := []any{userID}
 	if !isPlatformAdmin(currentUser) {
+		query += " AND tenant_id = ?"
+		args = append(args, tenantID)
 		query += " AND role <> ?"
 		args = append(args, rolePlatformAdmin)
 	}
 	return scanManagedUserRecord(db.QueryRow(query, args...))
+}
+
+func issueTemporaryPasswordReset(db *sql.DB, currentUser *User, target managedUserRecord, usersCols map[string]bool, source string) (string, error) {
+	if !isPlatformAdmin(currentUser) {
+		return "", requestError{Status: http.StatusForbidden, Message: "Solo el administrador global puede generar contraseñas temporales."}
+	}
+	temporaryPassword, err := generateTemporaryPassword()
+	if err != nil {
+		return "", err
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(temporaryPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	setCols := []string{"password_hash = ?", "password_reset_required = 1", "password_reset_at = ?"}
+	args := []any{string(hashed), time.Now().Format(time.RFC3339)}
+	if usersCols["password_salt"] {
+		setCols = append(setCols, "password_salt = ?")
+		args = append(args, "bcrypt")
+	}
+	args = append(args, target.ID, target.TenantID)
+	if _, err := tx.Exec(fmt.Sprintf("UPDATE users SET %s WHERE id = ? AND tenant_id = ?", strings.Join(setCols, ", ")), args...); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, target.ID); err != nil {
+		return "", err
+	}
+	auditUser := *currentUser
+	auditUser.TenantID = target.TenantID
+	if err := logAuditEvent(tx, &auditUser, "user_password_reset_issued", "user", strconv.Itoa(target.ID), source, map[string]any{
+		"username":         target.Username,
+		"target_tenant_id": target.TenantID,
+		"issued_by":        currentUser.Username,
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	resetLoginRateLimitForUsername(target.Username)
+	return temporaryPassword, nil
+}
+
+func completeTemporaryPasswordReset(db *sql.DB, currentUser *User, usersCols map[string]bool, password, source string) (string, time.Time, error) {
+	if currentUser == nil {
+		return "", time.Time{}, requestError{Status: http.StatusUnauthorized, Message: "Sesión inválida."}
+	}
+	if validationError := validateNewPassword(password); validationError != "" {
+		return "", time.Time{}, requestError{Status: http.StatusBadRequest, Message: validationError}
+	}
+	var currentHash string
+	var resetRequired int
+	if err := db.QueryRow(`SELECT password_hash, COALESCE(password_reset_required, 0) FROM users WHERE id = ? AND tenant_id = ?`, currentUser.ID, currentUser.TenantID).Scan(&currentHash, &resetRequired); err != nil {
+		return "", time.Time{}, err
+	}
+	if resetRequired != 1 {
+		return "", time.Time{}, requestError{Status: http.StatusBadRequest, Message: "Este usuario no tiene un cambio de contraseña pendiente."}
+	}
+	if bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(password)) == nil {
+		return "", time.Time{}, requestError{Status: http.StatusBadRequest, Message: "La nueva contraseña debe ser diferente de la temporal."}
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	newToken, err := generateToken()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	now := time.Now()
+	expiresAt := now.Add(24 * time.Hour)
+	tx, err := db.Begin()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer tx.Rollback()
+	setCols := []string{"password_hash = ?", "password_reset_required = 0", "password_reset_at = ''"}
+	args := []any{string(hashed)}
+	if usersCols["password_salt"] {
+		setCols = append(setCols, "password_salt = ?")
+		args = append(args, "bcrypt")
+	}
+	args = append(args, currentUser.ID, currentUser.TenantID)
+	if _, err := tx.Exec(fmt.Sprintf("UPDATE users SET %s WHERE id = ? AND tenant_id = ?", strings.Join(setCols, ", ")), args...); err != nil {
+		return "", time.Time{}, err
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, currentUser.ID); err != nil {
+		return "", time.Time{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO sessions (token, user_id, tenant_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`, newToken, currentUser.ID, currentUser.TenantID, now.Format(time.RFC3339), expiresAt.Format(time.RFC3339)); err != nil {
+		return "", time.Time{}, err
+	}
+	if err := logAuditEvent(tx, currentUser, "user_password_reset_completed", "user", strconv.Itoa(currentUser.ID), source, map[string]any{
+		"username":  currentUser.Username,
+		"tenant_id": currentUser.TenantID,
+	}); err != nil {
+		return "", time.Time{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", time.Time{}, err
+	}
+	resetLoginRateLimitForUsername(currentUser.Username)
+	return newToken, expiresAt, nil
 }
 
 func ensureTenantRetainsActiveAdmin(db *sql.DB, tenantID, targetUserID int) error {
@@ -15471,6 +15638,8 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 		{name: "email", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "tenant_id", definition: "INTEGER NOT NULL DEFAULT 1"},
 		{name: "telegram_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "password_reset_required", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "password_reset_at", definition: "TEXT NOT NULL DEFAULT ''"},
 	}
 	for _, column := range userColumns {
 		if !usersCols[column.name] {
@@ -16046,6 +16215,8 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		role TEXT NOT NULL CHECK (role IN ('platform_admin', 'admin', 'empleado')),
 		tenant_id INTEGER NOT NULL DEFAULT 1,
 		telegram_id TEXT NOT NULL DEFAULT '',
+		password_reset_required INTEGER NOT NULL DEFAULT 0,
+		password_reset_at TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL,
 		is_active INTEGER NOT NULL DEFAULT 1
 	);
@@ -16552,6 +16723,8 @@ func main() {
 		"templates/dashboard.html",
 		"templates/inventario.html",
 		"templates/login.html",
+		"templates/password_change.html",
+		"templates/password_reset_result.html",
 		"templates/product_new.html",
 		"templates/venta_new.html",
 		"templates/venta_confirm.html",
@@ -16670,15 +16843,31 @@ func main() {
 		Username string
 	}
 
+	type passwordChangePageData struct {
+		Title       string
+		Error       string
+		CurrentUser *User
+	}
+
+	type temporaryPasswordPageData struct {
+		Title             string
+		TargetUsername    string
+		TargetTenantID    int
+		TemporaryPassword string
+		CurrentUser       *User
+	}
+
 	type adminUserRow struct {
-		ID         int
-		Username   string
-		Name       string
-		Email      string
-		TelegramID string
-		Role       string
-		IsActive   bool
-		CreatedAt  string
+		ID                    int
+		Username              string
+		Name                  string
+		Email                 string
+		TelegramID            string
+		Role                  string
+		IsActive              bool
+		CreatedAt             string
+		TenantID              int
+		PasswordResetRequired bool
 	}
 
 	type adminUsersData struct {
@@ -16950,15 +17139,16 @@ func main() {
 		}
 
 		var (
-			user     User
-			hash     string
-			isActive int
+			user          User
+			hash          string
+			isActive      int
+			resetRequired int
 		)
 		err := db.QueryRow(`
-						SELECT id, username, password_hash, role, is_active, tenant_id
+						SELECT id, username, password_hash, role, is_active, tenant_id, COALESCE(password_reset_required, 0)
 						FROM users
 						WHERE username = ?
-					`, username).Scan(&user.ID, &user.Username, &hash, &user.Role, &isActive, &user.TenantID)
+					`, username).Scan(&user.ID, &user.Username, &hash, &user.Role, &isActive, &user.TenantID, &resetRequired)
 		if err != nil || isActive != 1 {
 			if err != nil {
 				log.Printf("login: lookup failed username=%q err=%v", username, err)
@@ -17000,6 +17190,7 @@ func main() {
 			renderTemplate(w, "login.html", data, "Error al renderizar login")
 			return
 		}
+		user.PasswordResetRequired = resetRequired == 1
 
 		tenant, err := resolveTenantByID(db, user.TenantID)
 		if err != nil || tenant == nil || !tenant.Active {
@@ -17032,7 +17223,64 @@ func main() {
 
 		resetLoginRateLimit(r, username)
 		setSessionCookie(w, r, token, expiresAt)
+		if user.PasswordResetRequired {
+			http.Redirect(w, r, "/password/change", http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/inventario", http.StatusSeeOther)
+	})
+
+	mux.HandleFunc("/password/change", func(w http.ResponseWriter, r *http.Request) {
+		currentUser := userFromContext(r)
+		if currentUser == nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		if !currentUser.PasswordResetRequired {
+			http.Redirect(w, r, "/inventario", http.StatusSeeOther)
+			return
+		}
+		renderPage := func(status int, errText string) {
+			if status > 0 {
+				w.WriteHeader(status)
+			}
+			renderTemplate(w, "password_change.html", passwordChangePageData{
+				Title:       "Define una nueva contraseña",
+				Error:       errText,
+				CurrentUser: currentUser,
+			}, "Error al renderizar cambio de contraseña")
+		}
+		if r.Method == http.MethodGet {
+			renderPage(0, "")
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderPage(http.StatusBadRequest, "No se pudo leer el formulario.")
+			return
+		}
+		password := r.FormValue("password")
+		confirmation := r.FormValue("password_confirm")
+		if password != confirmation {
+			renderPage(http.StatusBadRequest, "Las contraseñas no coinciden.")
+			return
+		}
+		newToken, expiresAt, err := completeTemporaryPasswordReset(db, currentUser, usersCols, password, "web")
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				renderPage(reqErr.Status, reqErr.Message)
+			} else {
+				renderPage(http.StatusInternalServerError, "No se pudo guardar la nueva contraseña.")
+			}
+			return
+		}
+		resetLoginRateLimit(r, currentUser.Username)
+		setSessionCookie(w, r, newToken, expiresAt)
+		http.Redirect(w, r, "/inventario?mensaje="+url.QueryEscape("Contraseña actualizada correctamente."), http.StatusSeeOther)
 	})
 
 	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
@@ -17165,14 +17413,16 @@ func main() {
 		users := make([]adminUserRow, 0, len(managedUsers))
 		for _, record := range managedUsers {
 			users = append(users, adminUserRow{
-				ID:         record.ID,
-				Username:   record.Username,
-				Name:       record.Name,
-				Email:      record.Email,
-				TelegramID: record.TelegramID,
-				Role:       record.Role,
-				IsActive:   record.IsActive,
-				CreatedAt:  record.CreatedAt,
+				ID:                    record.ID,
+				Username:              record.Username,
+				Name:                  record.Name,
+				Email:                 record.Email,
+				TelegramID:            record.TelegramID,
+				Role:                  record.Role,
+				IsActive:              record.IsActive,
+				CreatedAt:             record.CreatedAt,
+				TenantID:              record.TenantID,
+				PasswordResetRequired: record.PasswordResetRequired,
 			})
 		}
 
@@ -18403,7 +18653,7 @@ func main() {
 		redirectWithMessage(w, r, "/admin/users", "Usuario actualizado.", "")
 	}))
 
-	mux.HandleFunc("/admin/users/password", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/admin/users/password", platformAdminOnly(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			redirectWithMessage(w, r, "/admin/users", "", "Método no permitido.")
 			return
@@ -18429,6 +18679,27 @@ func main() {
 			redirectWithMessage(w, r, "/admin/users", "", "Solo un platform admin puede cambiar la contraseña de ese usuario.")
 			return
 		}
+		if strings.TrimSpace(r.FormValue("mode")) == "temporary_reset" {
+			temporaryPassword, err := issueTemporaryPasswordReset(db, currentUser, targetRecord, usersCols, "web")
+			if err != nil {
+				var reqErr requestError
+				if errors.As(err, &reqErr) {
+					redirectWithMessage(w, r, "/admin/users", "", reqErr.Message)
+				} else {
+					redirectWithMessage(w, r, "/admin/users", "", "No se pudo generar la contraseña temporal.")
+				}
+				return
+			}
+			resetLoginRateLimit(r, targetRecord.Username)
+			renderTemplate(w, "password_reset_result.html", temporaryPasswordPageData{
+				Title:             "Contraseña temporal generada",
+				TargetUsername:    targetRecord.Username,
+				TargetTenantID:    targetRecord.TenantID,
+				TemporaryPassword: temporaryPassword,
+				CurrentUser:       currentUser,
+			}, "Error al renderizar el resultado del reset")
+			return
+		}
 		password := r.FormValue("password")
 		if password == "" {
 			redirectWithMessage(w, r, "/admin/users", "", "Contraseña obligatoria.")
@@ -18441,7 +18712,7 @@ func main() {
 			return
 		}
 
-		setCols := []string{"password_hash = ?"}
+		setCols := []string{"password_hash = ?", "password_reset_required = 0", "password_reset_at = ''"}
 		args := []any{string(hashed)}
 		if usersCols["password_salt"] {
 			setCols = append(setCols, "password_salt = ?")

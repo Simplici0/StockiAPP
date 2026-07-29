@@ -6492,15 +6492,15 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 	passwordResp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(userID)+"/password", sessionToken, map[string]any{
 		"password": "NuevaClave123!",
 	}, "https://example.com")
-	if passwordResp.Code != http.StatusOK {
-		t.Fatalf("expected 200 updating password, got %d body=%s", passwordResp.Code, passwordResp.Body.String())
+	if passwordResp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 updating password as tenant admin, got %d body=%s", passwordResp.Code, passwordResp.Body.String())
 	}
 	var remainingSessions int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ?`, userID).Scan(&remainingSessions); err != nil {
 		t.Fatalf("count user sessions after password reset: %v", err)
 	}
-	if remainingSessions != 0 {
-		t.Fatalf("expected sessions to be invalidated after password reset, got %d", remainingSessions)
+	if remainingSessions != 1 {
+		t.Fatalf("expected forbidden reset to preserve sessions, got %d", remainingSessions)
 	}
 
 	crossTenantResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/users/1", sessionToken, nil, "")
@@ -6519,7 +6519,7 @@ func TestAPIUsersEndpointsReuseSharedManagedUserLogic(t *testing.T) {
 	}
 }
 
-func TestAPIUsersPasswordResetClearsLoginRateLimitForUsername(t *testing.T) {
+func TestAPIUsersPasswordResetRequiresPlatformAdmin(t *testing.T) {
 	previousLimiter := appLoginRateLimiter
 	appLoginRateLimiter = newLoginRateLimiter()
 	defer func() {
@@ -6554,12 +6554,143 @@ func TestAPIUsersPasswordResetClearsLoginRateLimitForUsername(t *testing.T) {
 	resp := performSessionAPIJSONRequest(t, handler, http.MethodPost, "/api/users/"+strconv.Itoa(int(targetID))+"/password", sessionToken, map[string]any{
 		"password": "NuevaClave123!",
 	}, "https://example.com")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200 resetting password, got %d body=%s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 resetting password as tenant admin, got %d body=%s", resp.Code, resp.Body.String())
 	}
 
-	if retryAfter, allowed := loginRequestAllowed(loginReq, username, time.Now()); !allowed || retryAfter != 0 {
-		t.Fatalf("expected login rate limit to be cleared after password reset, got allowed=%v retry_after=%s", allowed, retryAfter)
+	if retryAfter, allowed := loginRequestAllowed(loginReq, username, time.Now()); allowed || retryAfter <= 0 {
+		t.Fatalf("expected forbidden reset to preserve login rate limit, got allowed=%v retry_after=%s", allowed, retryAfter)
+	}
+}
+
+func TestTemporaryPasswordResetRequiresPlatformAdminAndForcesCompletion(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+	db, err := initDB(filepath.Join(t.TempDir(), "temporary-password-reset"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO tenants (id, slug, name, active, created_at, updated_at) VALUES (2, 'reset-tenant', 'Reset Tenant', 1, ?, ?)`, now, now); err != nil {
+		t.Fatalf("insert reset tenant: %v", err)
+	}
+	initialHash, err := bcrypt.GenerateFromPassword([]byte("ClaveInicial123!"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash initial password: %v", err)
+	}
+	targetID, err := insertAndReturnID(db, `
+		INSERT INTO users (username, name, email, password_hash, role, tenant_id, created_at, is_active)
+		VALUES ('reset.target', 'Reset Target', 'reset.target@local', ?, ?, 2, ?, 1)
+	`, string(initialHash), roleEmployee, now)
+	if err != nil {
+		t.Fatalf("insert reset target: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO sessions (token, user_id, tenant_id, created_at, expires_at) VALUES ('old-reset-session', ?, 2, ?, ?)`, targetID, now, time.Now().Add(time.Hour).Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert target session: %v", err)
+	}
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	tenantAdmin := &User{ID: 200, Username: "tenant.admin", Role: roleAdmin, TenantID: 2, IsActive: true}
+	target, err := managedUserByIDForTenant(db, tenantAdmin, 2, int(targetID), usersCols)
+	if err != nil {
+		t.Fatalf("load reset target: %v", err)
+	}
+	if _, err := issueTemporaryPasswordReset(db, tenantAdmin, target, usersCols, "web"); err == nil {
+		t.Fatal("expected tenant admin temporary reset to be forbidden")
+	} else {
+		var reqErr requestError
+		if !errors.As(err, &reqErr) || reqErr.Status != http.StatusForbidden {
+			t.Fatalf("unexpected tenant admin reset error: %v", err)
+		}
+	}
+
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	if !isPlatformAdmin(platformAdmin) {
+		t.Fatalf("expected seeded admin to be platform admin: %+v", platformAdmin)
+	}
+	target, err = managedUserByIDForTenant(db, platformAdmin, platformAdmin.TenantID, int(targetID), usersCols)
+	if err != nil {
+		t.Fatalf("platform admin should load cross-tenant target: %v", err)
+	}
+	temporaryPassword, err := issueTemporaryPasswordReset(db, platformAdmin, target, usersCols, "web")
+	if err != nil {
+		t.Fatalf("issue temporary password: %v", err)
+	}
+	if !strings.HasPrefix(temporaryPassword, "Tmp-") || len(temporaryPassword) < 20 {
+		t.Fatalf("unexpected temporary password format: %q", temporaryPassword)
+	}
+	var temporaryHash, resetAt string
+	var resetRequired, sessionCount int
+	if err := db.QueryRow(`SELECT password_hash, password_reset_required, password_reset_at FROM users WHERE id = ?`, targetID).Scan(&temporaryHash, &resetRequired, &resetAt); err != nil {
+		t.Fatalf("query temporary reset state: %v", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(temporaryHash), []byte(temporaryPassword)) != nil || resetRequired != 1 || resetAt == "" {
+		t.Fatalf("temporary reset state not persisted correctly: required=%d reset_at=%q", resetRequired, resetAt)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ?`, targetID).Scan(&sessionCount); err != nil || sessionCount != 0 {
+		t.Fatalf("expected previous sessions closed, count=%d err=%v", sessionCount, err)
+	}
+	forcedSession := "forced-reset-session"
+	if _, err := db.Exec(`INSERT INTO sessions (token, user_id, tenant_id, created_at, expires_at) VALUES (?, ?, 2, ?, ?)`, forcedSession, targetID, now, time.Now().Add(time.Hour).Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert forced reset session: %v", err)
+	}
+	protected := authMiddleware(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	protectedReq := httptest.NewRequest(http.MethodGet, "https://example.com/inventario", nil)
+	protectedReq.AddCookie(&http.Cookie{Name: "session_token", Value: forcedSession})
+	protectedResp := httptest.NewRecorder()
+	protected.ServeHTTP(protectedResp, protectedReq)
+	if protectedResp.Code != http.StatusSeeOther || protectedResp.Header().Get("Location") != "/password/change" {
+		t.Fatalf("expected forced password redirect, got %d location=%q", protectedResp.Code, protectedResp.Header().Get("Location"))
+	}
+	changeReq := httptest.NewRequest(http.MethodGet, "https://example.com/password/change", nil)
+	changeReq.AddCookie(&http.Cookie{Name: "session_token", Value: forcedSession})
+	changeResp := httptest.NewRecorder()
+	protected.ServeHTTP(changeResp, changeReq)
+	if changeResp.Code != http.StatusNoContent {
+		t.Fatalf("expected password change route allowed, got %d", changeResp.Code)
+	}
+
+	resetUser := &User{ID: int(targetID), Username: target.Username, Role: roleEmployee, TenantID: 2, IsActive: true, PasswordResetRequired: true}
+	if _, _, err := completeTemporaryPasswordReset(db, resetUser, usersCols, "corta", "web"); err == nil {
+		t.Fatal("expected weak replacement password to be rejected")
+	}
+	newToken, expiresAt, err := completeTemporaryPasswordReset(db, resetUser, usersCols, "NuevaClaveSegura123!", "web")
+	if err != nil {
+		t.Fatalf("complete temporary password reset: %v", err)
+	}
+	if newToken == "" || !expiresAt.After(time.Now()) {
+		t.Fatalf("unexpected replacement session: token=%q expires=%s", newToken, expiresAt)
+	}
+	var finalHash string
+	if err := db.QueryRow(`SELECT password_hash, password_reset_required, password_reset_at FROM users WHERE id = ?`, targetID).Scan(&finalHash, &resetRequired, &resetAt); err != nil {
+		t.Fatalf("query completed reset state: %v", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(finalHash), []byte("NuevaClaveSegura123!")) != nil || resetRequired != 0 || resetAt != "" {
+		t.Fatalf("completed reset state invalid: required=%d reset_at=%q", resetRequired, resetAt)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND token = ?`, targetID, newToken).Scan(&sessionCount); err != nil || sessionCount != 1 {
+		t.Fatalf("expected one replacement session, count=%d err=%v", sessionCount, err)
+	}
+	var auditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE tenant_id = 2 AND entity_id = ? AND event_type IN ('user_password_reset_issued', 'user_password_reset_completed')`, strconv.FormatInt(targetID, 10)).Scan(&auditCount); err != nil || auditCount != 2 {
+		t.Fatalf("expected reset audit events in target tenant, count=%d err=%v", auditCount, err)
+	}
+}
+
+func TestLoginTemplateIncludesPasswordVisibilityControl(t *testing.T) {
+	content, err := os.ReadFile("templates/login.html")
+	if err != nil {
+		t.Fatalf("read login template: %v", err)
+	}
+	html := string(content)
+	for _, expected := range []string{`id="password-toggle"`, `aria-label="Mostrar contraseña"`, `input.type = visible ? "password" : "text"`} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("login template missing password visibility control %q", expected)
+		}
 	}
 }
 
