@@ -3,273 +3,154 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Exportaciones CSV</title>
+        <title>{{.Title}}</title>
         <style>
-            :root {
-                color-scheme: light;
-                --bg: #f7f5f2;
-                --card: #ffffff;
-                --text: #26221f;
-                --muted: #6f6a65;
-                --primary: #e85d3c;
-                --primary-strong: #cf4528;
-                --primary-soft: #fff1e6;
-                --success: #2d9d78;
-                --warning: #f59e42;
-                --danger: #d64545;
-                --border: #e6dfd8;
-                --shadow-soft: 0 8px 18px rgba(18, 23, 38, 0.08);
+            .export-page {
+                display: grid;
+                gap: 24px;
             }
 
-            * {
-                box-sizing: border-box;
-                font-family: "Inter", "Segoe UI", sans-serif;
+            .export-heading {
+                display: grid;
+                gap: 8px;
             }
 
-            body {
+            .export-heading h1,
+            .export-heading p,
+            .export-card h2,
+            .export-card p,
+            .export-range h2,
+            .export-range p {
                 margin: 0;
-                background: var(--bg);
+            }
+
+            .export-heading h1 {
+                color: var(--text);
+                font-size: clamp(1.5rem, 3vw, 2rem);
+                letter-spacing: -0.03em;
+            }
+
+            .export-heading p,
+            .export-card p,
+            .export-range p {
+                color: var(--text-muted);
+                line-height: 1.55;
+            }
+
+            .export-context {
+                display: flex;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 16px;
+                border: 1px solid var(--border-strong);
+                border-radius: 8px;
+                background: var(--surface-2);
+            }
+
+            .export-context-mark {
+                display: grid;
+                flex: 0 0 32px;
+                width: 32px;
+                height: 32px;
+                place-items: center;
+                border-radius: 8px;
+                background: var(--primary-soft);
+                color: var(--primary);
+                font-weight: 800;
+            }
+
+            .export-context strong {
+                display: block;
+                margin-bottom: 4px;
                 color: var(--text);
             }
 
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-            }
-
-            .global-banner {
-                background: #f47a24;
-                padding: 10px 32px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
+            .export-range {
+                display: grid;
                 gap: 16px;
-            }
-
-            .banner-logos {
-                display: flex;
-                gap: 12px;
-                align-items: center;
-            }
-
-            .logo-placeholder {
-                height: 26px;
-                min-width: 76px;
-                padding: 0 10px;
-                border-radius: 999px;
-                border: 1px dashed rgba(255, 255, 255, 0.7);
-                color: #ffffff;
-                font-size: 11px;
-                font-weight: 600;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                letter-spacing: 0.04em;
-                text-transform: uppercase;
-                background: rgba(255, 255, 255, 0.2);
-            }
-
-            .page-header {
-                padding: 18px 32px 16px;
-                display: flex;
-                flex-direction: column;
-                gap: 12px;
-                background: var(--card);
-                border-bottom: 1px solid var(--border);
-            }
-
-            .page-header h1 {
-                margin: 0;
-                font-size: 24px;
-            }
-
-            .page-header p {
-                margin: 0;
-                color: var(--muted);
-            }
-
-            .page-content {
-                padding: 24px 32px 40px;
-                max-width: 1200px;
-                margin: 0 auto;
-            }
-
-            .nav-buttons {
-                display: flex;
-                gap: 10px;
-                flex-wrap: wrap;
-                padding: 8px;
-                border-radius: 16px;
-                border: 1px solid var(--border);
-                background: var(--card);
-                box-shadow: var(--shadow-soft);
-                width: fit-content;
-            }
-
-            .nav-button {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                padding: 8px 14px;
-                border-radius: 999px;
-                text-decoration: none;
-                font-size: 13px;
-                font-weight: 600;
-                transition: all 0.2s ease;
-                border: 1px solid transparent;
-                background: var(--primary-soft);
-                color: var(--primary);
-                cursor: pointer;
-            }
-
-            .nav-button:hover {
-                background: var(--primary);
-                color: #ffffff;
-            }
-
-            .actions {
-                margin-bottom: 24px;
-                display: flex;
-                gap: 16px;
-                flex-wrap: wrap;
-            }
-
-            button {
-                border: 1px solid var(--border);
-                padding: 12px 24px;
-                border-radius: 12px;
-                font-weight: 600;
-                cursor: pointer;
-                font-size: 14px;
-                transition: all 0.2s;
-                background: var(--card);
-                color: var(--text);
-            }
-
-            .primary {
-                background: var(--primary);
-                border-color: var(--primary);
-                color: #ffffff;
-            }
-
-            .primary:hover {
-                background: var(--primary-strong);
-            }
-
-            .secondary {
-                background: var(--primary-soft);
-                color: var(--primary);
-                border-color: #f2c6a8;
-            }
-
-            .secondary:hover {
-                background: #f6e2d4;
-            }
-
-            .export-panel {
-                background: var(--card);
-                border-radius: 18px;
-                border: 1px solid var(--border);
                 padding: 24px;
-                margin-bottom: 24px;
-                box-shadow: var(--shadow-soft);
+                border: 1px solid var(--border-strong);
+                border-radius: 8px;
+                background: var(--surface-1);
+                box-shadow: var(--shadow-xs);
             }
 
-            .export-panel h2 {
-                margin: 0 0 12px 0;
-                font-size: 18px;
+            .export-range h2,
+            .export-card h2 {
+                color: var(--text);
+                font-size: 1rem;
             }
 
-            .export-panel p {
-                margin: 0 0 16px 0;
-                color: var(--muted);
-                font-size: 14px;
-                line-height: 1.5;
+            .export-range-fields {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 16px;
+            }
+
+            .export-field {
+                display: grid;
+                gap: 8px;
+            }
+
+            .export-field label,
+            .export-card-kicker {
+                color: var(--text-muted);
+                font-size: 0.72rem;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .export-field input {
+                min-height: 44px;
             }
 
             .export-grid {
                 display: grid;
-                gap: 12px;
-                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-                margin: 16px 0;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 16px;
             }
 
-            .filter-group {
-                display: flex;
-                flex-direction: column;
+            .export-card {
+                display: grid;
+                min-height: 224px;
+                gap: 16px;
+                align-content: space-between;
+                padding: 24px;
+                border: 1px solid var(--border-strong);
+                border-radius: 8px;
+                background: var(--surface-1);
+                box-shadow: var(--shadow-xs);
+            }
+
+            .export-card-copy {
+                display: grid;
                 gap: 8px;
             }
 
-            label {
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.04em;
-                color: var(--muted);
+            .export-card-meta {
+                color: var(--text-soft);
+                font-size: 0.8rem;
             }
 
-            input[type="date"] {
-                padding: 10px 12px;
-                border-radius: 12px;
-                border: 1px solid var(--border);
-                font-size: 14px;
+            .export-card .button {
                 width: 100%;
-                background: #ffffff;
+                min-height: 44px;
             }
 
-            input[type="date"]:focus {
-                outline: none;
-                border-color: var(--primary);
-                box-shadow: 0 0 0 3px rgba(232, 93, 60, 0.16);
-            }
+            @media (max-width: 720px) {
+                .export-grid,
+                .export-range-fields {
+                    grid-template-columns: 1fr;
+                }
 
-            .export-actions {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 12px;
-                margin-top: 16px;
-            }
-
-            .export-hint {
-                font-size: 13px;
-                color: var(--muted);
-                margin-left: 4px;
-            }
-
-            .export-button-row {
-                display: flex;
-                gap: 12px;
-                margin-bottom: 12px;
-            }
-
-            .export-section {
-                margin: 24px 0;
-                padding: 20px;
-                background: #f9fafc;
-                border-radius: 8px;
-                border: 1px solid var(--border);
-            }
-
-            .export-section h3 {
-                margin: 0 0 12px 0;
-                font-size: 16px;
-                color: var(--text);
-            }
-
-            @media (max-width: 768px) {
-                .page-content {
+                .export-range,
+                .export-card {
                     padding: 16px;
                 }
 
-                .actions {
-                    flex-direction: column;
-                }
-
-                .export-actions {
-                    flex-direction: column;
-                }
-
-                .export-button-row {
-                    flex-direction: column;
+                .export-card {
+                    min-height: 0;
                 }
             }
         </style>
@@ -278,376 +159,112 @@
     <body>
         {{template "header" .}}
         <main class="page-content">
-            <div class="container">
-                <section class="export-panel">
+            <div class="export-page">
+                <header class="export-heading">
+                    <h1>Exportar datos</h1>
+                    <p>Descarga archivos CSV listos para análisis o respaldo operativo.</p>
+                </header>
+
+                <section class="export-context" aria-label="Alcance de exportación">
+                    <span class="export-context-mark" aria-hidden="true">T</span>
                     <div>
-                        <h2>Configuración de rangos</h2>
-                        <p>
-                            Las exportaciones de ventas y cambios utilizan estos
-                            rangos de fechas. Las exportaciones de inventario
-                            son instantáneas y no requieren rango.
-                        </p>
+                        <strong>Datos del tenant actual</strong>
+                        <p>Los archivos incluyen únicamente la información que tu usuario puede consultar. No necesitas enviar un tenant manualmente.</p>
                     </div>
+                </section>
 
-                    <div class="export-grid">
-                        <div class="filter-group">
-                            <label for="range-start">Fecha inicio</label>
-                            <input id="range-start" type="date" />
-                        </div>
-                        <div class="filter-group">
-                            <label for="range-end">Fecha fin</label>
-                            <input id="range-end" type="date" />
-                        </div>
+                <section class="export-range">
+                    <div>
+                        <h2>Rango para movimientos</h2>
+                        <p>Este período se aplica a ventas y cambios. El inventario siempre refleja el estado actual.</p>
                     </div>
-
-                    <div class="export-section">
-                        <h3>📊 Inventario</h3>
-                        <div class="export-button-row">
-                            <button
-                                class="primary"
-                                id="export-inventory-aggregate"
-                            >
-                                Inventario agregado
-                                <span class="export-hint"
-                                    >• Productos con stock total</span
-                                >
-                            </button>
-                            <button
-                                class="secondary"
-                                id="export-inventory-units"
-                            >
-                                Inventario por unidades
-                                <span class="export-hint"
-                                    >• Detalle de cada unidad</span
-                                >
-                            </button>
+                    <div class="export-range-fields">
+                        <div class="export-field">
+                            <label for="range-start">Fecha inicial</label>
+                            <input id="range-start" type="date" required />
                         </div>
-                    </div>
-
-                    <div class="export-section">
-                        <h3>💰 Ventas</h3>
-                        <div class="export-button-row">
-                            <button class="secondary" id="export-sales">
-                                Ventas por rango
-                                <span class="export-hint"
-                                    >• Filtrado por fechas seleccionadas</span
-                                >
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="export-section">
-                        <h3>🔄 Cambios</h3>
-                        <div class="export-button-row">
-                            <button class="secondary" id="export-changes">
-                                Cambios por rango
-                                <span class="export-hint"
-                                    >• Intercambios en el período</span
-                                >
-                            </button>
+                        <div class="export-field">
+                            <label for="range-end">Fecha final</label>
+                            <input id="range-end" type="date" required />
                         </div>
                     </div>
                 </section>
+
+                <section class="export-grid" aria-label="Reportes disponibles">
+                    <article class="export-card">
+                        <div class="export-card-copy">
+                            <span class="export-card-kicker">Estado actual</span>
+                            <h2>Inventario agregado</h2>
+                            <p>Una fila por producto con locación y cantidades por estado.</p>
+                            <span class="export-card-meta">No requiere rango de fechas</span>
+                        </div>
+                        <a class="button primary" href="/csv/inventario">Descargar inventario</a>
+                    </article>
+
+                    <article class="export-card">
+                        <div class="export-card-copy">
+                            <span class="export-card-kicker">Detalle actual</span>
+                            <h2>Inventario por unidades</h2>
+                            <p>Una fila por unidad con producto, estado, ingreso y caducidad.</p>
+                            <span class="export-card-meta">No requiere rango de fechas</span>
+                        </div>
+                        <a class="button secondary" href="/csv/inventario/unidades">Descargar unidades</a>
+                    </article>
+
+                    <article class="export-card">
+                        <div class="export-card-copy">
+                            <span class="export-card-kicker">Histórico</span>
+                            <h2>Ventas</h2>
+                            <p>Ventas registradas durante el período seleccionado, con producto, cantidad y pago.</p>
+                            <span class="export-card-meta">Usa el rango configurado</span>
+                        </div>
+                        <a class="button secondary" id="export-sales" href="/csv/ventas">Descargar ventas</a>
+                    </article>
+
+                    <article class="export-card">
+                        <div class="export-card-copy">
+                            <span class="export-card-kicker">Trazabilidad</span>
+                            <h2>Cambios</h2>
+                            <p>Cambios auditados durante el período con productos y cantidades entrantes y salientes.</p>
+                            <span class="export-card-meta">Usa el rango configurado</span>
+                        </div>
+                        <a class="button secondary" id="export-changes" href="/csv/cambios">Descargar cambios</a>
+                    </article>
+                </section>
             </div>
         </main>
-
         <script>
-            // Datos de ejemplo (similares a los del archivo original)
-            const products = [
-                {
-                    id: "P-001",
-                    name: "Proteína Balance 500g",
-                    line: "Nutrición",
-                    location: "A-01",
-                    status: "available",
-                    units: [
-                        {
-                            id: "U-001",
-                            received: "2024-05-10",
-                            expires: "2024-11-10",
-                            status: "available",
-                        },
-                        {
-                            id: "U-002",
-                            received: "2024-06-02",
-                            expires: "2024-12-02",
-                            status: "available",
-                        },
-                        {
-                            id: "U-003",
-                            received: "2024-07-12",
-                            expires: "2025-01-12",
-                            status: "available",
-                        },
-                    ],
-                },
-                {
-                    id: "P-002",
-                    name: "Crema Regeneradora",
-                    line: "Dermocosmética",
-                    location: "B-11",
-                    status: "available",
-                    units: [
-                        {
-                            id: "U-101",
-                            received: "2024-04-01",
-                            expires: "2024-09-08",
-                            status: "available",
-                        },
-                        {
-                            id: "U-102",
-                            received: "2024-04-18",
-                            expires: "2024-09-25",
-                            status: "available",
-                        },
-                        {
-                            id: "U-103",
-                            received: "2024-05-05",
-                            expires: "2024-11-02",
-                            status: "available",
-                        },
-                        {
-                            id: "U-104",
-                            received: "2024-05-20",
-                            expires: "2024-12-09",
-                            status: "available",
-                        },
-                    ],
-                },
-            ];
+            (function () {
+                const startInput = document.getElementById("range-start");
+                const endInput = document.getElementById("range-end");
+                const salesLink = document.getElementById("export-sales");
+                const changesLink = document.getElementById("export-changes");
 
-            const sales = [
-                {
-                    id: "V-1001",
-                    productId: "P-001",
-                    productName: "Proteína Balance 500g",
-                    quantity: 2,
-                    total: 240000,
-                    method: "Transferencia",
-                    date: "2024-08-12",
-                },
-                {
-                    id: "V-1002",
-                    productId: "P-002",
-                    productName: "Crema Regeneradora",
-                    quantity: 1,
-                    total: 89000,
-                    method: "Efectivo",
-                    date: "2024-08-18",
-                },
-            ];
+                const formatDate = (date) => {
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, "0");
+                    const day = String(date.getDate()).padStart(2, "0");
+                    return `${year}-${month}-${day}`;
+                };
 
-            const changes = [
-                {
-                    id: "C-2001",
-                    outgoingProductId: "P-003",
-                    outgoingProductName: "Leche Pediátrica Premium",
-                    outgoingUnits: 1,
-                    incomingProductId: "P-001",
-                    incomingProductName: "Proteína Balance 500g",
-                    incomingUnits: 1,
-                    reason: "Cambio por referencia",
-                    date: "2024-08-20",
-                },
-            ];
+                const updateLinks = () => {
+                    const params = new URLSearchParams({
+                        start_date: startInput.value,
+                        end_date: endInput.value,
+                    });
+                    salesLink.href = `/csv/ventas?${params.toString()}`;
+                    changesLink.href = `/csv/cambios?${params.toString()}`;
+                };
 
-            // Funciones auxiliares
-            const formatDateISO = (value) =>
-                new Date(value).toISOString().slice(0, 10);
-            const statusLabels = {
-                available: "Disponible",
-                sold: "Vendido",
-                swapped: "Cambio",
-                Disponible: "Disponible",
-                Vendida: "Vendido",
-                Vendido: "Vendido",
-                Cambio: "Cambio",
-            };
-            const statusLabel = (status) => statusLabels[status] || status;
-
-            const escapeCSVValue = (value) => {
-                const stringValue = String(value ?? "");
-                if (/[",\n]/.test(stringValue)) {
-                    return `"${stringValue.replace(/"/g, '""')}"`;
-                }
-                return stringValue;
-            };
-
-            const downloadCSV = (filename, header, rows) => {
-                const csvContent = [header, ...rows]
-                    .map((row) => row.map(escapeCSVValue).join(","))
-                    .join("\n");
-                const blob = new Blob([csvContent], {
-                    type: "text/csv;charset=utf-8;",
-                });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = filename;
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                URL.revokeObjectURL(url);
-            };
-
-            const parseRangeDate = (value) =>
-                value ? new Date(`${value}T00:00:00`) : null;
-            const isWithinRange = (value, start, end) => {
-                const date = new Date(`${value}T00:00:00`);
-                if (start && date < start) return false;
-                if (end && date > end) return false;
-                return true;
-            };
-
-            // Botones de exportación
-            const exportInventoryAggregateButton = document.getElementById(
-                "export-inventory-aggregate",
-            );
-            const exportInventoryUnitsButton = document.getElementById(
-                "export-inventory-units",
-            );
-            const exportSalesButton = document.getElementById("export-sales");
-            const exportChangesButton =
-                document.getElementById("export-changes");
-            const rangeStart = document.getElementById("range-start");
-            const rangeEnd = document.getElementById("range-end");
-
-            // Establecer fechas por defecto
-            const today = new Date();
-            const lastMonth = new Date(
-                today.getFullYear(),
-                today.getMonth() - 1,
-                today.getDate(),
-            );
-            rangeEnd.value = formatDateISO(today);
-            rangeStart.value = formatDateISO(lastMonth);
-
-            exportInventoryAggregateButton.addEventListener("click", () => {
-                const header = [
-                    "id",
-                    "nombre",
-                    "linea",
-                    "location",
-                    "estado",
-                    "unidades_disponibles",
-                    "total_unidades",
-                ];
-                const rows = products.map((product) => {
-                    const availableUnits = product.units.filter(
-                        (unit) => unit.status === "available",
-                    ).length;
-                    return [
-                        product.id,
-                        product.name,
-                        product.line,
-                        product.location || "",
-                        statusLabel(product.status),
-                        availableUnits,
-                        product.units.length,
-                    ];
-                });
-                downloadCSV(
-                    `inventario_agregado_${formatDateISO(new Date())}.csv`,
-                    header,
-                    rows,
-                );
-            });
-
-            exportInventoryUnitsButton.addEventListener("click", () => {
-                const header = [
-                    "id",
-                    "nombre",
-                    "linea",
-                    "location",
-                    "unidad_id",
-                    "estado",
-                    "ingreso",
-                    "caducidad",
-                ];
-                const rows = products.flatMap((product) =>
-                    product.units.map((unit) => [
-                        product.id,
-                        product.name,
-                        product.line,
-                        product.location || "",
-                        unit.id,
-                        statusLabel(unit.status),
-                        unit.received,
-                        unit.expires,
-                    ]),
-                );
-                downloadCSV(
-                    `inventario_unidades_${formatDateISO(new Date())}.csv`,
-                    header,
-                    rows,
-                );
-            });
-
-            exportSalesButton.addEventListener("click", () => {
-                const start = parseRangeDate(rangeStart.value);
-                const end = parseRangeDate(rangeEnd.value);
-                const filtered = sales.filter((sale) =>
-                    isWithinRange(sale.date, start, end),
-                );
-                const header = [
-                    "venta_id",
-                    "fecha",
-                    "id",
-                    "producto",
-                    "cantidad",
-                    "total",
-                    "metodo_pago",
-                ];
-                const rows = filtered.map((sale) => [
-                    sale.id,
-                    sale.date,
-                    sale.productId,
-                    sale.productName,
-                    sale.quantity,
-                    sale.total,
-                    sale.method,
-                ]);
-                downloadCSV(
-                    `ventas_${formatDateISO(new Date())}.csv`,
-                    header,
-                    rows,
-                );
-            });
-
-            exportChangesButton.addEventListener("click", () => {
-                const start = parseRangeDate(rangeStart.value);
-                const end = parseRangeDate(rangeEnd.value);
-                const filtered = changes.filter((change) =>
-                    isWithinRange(change.date, start, end),
-                );
-                const header = [
-                    "cambio_id",
-                    "fecha",
-                    "id_saliente",
-                    "producto_saliente",
-                    "unidades_salientes",
-                    "id_entrante",
-                    "producto_entrante",
-                    "unidades_entrantes",
-                    "motivo",
-                ];
-                const rows = filtered.map((change) => [
-                    change.id,
-                    change.date,
-                    change.outgoingProductId,
-                    change.outgoingProductName,
-                    change.outgoingUnits,
-                    change.incomingProductId,
-                    change.incomingProductName,
-                    change.incomingUnits,
-                    change.reason,
-                ]);
-                downloadCSV(
-                    `cambios_${formatDateISO(new Date())}.csv`,
-                    header,
-                    rows,
-                );
-            });
+                const today = new Date();
+                const monthAgo = new Date(today);
+                monthAgo.setMonth(monthAgo.getMonth() - 1);
+                startInput.value = formatDate(monthAgo);
+                endInput.value = formatDate(today);
+                startInput.addEventListener("change", updateLinks);
+                endInput.addEventListener("change", updateLinks);
+                updateLinks();
+            })();
         </script>
     </body>
 </html>

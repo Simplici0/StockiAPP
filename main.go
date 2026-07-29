@@ -13753,6 +13753,331 @@ func handleAPICreditInstallmentReceipt(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func writeCSVDownload(w http.ResponseWriter, filename string, rows [][]string) {
+	var content bytes.Buffer
+	writer := csv.NewWriter(&content)
+	for _, row := range rows {
+		_ = writer.Write(row)
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		http.Error(w, "No se pudo generar el archivo CSV.", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	_, _ = w.Write(content.Bytes())
+}
+
+func csvExportDateRange(r *http.Request) (string, string, error) {
+	now := time.Now().In(appTimeLocation)
+	end := strings.TrimSpace(r.URL.Query().Get("end_date"))
+	start := strings.TrimSpace(r.URL.Query().Get("start_date"))
+	if end == "" {
+		end = now.Format("2006-01-02")
+	}
+	if start == "" {
+		start = now.AddDate(0, -1, 0).Format("2006-01-02")
+	}
+	startDate, err := time.Parse("2006-01-02", start)
+	if err != nil {
+		return "", "", requestError{Status: http.StatusBadRequest, Message: "Fecha inicial inválida. Usa YYYY-MM-DD."}
+	}
+	endDate, err := time.Parse("2006-01-02", end)
+	if err != nil {
+		return "", "", requestError{Status: http.StatusBadRequest, Message: "Fecha final inválida. Usa YYYY-MM-DD."}
+	}
+	if startDate.After(endDate) {
+		start, end = end, start
+	}
+	return start, end, nil
+}
+
+func handleCSVSales(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		start, end, err := csvExportDateRange(r)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "Rango de fechas inválido.", http.StatusBadRequest)
+			return
+		}
+		visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
+		queryArgs := append([]any{start, end}, visibilityArgs...)
+		rows, err := db.Query(`
+			SELECT
+				v.id,
+				v.fecha,
+				COALESCE(NULLIF(p.id, ''), v.producto_id),
+				COALESCE(p.nombre, ''),
+				v.cantidad,
+				v.precio_final,
+				COALESCE(v.metodo_pago, ''),
+				COALESCE(v.notas, '')
+			FROM ventas v
+			LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
+			WHERE `+sqlDatePrefixExpr("v.fecha")+` BETWEEN ? AND ? AND `+visibilitySQL+`
+			ORDER BY v.fecha DESC, v.id DESC
+		`, queryArgs...)
+		if err != nil {
+			http.Error(w, "No se pudieron consultar las ventas.", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		csvRows := [][]string{{"venta_id", "fecha", "product_id", "producto", "cantidad", "precio_unitario", "total", "metodo_pago", "notas"}}
+		for rows.Next() {
+			var id, quantity int
+			var date, productID, productName, paymentMethod, notes string
+			var unitPrice float64
+			if err := rows.Scan(&id, &date, &productID, &productName, &quantity, &unitPrice, &paymentMethod, &notes); err != nil {
+				http.Error(w, "No se pudieron leer las ventas.", http.StatusInternalServerError)
+				return
+			}
+			if len(date) >= 10 {
+				date = date[:10]
+			}
+			csvRows = append(csvRows, []string{
+				strconv.Itoa(id), date, productID, productName, strconv.Itoa(quantity),
+				fmt.Sprintf("%.2f", unitPrice), fmt.Sprintf("%.2f", unitPrice*float64(quantity)), paymentMethod, notes,
+			})
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, "No se pudieron procesar las ventas.", http.StatusInternalServerError)
+			return
+		}
+		writeCSVDownload(w, fmt.Sprintf("ventas_%s_a_%s.csv", start, end), csvRows)
+	}
+}
+
+func handleCSVInventoryAggregate(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		visibilitySQL, args := productVisibilityPredicate("p", currentUser)
+		rows, err := db.Query(`
+			SELECT
+				COALESCE(NULLIF(p.id, ''), p.sku),
+				COALESCE(p.nombre, ''),
+				COALESCE(p.linea, ''),
+				COALESCE(p.location, ''),
+				SUM(CASE WHEN u.estado IN ('Disponible', 'available') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Reservada', 'Reservado', 'reserved') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Cambio', 'swapped') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Danada', 'Dañada', 'Dañado', 'damaged') THEN 1 ELSE 0 END),
+				COUNT(u.id)
+			FROM productos p
+			LEFT JOIN unidades u ON u.tenant_id = p.tenant_id AND u.producto_id = p.sku
+			WHERE `+visibilitySQL+`
+			GROUP BY p.sku, p.id, p.nombre, p.linea, p.location
+			ORDER BY p.nombre, p.id, p.sku
+		`, args...)
+		if err != nil {
+			http.Error(w, "No se pudo consultar el inventario.", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		csvRows := [][]string{{"product_id", "nombre", "linea", "locacion", "disponibles", "reservadas", "en_cambio", "danadas", "total_unidades"}}
+		for rows.Next() {
+			var productID, name, line, location string
+			var available, reserved, swapped, damaged, total int
+			if err := rows.Scan(&productID, &name, &line, &location, &available, &reserved, &swapped, &damaged, &total); err != nil {
+				http.Error(w, "No se pudo leer el inventario.", http.StatusInternalServerError)
+				return
+			}
+			csvRows = append(csvRows, []string{productID, name, line, location, strconv.Itoa(available), strconv.Itoa(reserved), strconv.Itoa(swapped), strconv.Itoa(damaged), strconv.Itoa(total)})
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, "No se pudo procesar el inventario.", http.StatusInternalServerError)
+			return
+		}
+		writeCSVDownload(w, "inventario_agregado_"+time.Now().In(appTimeLocation).Format("2006-01-02")+".csv", csvRows)
+	}
+}
+
+func handleCSVInventoryUnits(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		visibilitySQL, args := productVisibilityPredicate("p", currentUser)
+		rows, err := db.Query(`
+			SELECT
+				COALESCE(NULLIF(p.id, ''), p.sku),
+				COALESCE(p.nombre, ''),
+				COALESCE(p.linea, ''),
+				COALESCE(p.location, ''),
+				u.id,
+				COALESCE(u.estado, ''),
+				COALESCE(u.creado_en, ''),
+				COALESCE(u.caducidad, '')
+			FROM unidades u
+			JOIN productos p ON p.tenant_id = u.tenant_id AND p.sku = u.producto_id
+			WHERE `+visibilitySQL+`
+			ORDER BY p.nombre, p.id, u.creado_en, u.id
+		`, args...)
+		if err != nil {
+			http.Error(w, "No se pudieron consultar las unidades.", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		csvRows := [][]string{{"product_id", "nombre", "linea", "locacion", "unidad_id", "estado", "fecha_ingreso", "caducidad"}}
+		for rows.Next() {
+			row := make([]string, 8)
+			if err := rows.Scan(&row[0], &row[1], &row[2], &row[3], &row[4], &row[5], &row[6], &row[7]); err != nil {
+				http.Error(w, "No se pudieron leer las unidades.", http.StatusInternalServerError)
+				return
+			}
+			csvRows = append(csvRows, row)
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, "No se pudieron procesar las unidades.", http.StatusInternalServerError)
+			return
+		}
+		writeCSVDownload(w, "inventario_unidades_"+time.Now().In(appTimeLocation).Format("2006-01-02")+".csv", csvRows)
+	}
+}
+
+func auditPayloadString(payload map[string]any, key string) string {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func auditPayloadInt(payload map[string]any, key string) int {
+	switch value := payload[key].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	case json.Number:
+		parsed, _ := strconv.Atoi(value.String())
+		return parsed
+	default:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(fmt.Sprint(value)))
+		return parsed
+	}
+}
+
+func handleCSVChanges(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		start, end, err := csvExportDateRange(r)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				http.Error(w, reqErr.Message, reqErr.Status)
+				return
+			}
+			http.Error(w, "Rango de fechas inválido.", http.StatusBadRequest)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		visibleProducts, err := loadVisibleProductsForUser(db, currentUser)
+		if err != nil {
+			http.Error(w, "No se pudo validar la visibilidad de productos.", http.StatusInternalServerError)
+			return
+		}
+		visible := make(map[string]productOption, len(visibleProducts)*2)
+		for _, product := range visibleProducts {
+			visible[product.SKU] = product
+			visible[product.ID] = product
+		}
+		rows, err := db.Query(`
+			SELECT id, COALESCE(payload_json, '{}'), COALESCE(created_at, '')
+			FROM audit_events
+			WHERE tenant_id = ? AND event_type = 'change_registered' AND `+sqlDatePrefixExpr("created_at")+` BETWEEN ? AND ?
+			ORDER BY created_at DESC, id DESC
+		`, tenantIDFromUser(currentUser), start, end)
+		if err != nil {
+			http.Error(w, "No se pudieron consultar los cambios.", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		csvRows := [][]string{{"cambio_id", "fecha", "product_id_saliente", "producto_saliente", "cantidad_saliente", "product_id_entrante", "producto_entrante", "cantidad_entrante", "modo_entrada"}}
+		for rows.Next() {
+			var id int
+			var rawPayload, createdAt string
+			if err := rows.Scan(&id, &rawPayload, &createdAt); err != nil {
+				http.Error(w, "No se pudieron leer los cambios.", http.StatusInternalServerError)
+				return
+			}
+			payload := map[string]any{}
+			if err := json.Unmarshal([]byte(rawPayload), &payload); err != nil {
+				continue
+			}
+			outgoingSKU := auditPayloadString(payload, "producto_saliente_sku")
+			outgoingID := auditPayloadString(payload, "producto_saliente_id")
+			outgoing, allowed := visible[outgoingSKU]
+			if !allowed {
+				outgoing, allowed = visible[outgoingID]
+			}
+			if !hasTenantWideVisibility(currentUser.Role) && !allowed {
+				continue
+			}
+			outgoingName := auditPayloadString(payload, "producto_saliente")
+			if outgoingName == "" && allowed {
+				outgoingName = outgoing.Name
+			}
+			incomingSKU := auditPayloadString(payload, "producto_entrante_sku")
+			incomingID := auditPayloadString(payload, "producto_entrante_id")
+			incomingName := ""
+			if incoming, ok := visible[incomingSKU]; ok {
+				incomingName = incoming.Name
+			} else if incoming, ok := visible[incomingID]; ok {
+				incomingName = incoming.Name
+			}
+			date := createdAt
+			if len(date) >= 10 {
+				date = date[:10]
+			}
+			csvRows = append(csvRows, []string{
+				strconv.Itoa(id), date, outgoingID, outgoingName,
+				strconv.Itoa(auditPayloadInt(payload, "cantidad_saliente")), incomingID, incomingName,
+				strconv.Itoa(auditPayloadInt(payload, "cantidad_entrante")), auditPayloadString(payload, "modo_entrada"),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, "No se pudieron procesar los cambios.", http.StatusInternalServerError)
+			return
+		}
+		writeCSVDownload(w, fmt.Sprintf("cambios_%s_a_%s.csv", start, end), csvRows)
+	}
+}
+
 func handleAPIProductRoutes(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -19207,88 +19532,7 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "venta_id": ventaID})
 	})
 
-	mux.HandleFunc("/csv/ventas", func(w http.ResponseWriter, r *http.Request) {
-		currentUser := userFromContext(r)
-		now := time.Now()
-		endDate := parseDateOrDefault(r.URL.Query().Get("end_date"), now)
-		startDate := parseDateOrDefault(r.URL.Query().Get("start_date"), endDate.AddDate(0, 0, -6))
-		if startDate.After(endDate) {
-			startDate, endDate = endDate, startDate
-		}
-		startDate = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
-		endDate = time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, endDate.Location())
-		startStr := startDate.Format("2006-01-02")
-		endStr := endDate.Format("2006-01-02")
-
-		visibilitySQL, visibilityArgs := productVisibilityPredicate("p", currentUser)
-		queryArgs := append([]any{startStr, endStr}, visibilityArgs...)
-		salesDateExpr := sqlDatePrefixExpr("v.fecha")
-		rows, err := db.Query(`
-			SELECT
-				v.id,
-				v.fecha,
-				COALESCE(NULLIF(p.id, ''), v.producto_id),
-				COALESCE(p.nombre, ''),
-				v.cantidad,
-				v.precio_final,
-				v.metodo_pago,
-				v.notas
-			FROM ventas v
-			LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
-			WHERE `+salesDateExpr+` BETWEEN ? AND ? AND `+visibilitySQL+`
-			ORDER BY v.fecha DESC, v.id DESC
-		`, queryArgs...)
-		if err != nil {
-			http.Error(w, "Error al consultar ventas.", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-
-		filename := fmt.Sprintf("ventas_%s_a_%s.csv", startStr, endStr)
-		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		cw := csv.NewWriter(w)
-		defer cw.Flush()
-
-		_ = cw.Write([]string{"venta_id", "fecha", "product_id", "producto", "cantidad", "precio_unitario", "total", "metodo_pago", "notas"})
-
-		for rows.Next() {
-			var (
-				id         int
-				fechaRaw   string
-				productID  string
-				nombre     string
-				cantidad   int
-				precioUnit float64
-				metodo     string
-				notas      string
-			)
-			if err := rows.Scan(&id, &fechaRaw, &productID, &nombre, &cantidad, &precioUnit, &metodo, &notas); err != nil {
-				http.Error(w, "Error al leer ventas.", http.StatusInternalServerError)
-				return
-			}
-			fecha := fechaRaw
-			if len(fechaRaw) >= 10 {
-				fecha = fechaRaw[:10]
-			}
-			total := precioUnit * float64(cantidad)
-			_ = cw.Write([]string{
-				strconv.Itoa(id),
-				fecha,
-				productID,
-				nombre,
-				strconv.Itoa(cantidad),
-				fmt.Sprintf("%.2f", precioUnit),
-				fmt.Sprintf("%.2f", total),
-				metodo,
-				notas,
-			})
-		}
-		if err := rows.Err(); err != nil {
-			http.Error(w, "Error al procesar ventas.", http.StatusInternalServerError)
-			return
-		}
-	})
+	mux.HandleFunc("/csv/ventas", handleCSVSales(db))
 
 	mux.HandleFunc("/inventario", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -22942,6 +23186,10 @@ func main() {
 			CurrentUser: userFromContext(r),
 		}, "Error al renderizar plantilla CSV")
 	}))
+
+	mux.HandleFunc("/csv/inventario", handleCSVInventoryAggregate(db))
+	mux.HandleFunc("/csv/inventario/unidades", handleCSVInventoryUnits(db))
+	mux.HandleFunc("/csv/cambios", handleCSVChanges(db))
 
 	mux.HandleFunc("/csv/export", adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		renderTemplate(w, "csv_export.html", struct {

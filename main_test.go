@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +47,22 @@ func loadTestEnvFile(path string) {
 		}
 		_ = os.Setenv(key, strings.TrimSpace(value))
 	}
+}
+
+func performCSVRequest(t *testing.T, handler http.Handler, path string, user *User) (*httptest.ResponseRecorder, [][]string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req = req.WithContext(context.WithValue(req.Context(), userContextKey, user))
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected CSV status 200 for %s, got %d body=%s", path, resp.Code, resp.Body.String())
+	}
+	rows, err := csv.NewReader(strings.NewReader(resp.Body.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse CSV %s: %v", path, err)
+	}
+	return resp, rows
 }
 
 func openIsolatedPostgresTestDB(t *testing.T, label string) *sql.DB {
@@ -560,6 +577,102 @@ func TestProductCSVColumnIndexRequiresVisibleIDColumn(t *testing.T) {
 	}
 	if reqErr.Status != http.StatusBadRequest || reqErr.Message != "Falta la columna requerida id." {
 		t.Fatalf("unexpected request error: %+v", reqErr)
+	}
+}
+
+func TestCSVExportsRespectTenantAndOwnership(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+	db, err := initDB(filepath.Join(t.TempDir(), "csv-exports"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, location, precio_venta, owner_user_id)
+		VALUES
+			('CSV-T1', 1, 'CSV-T1', 'Producto Tenant Uno', 'Linea', 'T1', 1000, NULL),
+			('CSV-T2-PUBLIC', 2, 'CSV-T2-PUBLIC', 'Producto Publico', 'Linea', 'A-01', 2000, NULL),
+			('CSV-T2-OWN', 2, 'CSV-T2-OWN', 'Producto Propio', 'Linea', 'A-02', 3000, 20),
+			('CSV-T2-HIDDEN', 2, 'CSV-T2-HIDDEN', 'Producto Oculto', 'Linea', 'A-03', 4000, 30)
+	`); err != nil {
+		t.Fatalf("seed export products: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad)
+		VALUES
+			('CSV-U-T1', 1, 'CSV-T1', 'Disponible', '2026-07-01T10:00:00Z', NULL),
+			('CSV-U-PUBLIC', 2, 'CSV-T2-PUBLIC', 'Disponible', '2026-07-01T10:00:00Z', NULL),
+			('CSV-U-OWN', 2, 'CSV-T2-OWN', 'Reservada', '2026-07-02T10:00:00Z', '2027-07-02'),
+			('CSV-U-HIDDEN', 2, 'CSV-T2-HIDDEN', 'Dañada', '2026-07-03T10:00:00Z', NULL)
+	`); err != nil {
+		t.Fatalf("seed export units: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
+		VALUES
+			(1, 'CSV-T1', 1, 1000, 'Efectivo', '', '2026-07-10T10:00:00Z'),
+			(2, 'CSV-T2-PUBLIC', 1, 2000, 'Efectivo', '', '2026-07-11T10:00:00Z'),
+			(2, 'CSV-T2-OWN', 2, 3000, 'Transferencia', '', '2026-07-12T10:00:00Z'),
+			(2, 'CSV-T2-HIDDEN', 1, 4000, 'Efectivo', '', '2026-07-13T10:00:00Z')
+	`); err != nil {
+		t.Fatalf("seed export sales: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO audit_events (tenant_id, event_type, entity_type, entity_id, source, payload_json, created_at)
+		VALUES
+			(1, 'change_registered', 'change', 'CSV-T1', 'web', '{"producto_saliente_id":"CSV-T1","producto_saliente_sku":"CSV-T1","producto_saliente":"Producto Tenant Uno","producto_entrante_id":"CSV-T1","producto_entrante_sku":"CSV-T1","cantidad_saliente":1,"cantidad_entrante":1,"modo_entrada":"existing"}', '2026-07-10T10:00:00Z'),
+			(2, 'change_registered', 'change', 'CSV-T2-PUBLIC', 'web', '{"producto_saliente_id":"CSV-T2-PUBLIC","producto_saliente_sku":"CSV-T2-PUBLIC","producto_saliente":"Producto Publico","producto_entrante_id":"CSV-T2-OWN","producto_entrante_sku":"CSV-T2-OWN","cantidad_saliente":1,"cantidad_entrante":1,"modo_entrada":"existing"}', '2026-07-11T10:00:00Z'),
+			(2, 'change_registered', 'change', 'CSV-T2-HIDDEN', 'web', '{"producto_saliente_id":"CSV-T2-HIDDEN","producto_saliente_sku":"CSV-T2-HIDDEN","producto_saliente":"Producto Oculto","producto_entrante_id":"CSV-T2-PUBLIC","producto_entrante_sku":"CSV-T2-PUBLIC","cantidad_saliente":1,"cantidad_entrante":1,"modo_entrada":"existing"}', '2026-07-12T10:00:00Z')
+	`); err != nil {
+		t.Fatalf("seed export changes: %v", err)
+	}
+
+	employee := &User{ID: 20, Username: "csv.employee", Role: roleEmployee, TenantID: 2}
+	admin := &User{ID: 21, Username: "csv.admin", Role: roleAdmin, TenantID: 2}
+
+	assertContains := func(rows [][]string, expected ...string) {
+		t.Helper()
+		body := fmt.Sprint(rows)
+		for _, value := range expected {
+			if !strings.Contains(body, value) {
+				t.Fatalf("expected CSV to contain %q, got %s", value, body)
+			}
+		}
+		if strings.Contains(body, "CSV-T1") || strings.Contains(body, "Producto Tenant Uno") {
+			t.Fatalf("CSV exposed another tenant: %s", body)
+		}
+	}
+	assertEmployeeHidden := func(rows [][]string) {
+		t.Helper()
+		body := fmt.Sprint(rows)
+		if strings.Contains(body, "CSV-T2-HIDDEN") || strings.Contains(body, "Producto Oculto") {
+			t.Fatalf("employee CSV exposed another owner's product: %s", body)
+		}
+	}
+
+	_, aggregateRows := performCSVRequest(t, handleCSVInventoryAggregate(db), "/csv/inventario", employee)
+	assertContains(aggregateRows, "CSV-T2-PUBLIC", "CSV-T2-OWN")
+	assertEmployeeHidden(aggregateRows)
+
+	_, unitRows := performCSVRequest(t, handleCSVInventoryUnits(db), "/csv/inventario/unidades", employee)
+	assertContains(unitRows, "CSV-U-PUBLIC", "CSV-U-OWN")
+	assertEmployeeHidden(unitRows)
+
+	dateRange := "?start_date=2026-07-01&end_date=2026-07-31"
+	_, salesRows := performCSVRequest(t, handleCSVSales(db), "/csv/ventas"+dateRange, employee)
+	assertContains(salesRows, "CSV-T2-PUBLIC", "CSV-T2-OWN")
+	assertEmployeeHidden(salesRows)
+
+	_, changeRows := performCSVRequest(t, handleCSVChanges(db), "/csv/cambios"+dateRange, employee)
+	assertContains(changeRows, "CSV-T2-PUBLIC", "CSV-T2-OWN")
+	assertEmployeeHidden(changeRows)
+
+	resp, adminRows := performCSVRequest(t, handleCSVInventoryAggregate(db), "/csv/inventario", admin)
+	assertContains(adminRows, "CSV-T2-PUBLIC", "CSV-T2-OWN", "CSV-T2-HIDDEN")
+	if disposition := resp.Header().Get("Content-Disposition"); !strings.Contains(disposition, "inventario_agregado_") {
+		t.Fatalf("unexpected CSV disposition: %q", disposition)
 	}
 }
 
