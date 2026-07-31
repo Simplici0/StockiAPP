@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            .checkout-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: 24px; max-width: 1120px; margin: 0 auto; }
+            .checkout-panel { background: var(--bg-card-strong); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-xs); padding: 24px; }
+            .checkout-panel h1 { margin: 0 0 6px; }
+            .checkout-panel > p { margin: 0 0 20px; color: var(--text-muted); }
+            .checkout-form { display: grid; gap: 18px; }
+            .checkout-mode { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .checkout-mode label { display: flex; gap: 8px; align-items: center; padding: 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+            .checkout-block { display: grid; gap: 12px; padding-top: 18px; border-top: 1px solid var(--border); }
+            .checkout-block[hidden],
+            .customer-lookup-results[hidden] { display: none !important; }
+            .checkout-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .checkout-grid .wide { grid-column: 1 / -1; }
+            .checkout-warning { padding: 12px 14px; border-radius: 10px; background: var(--warning-soft); color: var(--warning-ink); font-size: 13px; }
+            .checkout-summary-line { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+            .checkout-summary-line:last-child { border-bottom: 0; }
+            .checkout-line { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 13px; }
+            .checkout-total { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 2px solid var(--border); font-size: 1.15rem; }
+            .checkout-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+            @media (max-width: 800px) { .checkout-layout { grid-template-columns: 1fr; } }
+            @media (max-width: 560px) { .checkout-panel { padding: 18px; } .checkout-grid, .checkout-mode { grid-template-columns: 1fr; } .checkout-grid .wide { grid-column: auto; } }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="checkout-layout" data-sale-cart data-sale-cart-key="stocki-sale-cart-{{.CurrentUser.TenantID}}-{{.CurrentUser.ID}}">
+                <section class="checkout-panel">
+                    <h1>Finalizar venta</h1>
+                    <p>Completa la información de pago y confirma la operación.</p>
+                    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+                    <form class="checkout-form" data-sale-checkout-form action="/venta" method="POST">
+                        <input type="hidden" name="items_json" />
+                        <div class="checkout-mode">
+                            <label><input type="radio" name="sale_mode" value="normal" {{if or (ne .SaleMode "credit") (not .CanCredit)}}checked{{end}} /> Pago inmediato</label>
+                            {{if .CanCredit}}<label><input type="radio" name="sale_mode" value="credit" {{if eq .SaleMode "credit"}}checked{{end}} /> Crédito</label>{{end}}
+                        </div>
+
+                        <div class="checkout-block">
+                            <h2>Cliente</h2>
+                            <div data-customer-lookup>
+                                <label for="customer_search">Buscar cliente</label>
+                                <input id="customer_search" name="customer_search" data-customer-search type="search" value="{{.CustomerSearch}}" placeholder="Nombre, documento o teléfono" autocomplete="off" />
+                                <div class="hint" data-customer-status></div>
+                                <input type="hidden" name="customer_id" data-customer-id value="{{.CustomerID}}" />
+                                <div class="checkout-grid">
+                                    <div><label for="customer_name">Nombre</label><input id="customer_name" name="customer_name" data-customer-name value="{{.CustomerName}}" /></div>
+                                    <div><label for="customer_phone">Teléfono</label><input id="customer_phone" name="customer_phone" data-customer-phone value="{{.CustomerPhone}}" /></div>
+                                    <div><label for="customer_document_type">Tipo de documento</label><select id="customer_document_type" name="customer_document_type" data-customer-document-type><option value="" {{if eq .CustomerDocumentType ""}}selected{{end}}>Seleccionar</option><option value="CC" {{if eq .CustomerDocumentType "CC"}}selected{{end}}>CC</option><option value="C Extranjeria" {{if eq .CustomerDocumentType "C Extranjeria"}}selected{{end}}>C Extranjería</option><option value="Pasaporte" {{if eq .CustomerDocumentType "Pasaporte"}}selected{{end}}>Pasaporte</option></select></div>
+                                    <div><label for="customer_document_number">Documento</label><input id="customer_document_number" name="customer_document_number" data-customer-document-number value="{{.CustomerDocumentNumber}}" /></div>
+                                    <div><label for="customer_city">Ciudad</label><input id="customer_city" name="customer_city" data-customer-city value="{{.CustomerCity}}" /></div>
+                                    <div><label for="customer_address">Dirección</label><input id="customer_address" name="customer_address" data-customer-address value="{{.CustomerAddress}}" /></div>
+                                    <div class="wide"><label for="customer_notes">Notas del cliente</label><textarea id="customer_notes" name="customer_notes" data-customer-notes>{{.CustomerNotes}}</textarea></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="checkout-block" data-payment-fields {{if eq .SaleMode "credit"}}hidden{{end}}>
+                            <h2>Pago inmediato</h2>
+                            <label for="metodo_pago">Método de pago</label>
+                            <select id="metodo_pago" name="metodo_pago">
+                                {{range .MetodoPagos}}<option value="{{.}}" {{if eq $.MetodoPago .}}selected{{end}}>{{.}}</option>{{end}}
+                            </select>
+                            <div class="checkout-warning" data-anonymous-warning>Esta venta quedará sin cliente asociado y no aparecerá en su historial comercial.</div>
+                            <label data-anonymous-confirm-wrap><input type="checkbox" name="anonymous_confirm" value="1" {{if .AnonymousConfirm}}checked{{end}} /> Entiendo que la venta quedará registrada sin cliente asociado.</label>
+                        </div>
+
+                        <div class="checkout-block" data-credit-fields {{if ne .SaleMode "credit"}}hidden{{end}}>
+                            <h2>Condiciones del crédito</h2>
+                            <div class="checkout-grid">
+                                <div><label for="installments_total">Número de cuotas</label><input id="installments_total" name="installments_total" type="number" min="1" value="{{.InstallmentsTotal}}" /></div>
+                                <div><label for="interest_percent">Interés (%)</label><input id="interest_percent" name="interest_percent" type="number" min="0" step="0.01" value="{{.InterestPercent}}" /></div>
+                                <div><label>Total financiado</label><input name="total_value" value="{{.TotalValue}}" readonly /></div>
+                                <div><label>Valor de cuota</label><div class="input-like" data-installment-value>$ 0</div><input type="hidden" name="installment_value" value="{{.InstallmentValue}}" /></div>
+                            </div>
+                        </div>
+
+                        <div class="checkout-block">
+                            <label for="checkout_notes">Notas de la operación</label>
+                            <textarea id="checkout_notes" name="notas" placeholder="Observaciones">{{.Notas}}</textarea>
+                        </div>
+                        <div class="checkout-actions">
+                            <a class="button secondary" href="/venta/carrito">Volver al carrito</a>
+                            <button class="button primary" data-confirm-sale type="submit">Confirmar venta</button>
+                        </div>
+                    </form>
+                </section>
+                <aside class="checkout-panel">
+                    <h2>Resumen</h2>
+                    <div data-checkout-lines></div>
+                    <div class="checkout-total"><strong>Total</strong><strong data-checkout-total>$ 0</strong></div>
+                </aside>
+            </div>
+        </main>
+        <script src="/static/customer_lookup.js"></script>
+        <script src="/static/sale_cart.js"></script>
+    </body>
+</html>

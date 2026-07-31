@@ -1664,6 +1664,29 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	}
 }
 
+func TestSaleFlowTemplatesParse(t *testing.T) {
+	_, err := template.New("").Funcs(template.FuncMap{
+		"businessName":          func(any) string { return "Negocio prueba" },
+		"businessLogoPath":      func(any) string { return "" },
+		"businessPrimaryColor":  func(any) string { return "#172554" },
+		"businessPrimaryStrong": func(any) string { return "#0f172a" },
+		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
+		"pageCanLoan":           func(any) bool { return false },
+		"pageCanCredit":         func(any) bool { return true },
+		"money":                 func(value float64) string { return formatCurrency(value) },
+	}).ParseFiles(
+		"templates/partials/app_styles.html",
+		"templates/partials/header.html",
+		"templates/venta_new.html",
+		"templates/sale_cart.html",
+		"templates/sale_checkout.html",
+		"templates/venta_confirm.html",
+	)
+	if err != nil {
+		t.Fatalf("parse sale flow templates: %v", err)
+	}
+}
+
 func TestBusinessSettingsTemplateParsesLabelProfiles(t *testing.T) {
 	_, err := template.New("").Funcs(template.FuncMap{
 		"businessName":          func(any) string { return "Negocio prueba" },
@@ -1706,6 +1729,7 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 		var rendered bytes.Buffer
 		data := inventoryPageData{
 			Title:       "Inventario",
+			CanSell:     true,
 			CanCredit:   true,
 			CurrentUser: &User{Role: role},
 		}
@@ -1746,6 +1770,9 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	}
 	if bytes.Contains(employeeRendered, []byte(`id="credit-edit-delete"`)) {
 		t.Fatalf("non-admin inventory modal should not expose the delete-credit action")
+	}
+	if !bytes.Contains(adminRendered, []byte(`inventory-cart-link`)) || !bytes.Contains(adminRendered, []byte(`data-sale-cart`)) {
+		t.Fatal("inventory page should expose the cart link and cart root")
 	}
 }
 
@@ -3208,6 +3235,9 @@ func TestHardResetTenantInventoryDeletesOperationalRowsOnly(t *testing.T) {
 	if summary.Counts["ventas"] == 0 || summary.Counts["unidades"] == 0 {
 		t.Fatalf("expected inventory deletions, got %+v", summary.Counts)
 	}
+	if summary.Counts["customer_events"] != 3 {
+		t.Fatalf("expected all inventory customer events counted, got %+v", summary.Counts)
+	}
 	if got := countRows(t, db, `SELECT COUNT(*) FROM ventas WHERE tenant_id = 2`); got != 0 {
 		t.Fatalf("expected sales deleted, got %d", got)
 	}
@@ -4410,6 +4440,90 @@ func TestAPISalesEndpointSupportsMultiProductAndInvoiceItems(t *testing.T) {
 	}
 	if invoiceItemCount != 2 {
 		t.Fatalf("expected two invoice items, got %d", invoiceItemCount)
+	}
+}
+
+func TestAPISalesEndpointLinksCustomerAndCustomerProductHistory(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "CUSTOMER-SALE-001", "Producto Venta Uno", 25000, 1)
+	seedTenantProductWithUnits(t, db, tenant.ID, "CUSTOMER-SALE-002", "Producto Venta Dos", 30000, 1)
+	customerResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/customers", token, map[string]any{
+		"customer_name":            "Cliente Venta",
+		"customer_phone":           "3001234567",
+		"customer_document_type":   "CC",
+		"customer_document_number": "778899",
+		"customer_city":            "Bogota",
+	})
+	if customerResp.Code != http.StatusCreated {
+		t.Fatalf("expected customer 201, got %d body=%s", customerResp.Code, customerResp.Body.String())
+	}
+	customerBody := decodeAPIResponse(t, customerResp)
+	customerID := int(customerBody["customer"].(map[string]any)["id"].(float64))
+
+	saleResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/sales", token, map[string]any{
+		"items": []map[string]any{
+			{"product_id": "CUSTOMER-SALE-001", "quantity": 1, "unit_price": 25000},
+			{"product_id": "CUSTOMER-SALE-002", "quantity": 1, "unit_price": 30000},
+		},
+		"customer_id":    customerID,
+		"payment_method": "Efectivo",
+	})
+	if saleResp.Code != http.StatusCreated {
+		t.Fatalf("expected sale 201, got %d body=%s", saleResp.Code, saleResp.Body.String())
+	}
+	saleBody := decodeAPIResponse(t, saleResp)
+	saleID := int(saleBody["sale_id"].(float64))
+
+	var storedCustomerID int
+	if err := db.QueryRow(`SELECT customer_id FROM ventas WHERE tenant_id = ? AND id = ?`, tenant.ID, saleID).Scan(&storedCustomerID); err != nil {
+		t.Fatalf("query sale customer: %v", err)
+	}
+	if storedCustomerID != customerID {
+		t.Fatalf("expected customer_id=%d, got %d", customerID, storedCustomerID)
+	}
+	if got := countRows(t, db, `SELECT COUNT(*) FROM customer_events WHERE tenant_id = ? AND customer_id = ? AND event_type = 'sale_registered'`, tenant.ID, customerID); got != 1 {
+		t.Fatalf("expected one sale customer event, got %d", got)
+	}
+
+	detail, err := customerDetailViewForTenant(db, &User{ID: 1, Role: "admin", TenantID: tenant.ID}, customerID)
+	if err != nil {
+		t.Fatalf("customerDetailViewForTenant: %v", err)
+	}
+	if len(detail.Products) != 2 {
+		t.Fatalf("expected two products in customer history, got %+v", detail.Products)
+	}
+	for _, item := range detail.Products {
+		if item.SourcesText != "Venta" {
+			t.Fatalf("expected Venta source in customer history, got %+v", item)
+		}
+	}
+}
+
+func TestRegisterSaleRejectsPartialCustomerInput(t *testing.T) {
+	db, _, tenant, _ := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+	seedTenantProductWithUnits(t, db, tenant.ID, "PARTIAL-CUSTOMER-001", "Producto Cliente Parcial", 25000, 1)
+
+	unitPrice := 25000.0
+	_, err := registerSale(db, &User{ID: 1, Username: "admin", Role: "admin", TenantID: tenant.ID}, []saleItemInput{{
+		ProductID: "PARTIAL-CUSTOMER-001",
+		Quantity:  1,
+		UnitPrice: &unitPrice,
+	}}, false, nil, nil, nil, 0, &customerInput{Name: "Solo Nombre"}, "Efectivo", "web", "admin", "", "web", nil)
+	if err == nil {
+		t.Fatal("expected partial customer input to be rejected")
+	}
+	reqErr, ok := requestErrorDetails(err)
+	if !ok || reqErr.Status != http.StatusBadRequest {
+		t.Fatalf("expected bad request, got %v", err)
+	}
+	if reqErr.Fields["customer_document_type"] == "" || reqErr.Fields["customer_document_number"] == "" || reqErr.Fields["customer_phone"] == "" {
+		t.Fatalf("expected complete customer validation errors, got %+v", reqErr.Fields)
+	}
+	if got := countRows(t, db, `SELECT COUNT(*) FROM customers WHERE tenant_id = ?`, tenant.ID); got != 0 {
+		t.Fatalf("partial customer input created %d customer rows", got)
 	}
 }
 

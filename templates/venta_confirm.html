@@ -93,32 +93,57 @@
                     Venta registrada e inventario actualizado.
                 </p>
 
-                <div class="summary">
-                    <div class="summary-row">
-                        <strong>Producto</strong>
-                        <span>
-                            {{if .ProductoNom}}{{.ProductoNom}}
-                            ({{.ProductoID}}){{else}}{{.ProductoID}}{{end}}
-                        </span>
-                    </div>
-                    <div class="summary-row">
-                        <strong>Cantidad</strong>
-                        <span>{{.Cantidad}}</span>
-                    </div>
-                    <div class="summary-row">
-                        <strong>Precio unitario</strong>
-                        <span>{{.PrecioFinal}}</span>
-                    </div>
-                    {{if .ValorVentaFinal}}
-                    <div class="summary-row">
-                        <strong>Valor venta final</strong>
-                        <span>{{.ValorVentaFinal}}</span>
-                    </div>
-                    {{end}}
-                    <div class="summary-row">
+                    <div class="summary">
+                        {{if .IsCredit}}
+                        <div class="summary-row">
+                            <strong>Crédito</strong>
+                            <span>#{{.CreditSaleID}}</span>
+                        </div>
+                        {{range .CreditItems}}
+                        <div class="summary-row">
+                            <strong>{{.ProductName}} · {{.ProductID}}</strong>
+                            <span>{{.Quantity}} × {{money .UnitValue}} = {{money .LineTotal}}</span>
+                        </div>
+                        {{end}}
+                        <div class="summary-row">
+                            <strong>Cliente</strong>
+                            <span>{{if .CustomerName}}{{.CustomerName}}{{else}}-{{end}}</span>
+                        </div>
+                        <div class="summary-row">
+                            <strong>Cuotas</strong>
+                            <span>{{.InstallmentsTotal}} × {{.InstallmentValue}}</span>
+                        </div>
+                        <div class="summary-row">
+                            <strong>Total financiado</strong>
+                            <span>{{.TotalValue}}</span>
+                        </div>
+                        {{else}}
+                        {{range .Items}}
+                        <div class="summary-row">
+                            <strong>{{.ProductName}} · {{.ProductID}}</strong>
+                            <span>{{.Quantity}} × {{.UnitPriceText}} = {{.LineTotalText}}</span>
+                        </div>
+                        {{end}}
+                        {{if .CustomerName}}
+                        <div class="summary-row">
+                            <strong>Cliente</strong>
+                            <span>{{.CustomerName}}</span>
+                        </div>
+                        {{else}}
+                        <div class="summary-row">
+                            <strong>Cliente</strong>
+                            <span>Venta sin cliente asociado</span>
+                        </div>
+                        {{end}}
+                        <div class="summary-row">
+                            <strong>Total</strong>
+                            <span>{{.ValorVentaFinal}}</span>
+                        </div>
+                        <div class="summary-row">
                         <strong>Pago</strong>
                         <span>{{.MetodoPago}}</span>
-                    </div>
+                        </div>
+                        {{end}}
                     {{if .Notas}}
                     <div class="summary-row">
                         <strong>Notas</strong>
@@ -128,6 +153,11 @@
                 </div>
 
                 <div class="confirm-actions">
+                    {{if .IsCredit}}
+                    {{if .InvoiceCreateURL}}
+                    <a class="button secondary" href="{{.InvoiceCreateURL}}" target="_blank" rel="noreferrer">Generar factura</a>
+                    {{end}}
+                    {{else}}
                     {{if .ReceiptDownloadURL}} {{if .InvoiceCreateURL}}
                     <a
                         class="button secondary"
@@ -156,6 +186,7 @@
                         >Ticket térmico</a
                     >
                     {{end}} {{end}}
+                    {{end}}
                     <a
                         class="button primary"
                         href="/inventario?mensaje=Venta%20registrada%20correctamente"
@@ -164,5 +195,10 @@
                 </div>
             </div>
         </main>
+        <script>
+            try {
+                window.sessionStorage.removeItem("stocki-sale-cart-{{.CurrentUser.TenantID}}-{{.CurrentUser.ID}}");
+            } catch (_) {}
+        </script>
     </body>
 </html>

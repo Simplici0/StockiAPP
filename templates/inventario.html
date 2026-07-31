@@ -36,6 +36,37 @@
                 display: none;
             }
 
+            .inventory-cart-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .inventory-cart-icon {
+                width: 18px;
+                height: 18px;
+                flex: 0 0 auto;
+            }
+
+            .inventory-cart-count {
+                min-width: 22px;
+                padding: 2px 6px;
+                border-radius: 999px;
+                background: var(--primary);
+                color: var(--bg-card-strong);
+                text-align: center;
+                font-size: 12px;
+                line-height: 1.2;
+            }
+
+            .cart-status {
+                display: inline-block;
+                margin-left: 8px;
+                color: var(--primary);
+                font-size: 11px;
+                font-weight: 700;
+            }
+
             /* Todos los botones de acción: tamaño discreto, tablet-first */
             .filters-actions button,
             .filters-actions a.button {
@@ -1962,7 +1993,11 @@
     </head>
     <body>
         {{template "header" .}}
-        <div class="page-content">
+        <div
+            class="page-content"
+            data-sale-cart
+            data-sale-cart-key="stocki-sale-cart-{{.CurrentUser.TenantID}}-{{.CurrentUser.ID}}"
+        >
             {{if .Flash}}
             <div class="flash" data-persistent>
                 <div>{{.Flash}}</div>
@@ -1970,6 +2005,17 @@
             {{end}}
             <section class="filters">
                 <div class="filters-actions">
+                    {{if .CanSell}}
+                    <a class="button secondary inventory-cart-link" href="/venta/carrito" aria-label="Abrir carrito de venta">
+                        <svg class="inventory-cart-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" />
+                            <circle cx="10" cy="20" r="1" />
+                            <circle cx="18" cy="20" r="1" />
+                        </svg>
+                        <span>Carrito</span>
+                        <span class="inventory-cart-count" data-cart-count aria-live="polite">0</span>
+                    </a>
+                    {{end}}
                     {{if .CanCredit}}
                     <button
                         id="loan-open"
@@ -4651,7 +4697,8 @@
                       : ``
                     : canSell && availableUnits > 0
                       ? `<input type="number" min="1" max="${Math.max(availableUnits, 1)}" value="1" data-qty="${productId}" aria-label="Cantidad para ${productName}" />
-                         <button class="primary product-primary-action" data-action="sell" data-product="${productId}">Vender</button>`
+                         <button class="primary product-primary-action" data-action="add-to-cart" data-add-to-cart data-product="${productId}" data-product-name="${productName}" data-unit-price="${Number(product.salePrice || 0)}" data-stock="${availableUnits}">Agregar al carrito</button>
+                         <span class="cart-status" data-cart-status="${productId}" hidden></span>`
                       : ``;
                 row.innerHTML = `
                   <td data-label="Producto">
@@ -8846,15 +8893,8 @@
                         return;
                     }
 
-                    if (action === "sell") {
-                        const product = productsById.get(productId);
+                    if (action === "add-to-cart") {
                         closeOpenMenuPanels();
-                        openSaleModal({
-                            product,
-                            productId,
-                            maxQty,
-                            defaultQty: quantity,
-                        });
                         return;
                     }
 
@@ -8956,5 +8996,6 @@
             });
             window.addEventListener("resize", onViewportChange);
         </script>
+        <script src="/static/sale_cart.js"></script>
     </body>
 </html>

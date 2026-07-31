@@ -656,6 +656,7 @@ Payload compatible:
 ```json
 {
   "product_id": "P-001",
+  "customer_id": 25,
   "quantity": 2,
   "payment_method": "Efectivo",
   "sale_price": 25000,
@@ -669,9 +670,11 @@ Notas:
 - `quantity` puede venir como entero o usar el valor por defecto `1`
 - `sale_price`, `unit_price` y `total` tienen lógica de compatibilidad
 - `payment_method` debe existir y estar activo para el tenant
+- `customer_id` es opcional para ventas normales; si se envía, el cliente debe pertenecer al tenant autenticado
 - en el modo multiproducto, `items` debe tener al menos una línea, cada línea requiere `product_id`, `quantity` positiva y `unit_price` mayor a cero
 - un `product_id` no puede repetirse dentro de `items`
 - cada producto se valida por tenant, ownership y stock dentro de una única transacción
+- las ventas normales con `customer_id` quedan asociadas al historial comercial del cliente; las ventas sin cliente no generan evento comercial de cliente
 
 Payload multiproducto:
 

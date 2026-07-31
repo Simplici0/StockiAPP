@@ -376,6 +376,7 @@ type saleItemRecord struct {
 
 type saleCreateResult struct {
 	SaleID        int64
+	CustomerID    int
 	Items         []saleItemRecord
 	TotalQuantity int
 	Subtotal      float64
@@ -2511,7 +2512,7 @@ func listRecentSalesForUser(db *sql.DB, user *User, limit int) ([]map[string]any
 	args := append([]any{}, accessArgs...)
 	args = append(args, limit)
 	rows, err := db.Query(`
-		SELECT v.id, v.fecha, COALESCE(NULLIF(p.id, ''), v.producto_id), COALESCE(p.nombre, v.producto_id),
+		SELECT v.id, COALESCE(v.customer_id, 0), v.fecha, COALESCE(NULLIF(p.id, ''), v.producto_id), COALESCE(p.nombre, v.producto_id),
 			COALESCE((SELECT SUM(si.quantity) FROM sale_items si WHERE si.tenant_id = v.tenant_id AND si.sale_id = v.id), v.cantidad),
 			COALESCE((SELECT SUM(si.total) / NULLIF(SUM(si.quantity), 0) FROM sale_items si WHERE si.tenant_id = v.tenant_id AND si.sale_id = v.id), v.precio_final),
 			COALESCE(v.metodo_pago, '')
@@ -2528,11 +2529,11 @@ func listRecentSalesForUser(db *sql.DB, user *User, limit int) ([]map[string]any
 
 	items := make([]map[string]any, 0, limit)
 	for rows.Next() {
-		var id int
+		var id, customerID int
 		var fecha, productoID, producto, metodo string
 		var cantidad int
 		var precioFinal float64
-		if err := rows.Scan(&id, &fecha, &productoID, &producto, &cantidad, &precioFinal, &metodo); err != nil {
+		if err := rows.Scan(&id, &customerID, &fecha, &productoID, &producto, &cantidad, &precioFinal, &metodo); err != nil {
 			return nil, err
 		}
 		itemMaps, itemErr := loadSaleItems(db, user, id)
@@ -2541,6 +2542,7 @@ func listRecentSalesForUser(db *sql.DB, user *User, limit int) ([]map[string]any
 		}
 		items = append(items, map[string]any{
 			"id":               id,
+			"customer_id":      customerID,
 			"fecha":            formatDateWithSettings(fecha),
 			"producto_id":      productoID,
 			"producto":         producto,
@@ -2569,6 +2571,7 @@ func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit in
 	query := `
 		SELECT
 			v.id,
+			COALESCE(v.customer_id, 0),
 			v.fecha,
 			COALESCE(NULLIF(p.id, ''), v.producto_id),
 			COALESCE(p.nombre, v.producto_id),
@@ -2607,6 +2610,7 @@ func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit in
 	for rows.Next() {
 		var (
 			id            int
+			customerID    int
 			fecha         string
 			productID     string
 			productName   string
@@ -2617,7 +2621,7 @@ func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit in
 			notes         string
 			paymentMethod string
 		)
-		if err := rows.Scan(&id, &fecha, &productID, &productName, &quantity, &salePrice, &channel, &soldBy, &notes, &paymentMethod); err != nil {
+		if err := rows.Scan(&id, &customerID, &fecha, &productID, &productName, &quantity, &salePrice, &channel, &soldBy, &notes, &paymentMethod); err != nil {
 			return nil, err
 		}
 		itemMaps, itemErr := loadSaleItems(db, user, id)
@@ -2626,6 +2630,7 @@ func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit in
 		}
 		items = append(items, map[string]any{
 			"id":               id,
+			"customer_id":      customerID,
 			"fecha":            formatDateWithSettings(fecha),
 			"product_id":       productID,
 			"product_name":     productName,
@@ -6647,7 +6652,8 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 			COALESCE(SUM(total_value), 0),
 			COALESCE(MAX(created_at), ''),
 			COALESCE(MAX(has_invoice), 0),
-			COALESCE(MAX(has_credit), 0)
+			COALESCE(MAX(has_credit), 0),
+			COALESCE(MAX(has_sale), 0)
 		FROM (
 			SELECT
 				COALESCE(ii.product_id, '') AS product_id,
@@ -6656,11 +6662,52 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 				COALESCE(ii.total, 0) AS total_value,
 				COALESCE(i.created_at, '') AS created_at,
 				1 AS has_invoice,
-				0 AS has_credit
+				0 AS has_credit,
+				0 AS has_sale
 			FROM invoices i
 			INNER JOIN invoice_items ii
 				ON ii.tenant_id = i.tenant_id AND ii.invoice_id = i.id
 			WHERE i.tenant_id = ? AND i.customer_id = ? AND COALESCE(ii.product_id, '') <> ''
+
+			UNION ALL
+
+			SELECT
+				COALESCE(NULLIF(p.id, ''), NULLIF(si.product_visible_id, ''), si.product_id) AS product_id,
+				COALESCE(NULLIF(si.product_name, ''), NULLIF(p.nombre, ''), si.product_id) AS product_name,
+				COALESCE(si.quantity, 0) AS quantity,
+				COALESCE(si.total, 0) AS total_value,
+				COALESCE(v.fecha, '') AS created_at,
+				0 AS has_invoice,
+				0 AS has_credit,
+				1 AS has_sale
+			FROM ventas v
+			INNER JOIN sale_items si ON si.tenant_id = v.tenant_id AND si.sale_id = v.id
+			LEFT JOIN productos p ON p.sku = si.product_id AND p.tenant_id = si.tenant_id
+			WHERE v.tenant_id = ? AND v.customer_id = ?
+				AND NOT EXISTS (
+					SELECT 1 FROM invoices i
+					WHERE i.tenant_id = v.tenant_id AND i.sale_id = v.id
+				)
+
+			UNION ALL
+
+			SELECT
+				COALESCE(NULLIF(p.id, ''), v.producto_id) AS product_id,
+				COALESCE(NULLIF(p.nombre, ''), v.producto_id) AS product_name,
+				COALESCE(v.cantidad, 0) AS quantity,
+				COALESCE(v.precio_final, 0) * COALESCE(v.cantidad, 0) AS total_value,
+				COALESCE(v.fecha, '') AS created_at,
+				0 AS has_invoice,
+				0 AS has_credit,
+				1 AS has_sale
+			FROM ventas v
+			LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
+			WHERE v.tenant_id = ? AND v.customer_id = ?
+				AND NOT EXISTS (SELECT 1 FROM sale_items si WHERE si.tenant_id = v.tenant_id AND si.sale_id = v.id)
+				AND NOT EXISTS (
+					SELECT 1 FROM invoices i
+					WHERE i.tenant_id = v.tenant_id AND i.sale_id = v.id
+				)
 
 			UNION ALL
 
@@ -6675,7 +6722,8 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 				END AS total_value,
 				COALESCE(cs.created_at, '') AS created_at,
 				0 AS has_invoice,
-				1 AS has_credit
+				1 AS has_credit,
+				0 AS has_sale
 			FROM credit_sales cs
 			INNER JOIN credit_sale_items csi ON csi.tenant_id = cs.tenant_id AND csi.credit_sale_id = cs.id
 			LEFT JOIN productos p ON p.sku = csi.product_id AND p.tenant_id = csi.tenant_id
@@ -6695,7 +6743,8 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 				COALESCE(cs.installments_total, 0) * COALESCE(cs.installment_value, 0) AS total_value,
 				COALESCE(cs.created_at, '') AS created_at,
 				0 AS has_invoice,
-				1 AS has_credit
+				1 AS has_credit,
+				0 AS has_sale
 			FROM credit_sales cs
 			LEFT JOIN productos p ON p.sku = cs.product_id AND p.tenant_id = cs.tenant_id
 			WHERE cs.tenant_id = ? AND cs.customer_id = ? AND COALESCE(cs.kind, ?) = ?
@@ -6714,7 +6763,7 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 		GROUP BY product_id, product_name
 		ORDER BY MAX(created_at) DESC, product_name ASC
 		LIMIT ?
-	`, normalizeTenantID(tenantID), customerID, normalizeTenantID(tenantID), customerID, string(creditSaleKindProduct), string(creditSaleKindProduct), normalizeTenantID(tenantID), customerID, string(creditSaleKindProduct), string(creditSaleKindProduct), limit)
+	`, normalizeTenantID(tenantID), customerID, normalizeTenantID(tenantID), customerID, normalizeTenantID(tenantID), customerID, normalizeTenantID(tenantID), customerID, string(creditSaleKindProduct), string(creditSaleKindProduct), normalizeTenantID(tenantID), customerID, string(creditSaleKindProduct), string(creditSaleKindProduct), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -6728,8 +6777,9 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 			lastAt     string
 			hasInvoice int
 			hasCredit  int
+			hasSale    int
 		)
-		if err := rows.Scan(&item.ProductID, &item.ProductName, &item.Quantity, &totalValue, &lastAt, &hasInvoice, &hasCredit); err != nil {
+		if err := rows.Scan(&item.ProductID, &item.ProductName, &item.Quantity, &totalValue, &lastAt, &hasInvoice, &hasCredit, &hasSale); err != nil {
 			return nil, err
 		}
 		sources := make([]string, 0, 2)
@@ -6738,6 +6788,9 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 		}
 		if hasCredit > 0 {
 			sources = append(sources, "Crédito")
+		}
+		if hasSale > 0 {
+			sources = append(sources, "Venta")
 		}
 		item.TotalText = formatCurrency(totalValue)
 		item.LastAt = formatDateWithSettings(lastAt)
@@ -6761,6 +6814,8 @@ func customerTimelineEventLabel(eventType string) string {
 		return "Crédito editado"
 	case "credit_deleted":
 		return "Crédito eliminado"
+	case "sale_registered":
+		return "Venta registrada"
 	case "invoice_created":
 		return "Factura emitida"
 	case "product_loan_created":
@@ -6800,6 +6855,12 @@ func customerTimelineSummary(eventType string, payload map[string]any) string {
 			return fmt.Sprintf("%s · %s", kindLabel, product)
 		}
 		return firstNonEmptyString(product, kindLabel)
+	case "sale_registered":
+		total := stringFromAny(payload["total"])
+		if total != "" {
+			return fmt.Sprintf("Venta #%s · %s", stringFromAny(payload["sale_id"]), total)
+		}
+		return fmt.Sprintf("Venta #%s", stringFromAny(payload["sale_id"]))
 	case "credit_payment_recorded":
 		paymentType := firstNonEmptyString(stringFromAny(payload["payment_type_label"]), stringFromAny(payload["payment_type"]))
 		creditID := stringFromAny(payload["credit_sale_id"])
@@ -9607,6 +9668,16 @@ func paymentMethodNames(methods []PaymentMethod) []string {
 	return out
 }
 
+func validPaymentMethod(methods []string, value string) bool {
+	value = strings.TrimSpace(value)
+	for _, method := range methods {
+		if value == method {
+			return true
+		}
+	}
+	return false
+}
+
 func seedPaymentMethodsIfMissing(db *sql.DB) error {
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM payment_methods WHERE tenant_id = ?`, defaultTenantID).Scan(&count); err != nil {
@@ -11142,6 +11213,14 @@ func loadSaleInvoiceSource(db *sql.DB, currentUser *User, saleID int) (invoiceSo
 	if err != nil {
 		return invoiceSourceSnapshot{}, err
 	}
+	var customerID int
+	if err := db.QueryRow(`SELECT COALESCE(customer_id, 0) FROM ventas WHERE tenant_id = ? AND id = ? LIMIT 1`, tenantIDFromUser(currentUser), saleID).Scan(&customerID); err != nil && err != sql.ErrNoRows {
+		return invoiceSourceSnapshot{}, err
+	}
+	var customer *Customer
+	if customerID > 0 {
+		customer, _ = findCustomerByID(db, tenantIDFromUser(currentUser), customerID)
+	}
 	items := make([]invoiceItemData, 0, len(data.Items))
 	for _, saleItem := range data.Items {
 		items = append(items, invoiceItemData{
@@ -11170,6 +11249,7 @@ func loadSaleInvoiceSource(db *sql.DB, currentUser *User, saleID int) (invoiceSo
 		SourceType:  "sale",
 		SourceLabel: "Venta",
 		SaleID:      saleID,
+		Customer:    customer,
 		Item: invoiceItemData{
 			ProductID:     data.ProductoID,
 			Description:   data.ProductoNom,
@@ -12539,6 +12619,15 @@ func hardResetTenantScope(db *sql.DB, currentUser *User, tenantID int, scope ten
 		} else {
 			summary.Counts["movimientos"] = rows
 		}
+		if rows, err := execDeleteCount(tx, `
+			DELETE FROM customer_events
+			WHERE tenant_id = ? AND ref_type = 'sale'
+			  AND ref_id IN (SELECT CAST(id AS TEXT) FROM ventas WHERE tenant_id = ?)
+		`, tenant.ID, tenant.ID); err != nil {
+			return tenantResetSummary{}, err
+		} else {
+			summary.Counts["customer_events"] += rows
+		}
 		if rows, err := execDeleteCount(tx, `DELETE FROM sale_items WHERE tenant_id = ?`, tenant.ID); err != nil {
 			return tenantResetSummary{}, err
 		} else {
@@ -13373,7 +13462,7 @@ func saleProductForTransaction(tx sqlQueryExecer, tenantID int, user *User, prod
 	return item, nil
 }
 
-func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy bool, legacyTotal, legacySalePrice, legacyUnitPrice *float64, paymentMethod, channel, soldBy, notes, source string, auditPayload map[string]any) (saleCreateResult, error) {
+func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy bool, legacyTotal, legacySalePrice, legacyUnitPrice *float64, customerID int, customer *customerInput, paymentMethod, channel, soldBy, notes, source string, auditPayload map[string]any) (saleCreateResult, error) {
 	if len(items) == 0 {
 		return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{"items": "Debes indicar al menos un producto."}}
 	}
@@ -13381,12 +13470,33 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 	if err != nil {
 		return saleCreateResult{}, requestError{Status: http.StatusForbidden, Message: "No autorizado."}
 	}
+	if customer != nil && hasCustomerInput(*customer) {
+		if fields := validateCustomerInput(*customer); len(fields) > 0 {
+			return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: fields}
+		}
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		return saleCreateResult{}, err
 	}
 	defer tx.Rollback()
+	if customer != nil && hasCustomerInput(*customer) {
+		resolvedCustomer, resolveErr := resolveCustomerForCredit(tx, tenantID, *customer)
+		if resolveErr != nil {
+			return saleCreateResult{}, resolveErr
+		}
+		customerID = resolvedCustomer.ID
+	}
+	if customerID > 0 {
+		var customerTenantID int
+		if err := tx.QueryRow(`SELECT tenant_id FROM customers WHERE tenant_id = ? AND id = ? LIMIT 1`, tenantID, customerID).Scan(&customerTenantID); err != nil {
+			if err == sql.ErrNoRows {
+				return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Cliente inválido para la venta.", Fields: map[string]string{"customer_id": "Selecciona un cliente válido."}}
+			}
+			return saleCreateResult{}, err
+		}
+	}
 
 	resolved := make([]saleItemRecord, len(items))
 	for index, input := range items {
@@ -13467,9 +13577,9 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 	averagePrice := subtotal / float64(totalQuantity)
 	first := resolved[0]
 	saleID, err := insertAndReturnID(tx, `
-		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, tenantID, first.ProductSKU, totalQuantity, averagePrice, paymentMethod, channel, soldBy, notes, now)
+		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, customer_id, notas, fecha)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, tenantID, first.ProductSKU, totalQuantity, averagePrice, paymentMethod, channel, soldBy, nullableIntValue(customerID), notes, now)
 	if err != nil {
 		return saleCreateResult{}, err
 	}
@@ -13488,14 +13598,25 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 	auditPayload["item_count"] = len(resolved)
 	auditPayload["total_quantity"] = totalQuantity
 	auditPayload["subtotal"] = subtotal
+	auditPayload["customer_id"] = customerID
 	auditPayload["items"] = saleItemMaps(resolved)
 	if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", first.ProductID, source, auditPayload); err != nil {
 		return saleCreateResult{}, err
 	}
+	if customerID > 0 {
+		if err := logCustomerEvent(tx, currentUser, customerID, "sale_registered", "sale", strconv.FormatInt(saleID, 10), subtotal, map[string]any{
+			"sale_id":     saleID,
+			"customer_id": customerID,
+			"item_count":  len(resolved),
+			"total":       subtotal,
+		}); err != nil {
+			return saleCreateResult{}, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return saleCreateResult{}, err
 	}
-	return saleCreateResult{SaleID: saleID, Items: resolved, TotalQuantity: totalQuantity, Subtotal: subtotal}, nil
+	return saleCreateResult{SaleID: saleID, CustomerID: customerID, Items: resolved, TotalQuantity: totalQuantity, Subtotal: subtotal}, nil
 }
 
 func handleAPISales(db *sql.DB) http.HandlerFunc {
@@ -13542,6 +13663,7 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 			var payload struct {
 				ProductID     string          `json:"product_id"`
 				Quantity      *int            `json:"quantity"`
+				CustomerID    int             `json:"customer_id"`
 				PaymentMethod string          `json:"payment_method"`
 				UnitPrice     *float64        `json:"unit_price"`
 				Total         *float64        `json:"total"`
@@ -13631,7 +13753,7 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
 				return
 			}
-			result, err := registerSale(db, currentUser, inputs, legacy, payload.Total, payload.SalePrice, payload.UnitPrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, "api", withAPIAuditMetadata(r, map[string]any{
+			result, err := registerSale(db, currentUser, inputs, legacy, payload.Total, payload.SalePrice, payload.UnitPrice, payload.CustomerID, nil, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, "api", withAPIAuditMetadata(r, map[string]any{
 				"payment_method": paymentMethod,
 				"channel":        payload.Channel,
 				"sold_by":        payload.SoldBy,
@@ -16581,6 +16703,7 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 		{name: "notas", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "channel", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "sold_by", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "customer_id", definition: "INTEGER"},
 		{name: "receipt_buyer_name", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "receipt_buyer_document", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "receipt_generated_at", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -16594,6 +16717,9 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 		}
 	}
 	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_ventas_tenant_receipt_generated ON ventas(tenant_id, receipt_generated_at)"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_ventas_tenant_customer ON ventas(tenant_id, customer_id, fecha)"); err != nil {
 		return err
 	}
 
@@ -16952,6 +17078,7 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		metodo_pago TEXT NOT NULL,
 		channel TEXT NOT NULL DEFAULT '',
 		sold_by TEXT NOT NULL DEFAULT '',
+		customer_id INTEGER,
 		notas TEXT NOT NULL DEFAULT '',
 		receipt_buyer_name TEXT NOT NULL DEFAULT '',
 		receipt_buyer_document TEXT NOT NULL DEFAULT '',
@@ -17542,6 +17669,8 @@ func main() {
 		"templates/password_reset_result.html",
 		"templates/product_new.html",
 		"templates/venta_new.html",
+		"templates/sale_cart.html",
+		"templates/sale_checkout.html",
 		"templates/venta_confirm.html",
 		"templates/sale_receipt.html",
 		"templates/sale_ticket_thermal.html",
@@ -17638,18 +17767,59 @@ func main() {
 		Title              string
 		Subtitle           string
 		SaleID             int
+		CreditSaleID       int
+		IsCredit           bool
 		ProductoID         string
 		ProductoNom        string
 		Cantidad           int
 		PrecioFinal        string
 		ValorVentaFinal    string
 		MetodoPago         string
+		CustomerID         int
+		CustomerName       string
+		InstallmentsTotal  int
+		InstallmentValue   string
+		TotalValue         string
+		Items              []saleReceiptItem
+		CreditItems        []creditSaleItem
 		Notas              string
 		ReceiptViewURL     string
 		ReceiptDownloadURL string
 		ThermalTicketURL   string
 		InvoiceCreateURL   string
 		CurrentUser        *User
+	}
+
+	type saleCartPageData struct {
+		Title       string
+		Subtitle    string
+		CurrentUser *User
+	}
+
+	type saleCheckoutPageData struct {
+		Title                  string
+		Subtitle               string
+		MetodoPagos            []string
+		CanCredit              bool
+		Error                  string
+		SaleMode               string
+		CustomerSearch         string
+		CustomerID             int
+		CustomerName           string
+		CustomerPhone          string
+		CustomerDocumentType   string
+		CustomerDocumentNumber string
+		CustomerCity           string
+		CustomerAddress        string
+		CustomerNotes          string
+		MetodoPago             string
+		AnonymousConfirm       bool
+		InstallmentsTotal      string
+		InterestPercent        string
+		TotalValue             string
+		InstallmentValue       string
+		Notas                  string
+		CurrentUser            *User
 	}
 
 	type loginPageData struct {
@@ -22892,67 +23062,67 @@ func main() {
 			redirectWithMessage(w, r, "/inventario", "", "La venta está deshabilitada en Configuración.")
 			return
 		}
-		activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
+		http.Redirect(w, r, "/inventario", http.StatusSeeOther)
+	})
+
+	mux.HandleFunc("/venta/carrito", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
 		if err != nil {
-			http.Error(w, "Error al cargar métodos de pago", http.StatusInternalServerError)
+			http.Error(w, "No se pudieron cargar los movimientos disponibles", http.StatusInternalServerError)
 			return
 		}
-		paymentMethodNamesActive := paymentMethodNames(activePaymentMethods)
-
-		productsSnapshot, err := loadVisibleProductsForUser(db, currentUser)
-		if err != nil {
-			http.Error(w, "Error al cargar productos", http.StatusInternalServerError)
+		if !movementEnabled(movementEnabledMap, "venta") {
+			redirectWithMessage(w, r, "/inventario", "", "La venta está deshabilitada en Configuración.")
 			return
 		}
-
-		productID := r.URL.Query().Get("producto_id")
-		if productID == "" && len(productsSnapshot) > 0 {
-			productID = productsSnapshot[0].ID
-		}
-		cantidad := 1
-		if qty := r.URL.Query().Get("cantidad"); qty != "" {
-			if parsed, err := strconv.Atoi(qty); err == nil && parsed > 0 {
-				cantidad = parsed
-			}
-		}
-
-		selectedProduct, ok := findProduct(productsSnapshot, productID)
-		if !ok && len(productsSnapshot) > 0 {
-			selectedProduct = productsSnapshot[0]
-			productID = selectedProduct.ID
-		}
-		if len(productsSnapshot) == 0 {
-			redirectWithMessage(w, r, "/inventario", "", "No tienes productos disponibles para vender.")
-			return
-		}
-
-		stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
-		if err != nil {
-			http.Error(w, "Error al consultar stock", http.StatusInternalServerError)
-			return
-		}
-		if available := stockByProd[productID]; available > 0 && cantidad > available {
-			cantidad = available
-		}
-
-		defaultMethod := ""
-		if len(paymentMethodNamesActive) > 0 {
-			defaultMethod = paymentMethodNamesActive[0]
-		}
-
-		data := ventaFormData{
-			Title:       "Registrar venta",
-			ProductoID:  productID,
-			ProductoNom: selectedProduct.Name,
-			Productos:   productsSnapshot,
-			StockByProd: stockByProd,
-			Cantidad:    cantidad,
-			MetodoPago:  defaultMethod,
-			MetodoPagos: paymentMethodNamesActive,
+		renderTemplate(w, "sale_cart.html", saleCartPageData{
+			Title:       "Carrito de venta",
+			Subtitle:    "Revisa los productos antes de continuar.",
 			CurrentUser: currentUser,
-		}
+		}, "Error al renderizar el carrito")
+	})
 
-		renderTemplate(w, "venta_new.html", data, "Error al renderizar el template")
+	mux.HandleFunc("/venta/checkout", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		currentUser := userFromContext(r)
+		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantIDFromUser(currentUser))
+		if err != nil {
+			http.Error(w, "No se pudieron cargar los movimientos disponibles", http.StatusInternalServerError)
+			return
+		}
+		if !movementEnabled(movementEnabledMap, "venta") {
+			redirectWithMessage(w, r, "/inventario", "", "La venta está deshabilitada en Configuración.")
+			return
+		}
+		methods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
+		if err != nil {
+			http.Error(w, "No se pudieron cargar los métodos de pago", http.StatusInternalServerError)
+			return
+		}
+		methodNames := paymentMethodNames(methods)
+		defaultMethod := ""
+		if len(methodNames) > 0 {
+			defaultMethod = methodNames[0]
+		}
+		renderTemplate(w, "sale_checkout.html", saleCheckoutPageData{
+			Title:             "Finalizar venta",
+			Subtitle:          "Completa la información de la operación.",
+			MetodoPagos:       methodNames,
+			CanCredit:         movementEnabled(movementEnabledMap, "credito"),
+			SaleMode:          "normal",
+			MetodoPago:        defaultMethod,
+			InstallmentsTotal: "1",
+			InterestPercent:   "0",
+			CurrentUser:       currentUser,
+		}, "Error al renderizar el checkout")
 	})
 
 	mux.HandleFunc("/venta/comprobante", func(w http.ResponseWriter, r *http.Request) {
@@ -23502,6 +23672,189 @@ func main() {
 			http.Error(w, "No se pudo leer el formulario", http.StatusBadRequest)
 			return
 		}
+		if strings.TrimSpace(r.FormValue("items_json")) != "" {
+			checkoutMode := strings.TrimSpace(r.FormValue("sale_mode"))
+			if checkoutMode == "" {
+				checkoutMode = "normal"
+			}
+			checkoutData := func(message string) saleCheckoutPageData {
+				return saleCheckoutPageData{
+					Title:                  "Finalizar venta",
+					Subtitle:               "Completa la información de la operación.",
+					MetodoPagos:            paymentMethodOptions,
+					CanCredit:              movementEnabled(movementEnabledMap, "credito"),
+					Error:                  message,
+					SaleMode:               checkoutMode,
+					CustomerSearch:         strings.TrimSpace(r.FormValue("customer_search")),
+					CustomerID:             parseIntOrZero(r.FormValue("customer_id")),
+					CustomerName:           strings.TrimSpace(r.FormValue("customer_name")),
+					CustomerPhone:          strings.TrimSpace(r.FormValue("customer_phone")),
+					CustomerDocumentType:   strings.TrimSpace(r.FormValue("customer_document_type")),
+					CustomerDocumentNumber: strings.TrimSpace(r.FormValue("customer_document_number")),
+					CustomerCity:           strings.TrimSpace(r.FormValue("customer_city")),
+					CustomerAddress:        strings.TrimSpace(r.FormValue("customer_address")),
+					CustomerNotes:          strings.TrimSpace(r.FormValue("customer_notes")),
+					MetodoPago:             strings.TrimSpace(r.FormValue("metodo_pago")),
+					AnonymousConfirm:       r.FormValue("anonymous_confirm") == "1",
+					InstallmentsTotal:      strings.TrimSpace(r.FormValue("installments_total")),
+					InterestPercent:        strings.TrimSpace(r.FormValue("interest_percent")),
+					TotalValue:             strings.TrimSpace(r.FormValue("total_value")),
+					InstallmentValue:       strings.TrimSpace(r.FormValue("installment_value")),
+					Notas:                  strings.TrimSpace(r.FormValue("notas")),
+					CurrentUser:            currentUser,
+				}
+			}
+			checkoutError := func(status int, message string) {
+				w.WriteHeader(status)
+				data := checkoutData(message)
+				renderTemplate(w, "sale_checkout.html", data, "Error al renderizar el checkout")
+			}
+			var cartItems []saleItemPayload
+			if err := json.Unmarshal([]byte(r.FormValue("items_json")), &cartItems); err != nil || len(cartItems) == 0 {
+				checkoutError(http.StatusBadRequest, "El carrito está vacío o no es válido.")
+				return
+			}
+			seenProducts := map[string]bool{}
+			inputs := make([]saleItemInput, 0, len(cartItems))
+			for index, item := range cartItems {
+				item.ProductID = strings.TrimSpace(item.ProductID)
+				if item.ProductID == "" || item.Quantity <= 0 || item.UnitPrice == nil || *item.UnitPrice <= 0 {
+					checkoutError(http.StatusBadRequest, fmt.Sprintf("La línea %d del carrito no es válida.", index+1))
+					return
+				}
+				key := strings.ToLower(item.ProductID)
+				if seenProducts[key] {
+					checkoutError(http.StatusBadRequest, "No se puede repetir un producto en el carrito.")
+					return
+				}
+				seenProducts[key] = true
+				inputs = append(inputs, saleItemInput{ProductID: item.ProductID, Quantity: item.Quantity, UnitPrice: item.UnitPrice})
+			}
+
+			customerData := &customerInput{
+				CustomerID:     parseIntOrZero(r.FormValue("customer_id")),
+				Name:           strings.TrimSpace(r.FormValue("customer_name")),
+				Phone:          strings.TrimSpace(r.FormValue("customer_phone")),
+				DocumentType:   strings.TrimSpace(r.FormValue("customer_document_type")),
+				DocumentNumber: strings.TrimSpace(r.FormValue("customer_document_number")),
+				Address:        strings.TrimSpace(r.FormValue("customer_address")),
+				City:           strings.TrimSpace(r.FormValue("customer_city")),
+				Notes:          strings.TrimSpace(r.FormValue("customer_notes")),
+			}
+			mode := strings.TrimSpace(r.FormValue("sale_mode"))
+			if mode == "credit" {
+				creditItems := make([]apiCreditItemPayload, 0, len(cartItems))
+				for _, item := range cartItems {
+					creditItems = append(creditItems, apiCreditItemPayload{ProductID: item.ProductID, Quantity: item.Quantity, UnitValue: *item.UnitPrice})
+				}
+				totalValue, parseErr := strconv.ParseFloat(strings.TrimSpace(r.FormValue("total_value")), 64)
+				if parseErr != nil {
+					totalValue = 0
+				}
+				interest, parseErr := strconv.ParseFloat(strings.TrimSpace(r.FormValue("interest_percent")), 64)
+				if parseErr != nil {
+					interest = 0
+				}
+				installments := parseIntOrZero(r.FormValue("installments_total"))
+				installmentValue, parseErr := strconv.ParseFloat(strings.TrimSpace(r.FormValue("installment_value")), 64)
+				if parseErr != nil {
+					installmentValue = 0
+				}
+				creditPayload := apiCreditPayload{
+					Kind:                   string(creditSaleKindProduct),
+					Items:                  creditItems,
+					CustomerID:             customerData.CustomerID,
+					CustomerName:           customerData.Name,
+					CustomerPhone:          customerData.Phone,
+					CustomerDocumentType:   customerData.DocumentType,
+					CustomerDocumentNumber: customerData.DocumentNumber,
+					CustomerAddress:        customerData.Address,
+					CustomerCity:           customerData.City,
+					CustomerNotes:          customerData.Notes,
+					InstallmentsTotal:      installments,
+					TotalValue:             totalValue,
+					InterestPercent:        interest,
+					InstallmentValue:       &installmentValue,
+					Notes:                  strings.TrimSpace(r.FormValue("notas")),
+				}
+				result, err := createCreditViaAPI(db, currentUser, creditPayload, "web", creditSaleKindProduct, nil)
+				if err != nil {
+					if reqErr, ok := requestErrorDetails(err); ok {
+						checkoutError(reqErr.Status, reqErr.Message)
+						return
+					}
+					checkoutError(http.StatusInternalServerError, "No se pudo registrar el crédito.")
+					return
+				}
+				creditID := intFromAny(result["credit_sale_id"])
+				creditLineItems, _ := result["items"].([]creditSaleItem)
+				confirmData := ventaConfirmData{
+					Title:             "Crédito registrado",
+					Subtitle:          "Crédito registrado e inventario actualizado.",
+					CreditSaleID:      creditID,
+					IsCredit:          true,
+					CustomerID:        customerData.CustomerID,
+					CustomerName:      customerData.Name,
+					InstallmentsTotal: installments,
+					InstallmentValue:  formatCurrency(floatFromAny(result["installment_value"])),
+					TotalValue:        formatCurrency(totalValue),
+					CreditItems:       creditLineItems,
+					Notas:             creditPayload.Notes,
+					InvoiceCreateURL:  invoiceNewFromCreditURL(creditID),
+					CurrentUser:       currentUser,
+				}
+				renderTemplate(w, "venta_confirm.html", confirmData, "Error al renderizar la confirmación")
+				return
+			}
+
+			if !validPaymentMethod(paymentMethodOptions, strings.TrimSpace(r.FormValue("metodo_pago"))) {
+				checkoutError(http.StatusBadRequest, "Selecciona un método de pago válido.")
+				return
+			}
+			if customerData.CustomerID <= 0 && !hasCustomerInput(*customerData) && r.FormValue("anonymous_confirm") != "1" {
+				checkoutError(http.StatusBadRequest, "Confirma que deseas registrar la venta sin cliente.")
+				return
+			}
+			result, err := registerSale(db, currentUser, inputs, false, nil, nil, nil, customerData.CustomerID, customerData, strings.TrimSpace(r.FormValue("metodo_pago")), "web", currentUser.Username, strings.TrimSpace(r.FormValue("notas")), "web", map[string]any{
+				"channel":        "web",
+				"payment_method": strings.TrimSpace(r.FormValue("metodo_pago")),
+				"sold_by":        currentUser.Username,
+			})
+			if err != nil {
+				if reqErr, ok := requestErrorDetails(err); ok {
+					checkoutError(reqErr.Status, reqErr.Message)
+					return
+				}
+				checkoutError(http.StatusInternalServerError, "No se pudo registrar la venta.")
+				return
+			}
+			receiptItems := make([]saleReceiptItem, 0, len(result.Items))
+			for _, item := range result.Items {
+				receiptItems = append(receiptItems, saleReceiptItem{ProductID: item.ProductID, ProductName: item.ProductName, Quantity: item.Quantity, UnitPrice: item.UnitPrice, UnitPriceText: formatCurrency(item.UnitPrice), LineTotal: item.LineTotal, LineTotalText: formatCurrency(item.LineTotal), ProductSKU: item.ProductSKU})
+			}
+			confirmData := ventaConfirmData{
+				Title:              "Venta registrada",
+				Subtitle:           "Venta registrada e inventario actualizado.",
+				SaleID:             int(result.SaleID),
+				ProductoID:         receiptItems[0].ProductID,
+				ProductoNom:        receiptItems[0].ProductName,
+				Cantidad:           result.TotalQuantity,
+				PrecioFinal:        formatCurrency(receiptItems[0].UnitPrice),
+				ValorVentaFinal:    formatCurrency(result.Subtotal),
+				MetodoPago:         strings.TrimSpace(r.FormValue("metodo_pago")),
+				CustomerID:         result.CustomerID,
+				CustomerName:       customerData.Name,
+				Items:              receiptItems,
+				Notas:              strings.TrimSpace(r.FormValue("notas")),
+				ReceiptViewURL:     saleReceiptViewURL(int(result.SaleID)),
+				ReceiptDownloadURL: saleReceiptDownloadURL(int(result.SaleID)),
+				ThermalTicketURL:   saleThermalTicketViewURL(int(result.SaleID)),
+				InvoiceCreateURL:   invoiceNewFromSaleURL(int(result.SaleID)),
+				CurrentUser:        currentUser,
+			}
+			renderTemplate(w, "venta_confirm.html", confirmData, "Error al renderizar la confirmación")
+			return
+		}
 
 		productID := r.FormValue("producto_id")
 		saleMode := strings.TrimSpace(r.FormValue("sale_mode"))
@@ -23802,12 +24155,15 @@ func main() {
 		}
 
 		saleID := 0
+		creditSaleID := 0
 		if saleMode == "credit" {
-			creditSaleID, err := insertAndReturnID(tx,
+			var insertedCreditSaleID int64
+			insertedCreditSaleID, err = insertAndReturnID(tx,
 				`INSERT INTO credit_sales (tenant_id, customer_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
 				tenantIDFromUser(currentUser), customerInput.CustomerID, string(creditSaleKindProduct), productSKU, cantidad, debtorName, debtorDocumentType, debtorDocumentNumber, debtorPhone, creditInstallmentsTotal, float64(creditTotalValue), creditInterestPercent, creditInstallmentValue, notaMovimiento, string(creditStatusActive), now, nullableUserID(currentUser),
 			)
+			creditSaleID = int(insertedCreditSaleID)
 			if err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					log.Printf("rollback credit sale insert: %v", rollbackErr)
@@ -23820,7 +24176,7 @@ func main() {
 				return
 			}
 			if customerInput.CustomerID > 0 {
-				if err := logCustomerEvent(tx, currentUser, customerInput.CustomerID, "credit_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), creditDebtTotal(creditInstallmentsTotal, creditInstallmentValue), map[string]any{
+				if err := logCustomerEvent(tx, currentUser, customerInput.CustomerID, "credit_created", "credit_sale", strconv.Itoa(creditSaleID), creditDebtTotal(creditInstallmentsTotal, creditInstallmentValue), map[string]any{
 					"kind":               string(creditSaleKindProduct),
 					"kind_label":         creditKindLabel(creditSaleKindProduct),
 					"product_id":         productID,
@@ -23841,7 +24197,7 @@ func main() {
 					return
 				}
 			}
-			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), "manual", map[string]any{
+			if err := logAuditEvent(tx, currentUser, "credit_sale_created", "credit_sale", strconv.Itoa(creditSaleID), "manual", map[string]any{
 				"credit_sale_id":         creditSaleID,
 				"customer_id":            customerInput.CustomerID,
 				"customer_address":       customerAddress,
@@ -23962,42 +24318,81 @@ func main() {
 		if saleMode != "credit" && valorFinalOk && cantidad > 0 {
 			precioFinalText = fmt.Sprintf("%.2f", valorFinalParsed/float64(cantidad))
 		}
-
 		confirmData := ventaConfirmData{
-			Title:           "Venta registrada",
-			SaleID:          saleID,
-			ProductoID:      productID,
-			ProductoNom:     selectedProduct.Name,
-			Cantidad:        cantidad,
-			PrecioFinal:     precioFinalText,
-			ValorVentaFinal: valorVentaFinalValue,
-			MetodoPago:      metodoPago,
-			Notas:           notas,
-			ReceiptViewURL: func() string {
-				if saleID > 0 {
-					return saleReceiptViewURL(saleID)
-				}
-				return ""
-			}(),
-			ReceiptDownloadURL: func() string {
-				if saleID > 0 {
-					return saleReceiptDownloadURL(saleID)
-				}
-				return ""
-			}(),
-			ThermalTicketURL: func() string {
-				if saleID > 0 {
-					return saleThermalTicketViewURL(saleID)
-				}
-				return ""
-			}(),
-			InvoiceCreateURL: func() string {
-				if saleID > 0 {
-					return invoiceNewFromSaleURL(saleID)
-				}
-				return ""
-			}(),
-			CurrentUser: currentUser,
+			Title:             "Venta registrada",
+			SaleID:            saleID,
+			CreditSaleID:      creditSaleID,
+			IsCredit:          saleMode == "credit",
+			ProductoID:        productID,
+			ProductoNom:       selectedProduct.Name,
+			Cantidad:          cantidad,
+			PrecioFinal:       precioFinalText,
+			ValorVentaFinal:   valorVentaFinalValue,
+			MetodoPago:        metodoPago,
+			CustomerID:        customerInput.CustomerID,
+			CustomerName:      debtorName,
+			InstallmentsTotal: creditInstallmentsTotal,
+			InstallmentValue:  formatCurrency(creditInstallmentValue),
+			TotalValue:        formatCurrency(float64(creditTotalValue)),
+			Notas:             notas,
+			CurrentUser:       currentUser,
+		}
+		if saleMode == "credit" {
+			unitValue := float64(creditTotalValue)
+			if cantidad > 0 {
+				unitValue /= float64(cantidad)
+			}
+			confirmData.CreditItems = []creditSaleItem{{
+				ProductID:   productID,
+				ProductSKU:  productSKU,
+				ProductName: selectedProduct.Name,
+				Quantity:    cantidad,
+				UnitValue:   unitValue,
+				LineTotal:   float64(creditTotalValue),
+			}}
+		} else {
+			unitPrice := precioParsed
+			if valorFinalOk && cantidad > 0 {
+				unitPrice = valorFinalParsed / float64(cantidad)
+			}
+			confirmData.Items = []saleReceiptItem{{
+				ProductID:     productID,
+				ProductName:   selectedProduct.Name,
+				Quantity:      cantidad,
+				UnitPrice:     unitPrice,
+				UnitPriceText: formatCurrency(unitPrice),
+				LineTotal:     unitPrice * float64(cantidad),
+				LineTotalText: formatCurrency(unitPrice * float64(cantidad)),
+				ProductSKU:    productSKU,
+			}}
+		}
+
+		confirmData.ReceiptViewURL = func() string {
+			if saleID > 0 {
+				return saleReceiptViewURL(saleID)
+			}
+			return ""
+		}()
+		confirmData.ReceiptDownloadURL = func() string {
+			if saleID > 0 {
+				return saleReceiptDownloadURL(saleID)
+			}
+			return ""
+		}()
+		confirmData.ThermalTicketURL = func() string {
+			if saleID > 0 {
+				return saleThermalTicketViewURL(saleID)
+			}
+			return ""
+		}()
+		confirmData.InvoiceCreateURL = func() string {
+			if saleID > 0 {
+				return invoiceNewFromSaleURL(saleID)
+			}
+			return ""
+		}()
+		if creditSaleID > 0 {
+			confirmData.InvoiceCreateURL = invoiceNewFromCreditURL(creditSaleID)
 		}
 		renderTemplate(w, "venta_confirm.html", confirmData, "Error al renderizar el template")
 	})

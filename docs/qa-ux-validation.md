@@ -8,7 +8,7 @@ Documento operativo para validar las mejoras de las Fases 0–7. No implementa t
 |---|---|---|
 | Inventario | `/inventario` | Incluye venta, crédito, préstamo, retoma, ajuste, historial y “Más acciones”. |
 | Clientes | `/clientes` | La búsqueda reutilizable usa `GET /api/customers`. |
-| Venta | `/venta/new` y POST `/venta` | El formulario puede abrirse desde Inventario. |
+| Venta | `/inventario`, `/venta/carrito`, `/venta/checkout` y POST `/venta` | Los productos se agregan al carrito desde Inventario; `/venta/new` solo conserva una redirección legacy. |
 | Crédito | `/inventario` | Se prueba el modal/formulario de crédito desde la fila del producto. |
 | Préstamo | `/prestamos/producto` y `/prestamos/producto/{id}` | También se inicia desde Inventario. |
 | Retoma | `/inventario` | Se prueba desde la acción contextual de la fila. |
@@ -134,7 +134,7 @@ Crear temporalmente un test local (fuera del commit de la aplicación) que visit
 npx playwright test accessibility.spec.js --project=chromium
 ```
 
-Rutas mínimas: `/inventario`, `/clientes`, `/venta/new`, `/dashboard`, `/auditoria`, `/configuracion`, `/prestamos/producto` y un detalle de préstamo con datos de prueba.
+Rutas mínimas: `/inventario`, `/venta/carrito`, `/venta/checkout`, `/clientes`, `/dashboard`, `/auditoria`, `/configuracion`, `/prestamos/producto` y un detalle de préstamo con datos de prueba.
 
 ### Lighthouse
 

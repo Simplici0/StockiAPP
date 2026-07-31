@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}}</title>
+        <style>
+            .sale-page { display: grid; gap: 24px; max-width: 980px; margin: 0 auto; }
+            .sale-panel { background: var(--bg-card-strong); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-xs); padding: 24px; }
+            .sale-panel h1 { margin: 0 0 6px; }
+            .sale-panel > p { margin: 0 0 20px; color: var(--text-muted); }
+            .sale-cart-lines { display: grid; gap: 12px; }
+            .sale-cart-line { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+            .sale-cart-line:last-child { border-bottom: 0; }
+            .sale-cart-line-info { display: grid; gap: 4px; }
+            .sale-cart-line-info span { color: var(--text-muted); font-size: 12px; }
+            .sale-cart-line-controls { display: grid; grid-template-columns: 86px 120px auto auto; gap: 8px; align-items: center; }
+            .sale-cart-line-total { min-width: 100px; text-align: right; }
+            .sale-empty-state { padding: 32px 8px; text-align: center; color: var(--text-muted); }
+            .sale-summary { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding-top: 20px; border-top: 1px solid var(--border); }
+            .sale-summary strong { font-size: 1.25rem; }
+            .sale-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+            @media (max-width: 760px) {
+                .sale-panel { padding: 18px; }
+                .sale-cart-line { grid-template-columns: 1fr; }
+                .sale-cart-line-controls { grid-template-columns: 1fr 1fr; }
+                .sale-cart-line-total { text-align: left; }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="sale-page" data-sale-cart data-sale-cart-key="stocki-sale-cart-{{.CurrentUser.TenantID}}-{{.CurrentUser.ID}}">
+                <section class="sale-panel">
+                    <h1>Carrito de venta</h1>
+                    <p>Revisa cantidades y precios antes de continuar.</p>
+                    <div class="sale-cart-lines" data-cart-lines></div>
+                    <div class="sale-summary">
+                        <span><strong data-cart-count>0</strong> unidades</span>
+                        <strong data-cart-total>$ 0</strong>
+                    </div>
+                    <div class="sale-actions">
+                        <a class="button secondary" href="/inventario">Seguir comprando</a>
+                        <a class="button primary" href="/venta/checkout">Continuar al checkout</a>
+                    </div>
+                </section>
+            </div>
+        </main>
+        <script src="/static/sale_cart.js"></script>
+    </body>
+</html>
