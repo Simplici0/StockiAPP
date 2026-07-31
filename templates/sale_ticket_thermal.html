@@ -308,23 +308,29 @@
                     <div class="thermal-separator"></div>
 
                     <section class="thermal-lines">
+                        {{range .Items}}
                         <div class="thermal-product">
                             <strong
                                 >{{if
-                                .ProductoNom}}{{.ProductoNom}}{{else}}{{.ProductoID}}{{end}}</strong
+                                .ProductName}}{{.ProductName}}{{else}}{{.ProductID}}{{end}}</strong
                             >
-                            <span>ID {{.ProductoID}}</span>
+                            <span>ID {{.ProductID}}</span>
                         </div>
                         <div class="thermal-row">
                             <strong>Cantidad</strong>
-                            <span>{{.Cantidad}}</span>
+                            <span>{{.Quantity}}</span>
                         </div>
                         <div class="thermal-row">
                             <strong>Unitario</strong>
-                            <span>{{.PrecioUnitario}}</span>
+                            <span>{{.UnitPriceText}}</span>
                         </div>
                         <div class="thermal-row thermal-total">
-                            <strong>Total</strong>
+                            <strong>Total linea</strong>
+                            <span>{{.LineTotalText}}</span>
+                        </div>
+                        {{end}}
+                        <div class="thermal-row thermal-total">
+                            <strong>Total venta</strong>
                             <span>{{.Total}}</span>
                         </div>
                     </section>

@@ -377,24 +377,30 @@
 
                         <section class="receipt-block">
                             <h2>Detalle</h2>
+                            {{range .Items}}
                             <div class="receipt-grid">
                                 <div class="receipt-field">
                                     <strong>Producto</strong>
-                                    <span>{{.ProductoNom}}</span>
+                                    <span>{{.ProductName}}</span>
                                 </div>
                                 <div class="receipt-field">
                                     <strong>ID</strong>
-                                    <span>{{.ProductoID}}</span>
+                                    <span>{{.ProductID}}</span>
                                 </div>
                                 <div class="receipt-field">
                                     <strong>Cantidad</strong>
-                                    <span>{{.Cantidad}}</span>
+                                    <span>{{.Quantity}}</span>
                                 </div>
                                 <div class="receipt-field">
                                     <strong>Precio unitario</strong>
-                                    <span>{{.PrecioUnitario}}</span>
+                                    <span>{{.UnitPriceText}}</span>
+                                </div>
+                                <div class="receipt-field">
+                                    <strong>Total línea</strong>
+                                    <span>{{.LineTotalText}}</span>
                                 </div>
                             </div>
+                            {{end}}
                         </section>
 
                         <section class="receipt-block">

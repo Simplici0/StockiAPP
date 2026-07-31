@@ -345,6 +345,52 @@ Payload:
 }
 ```
 
+Para varios productos bajo un único crédito y un único plan de cuotas, usa `items` en lugar de `product_id` y `quantity`:
+
+```json
+{
+  "kind": "product_credit",
+  "items": [
+    {
+      "product_id": "IPHONE-15",
+      "quantity": 1,
+      "unit_value": 3200000
+    },
+    {
+      "product_id": "AIRPODS-PRO",
+      "quantity": 1,
+      "unit_value": 900000
+    }
+  ],
+  "customer_id": 42,
+  "installments_total": 12,
+  "total_value": 4100000,
+  "interest_percent": 0,
+  "notes": "iPhone y AirPods bajo un solo plan"
+}
+```
+
+Ejemplo `curl`:
+
+```bash
+curl -X POST "https://login.stockiapp.co/api/credits" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind": "product_credit",
+    "items": [
+      {"product_id": "IPHONE-15", "quantity": 1, "unit_value": 3200000},
+      {"product_id": "AIRPODS-PRO", "quantity": 1, "unit_value": 900000}
+    ],
+    "customer_id": 42,
+    "installments_total": 12,
+    "total_value": 4100000,
+    "interest_percent": 0,
+    "notes": "Compra combinada desde n8n"
+  }'
+```
+
 Reglas:
 - `name` y `line` son obligatorios
 - `id` es opcional; si no lo envías, el backend genera un `id` visible tenant-scoped
@@ -567,6 +613,7 @@ Reglas:
 - `from` y `to` usan formato `YYYY-MM-DD`
 - el filtro respeta visibilidad por tenant y ownership
 - `product_id` se devuelve como `id` visible aunque `ventas.producto_id` persista `sku` interno
+- las ventas multiproducto incluyen sus líneas en `items`
 
 Ejemplo:
 
@@ -602,6 +649,8 @@ Respuesta:
 
 Registra una venta normal.
 
+El endpoint admite dos modos excluyentes: el formato histórico de un producto y el formato multiproducto. No envíes `product_id` junto con `items`.
+
 Payload compatible:
 
 ```json
@@ -620,6 +669,24 @@ Notas:
 - `quantity` puede venir como entero o usar el valor por defecto `1`
 - `sale_price`, `unit_price` y `total` tienen lógica de compatibilidad
 - `payment_method` debe existir y estar activo para el tenant
+- en el modo multiproducto, `items` debe tener al menos una línea, cada línea requiere `product_id`, `quantity` positiva y `unit_price` mayor a cero
+- un `product_id` no puede repetirse dentro de `items`
+- cada producto se valida por tenant, ownership y stock dentro de una única transacción
+
+Payload multiproducto:
+
+```json
+{
+  "items": [
+    {"product_id": "P-001", "quantity": 1, "unit_price": 25000},
+    {"product_id": "P-002", "quantity": 2, "unit_price": 30000}
+  ],
+  "payment_method": "Efectivo",
+  "channel": "Tienda",
+  "sold_by": "usuario",
+  "notes": "Venta combinada"
+}
+```
 
 Respuesta:
 
@@ -631,6 +698,20 @@ Respuesta:
   "product_name": "Crema corporal",
   "quantity": 2,
   "sale_price": 25000,
+  "items": [
+    {
+      "product_id": "P-001",
+      "product_name": "Crema corporal",
+      "quantity": 2,
+      "unit_price": 25000,
+      "total": 50000
+    }
+  ],
+  "item_count": 1,
+  "total_quantity": 2,
+  "subtotal": 50000,
+  "total": 50000,
+  "is_multi_product": false,
   "receipt_url": "/venta/comprobante?sale_id=100",
   "receipt_download_url": "/venta/comprobante?sale_id=100&download=1",
   "thermal_ticket_url": "/venta/ticket?sale_id=100",
@@ -1461,7 +1542,15 @@ Payload:
 
 Notas:
 - `product_credit` mantiene el flujo actual basado en producto.
+- `product_credit` acepta uno de dos modos excluyentes: `product_id` + `quantity`, o `items`.
+- no envíes `product_id` ni `quantity` en el nivel raíz cuando uses `items`.
+- cada elemento de `items` requiere `product_id`, `quantity > 0` y `unit_value > 0`.
+- un mismo `product_id` no puede repetirse dentro de `items`.
+- `total_value` debe coincidir con la suma de `items[*].quantity * items[*].unit_value`.
+- todos los productos se validan y descuentan en una sola transacción; si falla una línea, no se crea el crédito ni se modifica inventario.
+- todos los elementos comparten el mismo `installments_total`, interés, valor de cuota, deuda y `credit_sale_id`.
 - `cash_loan` no requiere `product_id`, no toca inventario y no genera movimientos físicos.
+- `cash_loan` no acepta `items`.
 - si quieres un contrato más directo para agentes/n8n orientado a préstamo, usa `POST /api/agent/credits`
 - `customer_*` es el contrato recomendado hacia adelante.
 - `debtor_*` sigue aceptándose por compatibilidad y se usa como alias del cliente.
@@ -1504,6 +1593,17 @@ Respuesta:
   "product_id": "P-001",
   "product_name": "Crema corporal",
   "quantity": 1,
+  "items": [
+    {
+      "product_id": "P-001",
+      "product_name": "Crema corporal",
+      "quantity": 1,
+      "unit_value": 300000,
+      "line_total": 300000
+    }
+  ],
+  "item_count": 1,
+  "is_multi_product": false,
   "installment_value": 25000,
   "debt_total": 300000,
   "total_paid": 0,
@@ -1511,6 +1611,8 @@ Respuesta:
   "message": "Venta a crédito registrada correctamente."
 }
 ```
+
+En un crédito combinado, `product_id` queda vacío, `product_name` usa una descripción agregada como `Compra combinada (2 productos)`, `quantity` contiene la suma de unidades e `items` conserva el detalle de cada línea. `GET /api/credits` y `GET /api/credits/{id}` devuelven los mismos campos aditivos. Los créditos históricos de un solo producto se representan como un elemento de `items` sin cambiar sus campos anteriores.
 
 Respuesta ejemplo para `cash_loan`:
 
@@ -2095,6 +2197,7 @@ Reglas:
 - usa el mismo dominio y validaciones de `POST /api/credits`
 - si no envías `kind`, el endpoint usa `cash_loan`
 - si envías `kind = product_credit`, reutiliza el flujo actual de crédito con producto
+- para un crédito combinado puedes enviar el mismo array `items` documentado en `POST /api/credits`; se crea un solo `credit_sale_id` y un solo plan de cuotas
 - no recibe `tenant_id`; el tenant se resuelve por Bearer token o API key
 
 Payload mínimo recomendado para `cash_loan`:

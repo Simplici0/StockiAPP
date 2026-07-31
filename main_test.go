@@ -3116,6 +3116,12 @@ func seedTenantHardResetFixture(t *testing.T, db *sql.DB, tenantID int) map[stri
 		t.Fatalf("query credit sale: %v", err)
 	}
 	if _, err := db.Exec(`
+		INSERT INTO credit_sale_items (tenant_id, credit_sale_id, product_id, product_name, quantity, unit_value, line_total, created_at)
+		VALUES (?, ?, ?, 'Producto Reset', 1, 300000, 300000, ?)
+	`, tenantID, creditSaleID, "SKU-900", now); err != nil {
+		t.Fatalf("insert credit sale item: %v", err)
+	}
+	if _, err := db.Exec(`
 		INSERT INTO credit_installments (tenant_id, credit_sale_id, product_id, installment_number, amount_paid, payment_type, created_at, created_by)
 		VALUES (?, ?, ?, 1, 100000, 'cuota', ?, 20)
 	`, tenantID, creditSaleID, "SKU-900", now); err != nil {
@@ -3244,6 +3250,9 @@ func TestHardResetTenantCreditsDeletesCreditRowsOnly(t *testing.T) {
 	}
 	if got := countRows(t, db, `SELECT COUNT(*) FROM credit_sales WHERE tenant_id = 2`); got != 0 {
 		t.Fatalf("expected credit sales deleted, got %d", got)
+	}
+	if got := countRows(t, db, `SELECT COUNT(*) FROM credit_sale_items WHERE tenant_id = 2`); got != 0 {
+		t.Fatalf("expected credit sale items deleted, got %d", got)
 	}
 	if got := countRows(t, db, `SELECT COUNT(*) FROM credit_installments WHERE tenant_id = 2`); got != 0 {
 		t.Fatalf("expected installments deleted, got %d", got)
@@ -3850,20 +3859,51 @@ func TestListSalesForUserIsTenantScoped(t *testing.T) {
 	`, now, now); err != nil {
 		t.Fatalf("insert sales: %v", err)
 	}
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled, owner_user_id)
+		VALUES ('SKU-T2-202', 2, 'P-202', 'Producto Privado', 'Linea Dos', 30000, 0, 901)
+	`); err != nil {
+		t.Fatalf("insert private product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha)
+		VALUES (2, 'SKU-T2-201', 2, 25000, 'Efectivo', 'Local', 'carlos', 'venta combinada', ?)
+	`, now); err != nil {
+		t.Fatalf("insert mixed sale: %v", err)
+	}
+	var mixedSaleID int
+	if err := db.QueryRow(`SELECT id FROM ventas WHERE tenant_id = 2 AND notas = 'venta combinada'`).Scan(&mixedSaleID); err != nil {
+		t.Fatalf("query mixed sale: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO sale_items (tenant_id, sale_id, product_id, product_visible_id, product_name, quantity, unit_price, total)
+		VALUES
+			(2, ?, 'SKU-T2-201', 'P-201', 'Producto Dos', 1, 20000, 20000),
+			(2, ?, 'SKU-T2-202', 'P-202', 'Producto Privado', 1, 30000, 30000)
+	`, mixedSaleID, mixedSaleID); err != nil {
+		t.Fatalf("insert mixed sale items: %v", err)
+	}
 
 	items, err := listSalesForUser(db, &User{Role: roleAdmin, TenantID: 2}, "", "", "", 100)
 	if err != nil {
 		t.Fatalf("listSalesForUser: %v", err)
 	}
-	if len(items) != 1 || items[0]["product_id"] != "P-201" {
+	if len(items) != 2 || items[0]["product_id"] != "P-201" {
 		t.Fatalf("unexpected tenant-scoped sales: %+v", items)
 	}
 	recentItems, err := listRecentSalesForUser(db, &User{Role: roleAdmin, TenantID: 2}, 20)
 	if err != nil {
 		t.Fatalf("listRecentSalesForUser: %v", err)
 	}
-	if len(recentItems) != 1 || recentItems[0]["producto_id"] != "P-201" {
+	if len(recentItems) != 2 || recentItems[0]["producto_id"] != "P-201" {
 		t.Fatalf("unexpected recent sales payload: %+v", recentItems)
+	}
+	employeeItems, err := listSalesForUser(db, &User{ID: 900, Role: roleEmployee, TenantID: 2}, "", "", "", 100)
+	if err != nil {
+		t.Fatalf("list employee sales: %v", err)
+	}
+	if len(employeeItems) != 1 || employeeItems[0]["product_id"] != "P-201" {
+		t.Fatalf("private line leaked into employee sales: %+v", employeeItems)
 	}
 }
 
@@ -4287,6 +4327,9 @@ func TestAPISalesEndpointPersistsInternalSKUFromVisibleProductID(t *testing.T) {
 	if body["product_id"] != visibleID {
 		t.Fatalf("unexpected sale response: %+v", body)
 	}
+	if body["is_multi_product"] != false || int(body["item_count"].(float64)) != 1 || int(body["total_quantity"].(float64)) != 1 {
+		t.Fatalf("unexpected single-product compatibility response: %+v", body)
+	}
 
 	var storedSaleProductID string
 	if err := db.QueryRow(`SELECT producto_id FROM ventas WHERE tenant_id = ? ORDER BY id DESC LIMIT 1`, tenant.ID).Scan(&storedSaleProductID); err != nil {
@@ -4310,6 +4353,124 @@ func TestAPISalesEndpointPersistsInternalSKUFromVisibleProductID(t *testing.T) {
 	}
 	if visibleIDRows != 0 {
 		t.Fatalf("expected no ventas persisted with visible id, got %d", visibleIDRows)
+	}
+}
+
+func TestAPISalesEndpointSupportsMultiProductAndInvoiceItems(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "MULTI-001", "Producto Uno", 25000, 1)
+	seedTenantProductWithUnits(t, db, tenant.ID, "MULTI-002", "Producto Dos", 30000, 2)
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/sales", token, map[string]any{
+		"items": []map[string]any{
+			{"product_id": "MULTI-001", "quantity": 1, "unit_price": 25000},
+			{"product_id": "MULTI-002", "quantity": 2, "unit_price": 30000},
+		},
+		"payment_method": "Efectivo",
+		"channel":        "Tienda",
+		"sold_by":        "usuario",
+		"notes":          "venta multiproducto",
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAPIResponse(t, resp)
+	if body["is_multi_product"] != true || int(body["item_count"].(float64)) != 2 || int(body["total_quantity"].(float64)) != 3 {
+		t.Fatalf("unexpected multi-product response: %+v", body)
+	}
+	if body["subtotal"] != float64(85000) || body["total"] != float64(85000) {
+		t.Fatalf("unexpected totals: %+v", body)
+	}
+	saleID := int(body["sale_id"].(float64))
+	var saleItemCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sale_items WHERE tenant_id = ? AND sale_id = ?`, tenant.ID, saleID).Scan(&saleItemCount); err != nil {
+		t.Fatalf("count sale items: %v", err)
+	}
+	if saleItemCount != 2 {
+		t.Fatalf("expected two sale items, got %d", saleItemCount)
+	}
+
+	invoiceResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/invoices", token, map[string]any{
+		"sale_id":                  saleID,
+		"customer_name":            "Cliente multiproducto",
+		"customer_phone":           "3001234567",
+		"customer_document_type":   "CC",
+		"customer_document_number": "123456",
+	})
+	if invoiceResp.Code != http.StatusCreated {
+		t.Fatalf("expected invoice 201, got %d body=%s", invoiceResp.Code, invoiceResp.Body.String())
+	}
+	invoiceBody := decodeAPIResponse(t, invoiceResp)
+	invoice := invoiceBody["invoice"].(map[string]any)
+	invoiceID := int(invoice["id"].(float64))
+	var invoiceItemCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM invoice_items WHERE tenant_id = ? AND invoice_id = ?`, tenant.ID, invoiceID).Scan(&invoiceItemCount); err != nil {
+		t.Fatalf("count invoice items: %v", err)
+	}
+	if invoiceItemCount != 2 {
+		t.Fatalf("expected two invoice items, got %d", invoiceItemCount)
+	}
+}
+
+func TestAPISalesEndpointRejectsRepeatedMultiProduct(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+	seedTenantProductWithUnits(t, db, tenant.ID, "DUP-001", "Producto Duplicado", 25000, 2)
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/sales", token, map[string]any{
+		"items": []map[string]any{
+			{"product_id": "DUP-001", "quantity": 1, "unit_price": 25000},
+			{"product_id": "DUP-001", "quantity": 1, "unit_price": 25000},
+		},
+		"payment_method": "Efectivo",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var sales, available int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ventas WHERE tenant_id = ?`, tenant.ID).Scan(&sales); err != nil {
+		t.Fatalf("count rejected sales: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = 'DUP-001' AND estado = 'Disponible'`, tenant.ID).Scan(&available); err != nil {
+		t.Fatalf("count available units: %v", err)
+	}
+	if sales != 0 || available != 2 {
+		t.Fatalf("duplicate request changed data: sales=%d available=%d", sales, available)
+	}
+}
+
+func TestAPISalesEndpointRollsBackAllItemsOnInsufficientStock(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+	seedTenantProductWithUnits(t, db, tenant.ID, "ROLL-001", "Producto Stock", 25000, 1)
+	seedTenantProductWithUnits(t, db, tenant.ID, "ROLL-002", "Producto Sin Stock", 30000, 1)
+	if _, err := db.Exec(`UPDATE unidades SET estado = 'Vendida' WHERE tenant_id = ? AND producto_id = 'ROLL-002'`, tenant.ID); err != nil {
+		t.Fatalf("remove second product stock: %v", err)
+	}
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/sales", token, map[string]any{
+		"items": []map[string]any{
+			{"product_id": "ROLL-001", "quantity": 1, "unit_price": 25000},
+			{"product_id": "ROLL-002", "quantity": 1, "unit_price": 30000},
+		},
+		"payment_method": "Efectivo",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var sales, saleItems, availableFirst int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ventas WHERE tenant_id = ?`, tenant.ID).Scan(&sales); err != nil {
+		t.Fatalf("count rolled back sales: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sale_items WHERE tenant_id = ?`, tenant.ID).Scan(&saleItems); err != nil {
+		t.Fatalf("count rolled back sale items: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = 'ROLL-001' AND estado = 'Disponible'`, tenant.ID).Scan(&availableFirst); err != nil {
+		t.Fatalf("count rolled back first stock: %v", err)
+	}
+	if sales != 0 || saleItems != 0 || availableFirst != 1 {
+		t.Fatalf("insufficient-stock request was not atomic: sales=%d items=%d available=%d", sales, saleItems, availableFirst)
 	}
 }
 
@@ -4391,6 +4552,273 @@ func TestAPICreditsEndpointRespectsTenantScopeByAPIKey(t *testing.T) {
 	}
 	if crossCredits != 0 {
 		t.Fatalf("expected no credits for cross-tenant product, got %d", crossCredits)
+	}
+}
+
+func TestAPICreditsSupportsMultiProductCreditWithSharedInstallmentsAndInvoice(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "COMBO-PHONE-001", "Telefono Combo", 1200000, 2)
+	seedTenantProductWithUnits(t, db, tenant.ID, "COMBO-AUDIO-001", "Audifonos Combo", 300000, 2)
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/agent/credits", token, map[string]any{
+		"kind": "product_credit",
+		"items": []map[string]any{
+			{"product_id": "COMBO-PHONE-001", "quantity": 1, "unit_value": 1200000},
+			{"product_id": "COMBO-AUDIO-001", "quantity": 1, "unit_value": 300000},
+		},
+		"customer_name":            "Cliente Compra Combinada",
+		"customer_phone":           "3005550101",
+		"customer_document_type":   "CC",
+		"customer_document_number": "550101",
+		"customer_city":            "Bogota",
+		"installments_total":       5,
+		"total_value":              1500000,
+		"interest_percent":         0,
+		"notes":                    "telefono y audifonos",
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected multi-product credit 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := decodeAPIResponse(t, resp)
+	creditSaleID := int(body["credit_sale_id"].(float64))
+	if body["product_id"] != "" || int(body["item_count"].(float64)) != 2 || body["is_multi_product"] != true {
+		t.Fatalf("unexpected multi-product response: %+v", body)
+	}
+	if body["installment_value"].(float64) != 300000 {
+		t.Fatalf("unexpected shared installment value: %+v", body)
+	}
+
+	var parentProduct sql.NullString
+	var parentQuantity int
+	if err := db.QueryRow(`SELECT product_id, quantity FROM credit_sales WHERE tenant_id = ? AND id = ?`, tenant.ID, creditSaleID).Scan(&parentProduct, &parentQuantity); err != nil {
+		t.Fatalf("query multi-product credit: %v", err)
+	}
+	if parentProduct.Valid || parentQuantity != 2 {
+		t.Fatalf("unexpected multi-product parent product=%+v quantity=%d", parentProduct, parentQuantity)
+	}
+	var itemCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM credit_sale_items WHERE tenant_id = ? AND credit_sale_id = ?`, tenant.ID, creditSaleID).Scan(&itemCount); err != nil {
+		t.Fatalf("count credit items: %v", err)
+	}
+	if itemCount != 2 {
+		t.Fatalf("expected 2 credit items, got %d", itemCount)
+	}
+	for _, productID := range []string{"COMBO-PHONE-001", "COMBO-AUDIO-001"} {
+		var sold int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ? AND estado = 'Vendida'`, tenant.ID, productID).Scan(&sold); err != nil {
+			t.Fatalf("count sold units for %s: %v", productID, err)
+		}
+		if sold != 1 {
+			t.Fatalf("expected one sold unit for %s, got %d", productID, sold)
+		}
+	}
+
+	detailResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits/"+strconv.Itoa(creditSaleID), token, nil)
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("expected credit detail 200, got %d body=%s", detailResp.Code, detailResp.Body.String())
+	}
+	detail := decodeAPIResponse(t, detailResp)["credit"].(map[string]any)
+	if detail["product"] != "Compra combinada (2 productos)" || int(detail["item_count"].(float64)) != 2 {
+		t.Fatalf("unexpected multi-product detail: %+v", detail)
+	}
+	searchResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/credits?q=Audifonos", token, nil)
+	if searchResp.Code != http.StatusOK || int(decodeAPIResponse(t, searchResp)["count"].(float64)) != 1 {
+		t.Fatalf("expected search by child product, got %d body=%s", searchResp.Code, searchResp.Body.String())
+	}
+	customerID := int(body["customer_id"].(float64))
+	customerProducts, err := listCustomerProductsForTenant(db, tenant.ID, customerID, 20)
+	if err != nil {
+		t.Fatalf("list customer products for multi-product credit: %v", err)
+	}
+	if len(customerProducts) != 2 {
+		t.Fatalf("expected both credit products in customer aggregation, got %+v", customerProducts)
+	}
+
+	installmentResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits/installments", token, map[string]any{
+		"credit_sale_id": creditSaleID,
+		"payment_type":   "cuota",
+	})
+	if installmentResp.Code != http.StatusCreated {
+		t.Fatalf("expected shared installment 201, got %d body=%s", installmentResp.Code, installmentResp.Body.String())
+	}
+	installmentBody := decodeAPIResponse(t, installmentResp)
+	if installmentBody["product_id"] != "" || installmentBody["product_name"] != "Compra combinada (2 productos)" || installmentBody["amount_paid"].(float64) != 300000 {
+		t.Fatalf("unexpected multi-product installment: %+v", installmentBody)
+	}
+
+	invoiceResp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/invoices", token, map[string]any{"credit_sale_id": creditSaleID})
+	if invoiceResp.Code != http.StatusCreated {
+		t.Fatalf("expected multi-product invoice 201, got %d body=%s", invoiceResp.Code, invoiceResp.Body.String())
+	}
+	invoice := decodeAPIResponse(t, invoiceResp)["invoice"].(map[string]any)
+	invoiceID := int(invoice["id"].(float64))
+	var invoiceItems int
+	var invoiceTotal float64
+	if err := db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(total), 0) FROM invoice_items WHERE tenant_id = ? AND invoice_id = ?`, tenant.ID, invoiceID).Scan(&invoiceItems, &invoiceTotal); err != nil {
+		t.Fatalf("query invoice items: %v", err)
+	}
+	if invoiceItems != 2 || invoiceTotal != 1500000 {
+		t.Fatalf("unexpected multi-product invoice items=%d total=%.2f", invoiceItems, invoiceTotal)
+	}
+}
+
+func TestAPICreditsMultiProductFailureRollsBackAllProducts(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	seedTenantProductWithUnits(t, db, tenant.ID, "ROLLBACK-ONE-001", "Producto Uno", 100000, 1)
+	seedTenantProductWithUnits(t, db, tenant.ID, "ROLLBACK-TWO-001", "Producto Dos", 50000, 1)
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind": "product_credit",
+		"items": []map[string]any{
+			{"product_id": "ROLLBACK-ONE-001", "quantity": 1, "unit_value": 100000},
+			{"product_id": "ROLLBACK-TWO-001", "quantity": 2, "unit_value": 50000},
+		},
+		"customer_name":            "Cliente Rollback",
+		"customer_phone":           "3005550202",
+		"customer_document_type":   "CC",
+		"customer_document_number": "550202",
+		"customer_city":            "Cali",
+		"installments_total":       2,
+		"total_value":              200000,
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected insufficient stock 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var credits, soldUnits, customers int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM credit_sales WHERE tenant_id = ? AND debtor_document_number = '550202'`, tenant.ID).Scan(&credits); err != nil {
+		t.Fatalf("count rolled back credits: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id IN ('ROLLBACK-ONE-001', 'ROLLBACK-TWO-001') AND estado = 'Vendida'`, tenant.ID).Scan(&soldUnits); err != nil {
+		t.Fatalf("count rolled back units: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customers WHERE tenant_id = ? AND document_number = '550202'`, tenant.ID).Scan(&customers); err != nil {
+		t.Fatalf("count rolled back customers: %v", err)
+	}
+	if credits != 0 || soldUnits != 0 || customers != 0 {
+		t.Fatalf("expected full rollback, credits=%d sold=%d customers=%d", credits, soldUnits, customers)
+	}
+}
+
+func TestAPICreditsMultiProductValidatesExclusiveAndConsistentItems(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+	seedTenantProductWithUnits(t, db, tenant.ID, "VALIDATE-COMBO-001", "Producto Validacion", 100000, 4)
+
+	base := map[string]any{
+		"kind":                     "product_credit",
+		"customer_name":            "Cliente Validacion",
+		"customer_phone":           "3005550303",
+		"customer_document_type":   "CC",
+		"customer_document_number": "550303",
+		"customer_city":            "Bogota",
+		"installments_total":       2,
+		"total_value":              200000,
+	}
+	tests := []struct {
+		name          string
+		changes       map[string]any
+		expectedField string
+	}{
+		{
+			name: "duplicate product",
+			changes: map[string]any{"items": []map[string]any{
+				{"product_id": "VALIDATE-COMBO-001", "quantity": 1, "unit_value": 100000},
+				{"product_id": "VALIDATE-COMBO-001", "quantity": 1, "unit_value": 100000},
+			}},
+			expectedField: "items[1].product_id",
+		},
+		{
+			name: "inconsistent total",
+			changes: map[string]any{
+				"items":       []map[string]any{{"product_id": "VALIDATE-COMBO-001", "quantity": 1, "unit_value": 100000}},
+				"total_value": 200000,
+			},
+			expectedField: "total_value",
+		},
+		{
+			name: "singular and items together",
+			changes: map[string]any{
+				"items":      []map[string]any{{"product_id": "VALIDATE-COMBO-001", "quantity": 2, "unit_value": 100000}},
+				"product_id": "VALIDATE-COMBO-001",
+				"quantity":   2,
+			},
+			expectedField: "items",
+		},
+		{
+			name:          "empty items array",
+			changes:       map[string]any{"items": []map[string]any{}},
+			expectedField: "items",
+		},
+		{
+			name: "cash loan with items",
+			changes: map[string]any{
+				"kind":  "cash_loan",
+				"items": []map[string]any{{"product_id": "VALIDATE-COMBO-001", "quantity": 2, "unit_value": 100000}},
+			},
+			expectedField: "items",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := map[string]any{}
+			for key, value := range base {
+				payload[key] = value
+			}
+			for key, value := range tt.changes {
+				payload[key] = value
+			}
+			resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, payload)
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+			}
+			fields, _ := decodeAPIResponse(t, resp)["fields"].(map[string]any)
+			if _, ok := fields[tt.expectedField]; !ok {
+				t.Fatalf("expected field %q, got %+v", tt.expectedField, fields)
+			}
+		})
+	}
+}
+
+func TestDeleteMultiProductCreditRemovesItemsAndKeepsInventoryHistory(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+	seedTenantProductWithUnits(t, db, tenant.ID, "DELETE-COMBO-001", "Producto Eliminar Uno", 80000, 1)
+	seedTenantProductWithUnits(t, db, tenant.ID, "DELETE-COMBO-002", "Producto Eliminar Dos", 20000, 1)
+
+	resp := performAPIJSONRequest(t, handler, http.MethodPost, "/api/credits", token, map[string]any{
+		"kind": "product_credit",
+		"items": []map[string]any{
+			{"product_id": "DELETE-COMBO-001", "quantity": 1, "unit_value": 80000},
+			{"product_id": "DELETE-COMBO-002", "quantity": 1, "unit_value": 20000},
+		},
+		"customer_name":            "Cliente Eliminar Combo",
+		"customer_phone":           "3005550404",
+		"customer_document_type":   "CC",
+		"customer_document_number": "550404",
+		"customer_city":            "Bogota",
+		"installments_total":       2,
+		"total_value":              100000,
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected credit 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	creditSaleID := int(decodeAPIResponse(t, resp)["credit_sale_id"].(float64))
+	result, err := deleteCreditSale(db, mustLoadTestUser(t, db, "tenant2.admin"), creditSaleID, "web")
+	if err != nil {
+		t.Fatalf("delete multi-product credit: %v", err)
+	}
+	if result.DeletedItems != 2 {
+		t.Fatalf("expected 2 deleted items, got %+v", result)
+	}
+	if got := countRows(t, db, `SELECT COUNT(*) FROM credit_sale_items WHERE tenant_id = ? AND credit_sale_id = ?`, tenant.ID, creditSaleID); got != 0 {
+		t.Fatalf("expected deleted credit items, got %d", got)
+	}
+	if got := countRows(t, db, `SELECT COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id IN ('DELETE-COMBO-001', 'DELETE-COMBO-002') AND estado = 'Vendida'`, tenant.ID); got != 2 {
+		t.Fatalf("expected sold inventory history to remain unchanged, got %d", got)
 	}
 }
 
@@ -5634,6 +6062,76 @@ func TestListCreditInstallmentsForUserRespectsOwnership(t *testing.T) {
 	}
 	if productNames["Producto Privado"] {
 		t.Fatalf("unexpected private product installment visible: %+v", items)
+	}
+}
+
+func TestMultiProductCreditVisibilityRequiresAccessToEveryItem(t *testing.T) {
+	db, _, tenant, _ := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	for _, input := range []managedUserInput{
+		{Username: "tenant2.comboops", Name: "Operador Combo", Email: "comboops@example.com", Password: "ClaveSegura123!", Role: roleEmployee, IsActive: true},
+		{Username: "tenant2.comboother", Name: "Otro Combo", Email: "comboother@example.com", Password: "ClaveSegura123!", Role: roleEmployee, IsActive: true},
+	} {
+		if _, err := createManagedUser(db, tenantAdmin, tenant.ID, usersCols, input, "manual", nil); err != nil {
+			t.Fatalf("create combo user: %v", err)
+		}
+	}
+	opsUser := mustLoadTestUser(t, db, "tenant2.comboops")
+	otherUser := mustLoadTestUser(t, db, "tenant2.comboother")
+	now := "2026-04-01T10:00:00Z"
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, precio_venta, retoma_enabled, owner_user_id)
+		VALUES
+			('COMBO-PUBLIC-001', ?, 'COMBO-PUBLIC-001', 'Combo Publico', 'Combo', 10000, 0, NULL),
+			('COMBO-OPS-001', ?, 'COMBO-OPS-001', 'Combo Operador', 'Combo', 12000, 0, ?),
+			('COMBO-OTHER-001', ?, 'COMBO-OTHER-001', 'Combo Privado', 'Combo', 14000, 0, ?)
+	`, tenant.ID, tenant.ID, opsUser.ID, tenant.ID, otherUser.ID); err != nil {
+		t.Fatalf("insert combo products: %v", err)
+	}
+	visibleCreditID, err := insertAndReturnID(db, `
+		INSERT INTO credit_sales (tenant_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
+		VALUES (?, 'product_credit', NULL, 2, 'Cliente Visible', 'CC', '8801', '3008801', 2, 0, 22000, 0, 11000, '', 'active', ?, ?)
+	`, tenant.ID, now, tenantAdmin.ID)
+	if err != nil {
+		t.Fatalf("insert visible combo credit: %v", err)
+	}
+	hiddenCreditID, err := insertAndReturnID(db, `
+		INSERT INTO credit_sales (tenant_id, kind, product_id, quantity, debtor_name, debtor_document_type, debtor_document_number, debtor_phone, installments_total, installments_paid, total_value, interest_percent, installment_value, notes, status, created_at, created_by)
+		VALUES (?, 'product_credit', NULL, 2, 'Cliente Oculto', 'CC', '8802', '3008802', 2, 0, 24000, 0, 12000, '', 'active', ?, ?)
+	`, tenant.ID, now, tenantAdmin.ID)
+	if err != nil {
+		t.Fatalf("insert hidden combo credit: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO credit_sale_items (tenant_id, credit_sale_id, product_id, product_name, quantity, unit_value, line_total, created_at)
+		VALUES
+			(?, ?, 'COMBO-PUBLIC-001', 'Combo Publico', 1, 10000, 10000, ?),
+			(?, ?, 'COMBO-OPS-001', 'Combo Operador', 1, 12000, 12000, ?),
+			(?, ?, 'COMBO-PUBLIC-001', 'Combo Publico', 1, 10000, 10000, ?),
+			(?, ?, 'COMBO-OTHER-001', 'Combo Privado', 1, 14000, 14000, ?)
+	`, tenant.ID, visibleCreditID, now, tenant.ID, visibleCreditID, now, tenant.ID, hiddenCreditID, now, tenant.ID, hiddenCreditID, now); err != nil {
+		t.Fatalf("insert combo credit items: %v", err)
+	}
+
+	items, err := listCreditsForUser(db, opsUser, "", 20)
+	if err != nil {
+		t.Fatalf("list combo credits for employee: %v", err)
+	}
+	if len(items) != 1 || int(items[0]["id"].(int)) != int(visibleCreditID) {
+		t.Fatalf("expected only fully accessible combo credit, got %+v", items)
+	}
+	adminItems, err := listCreditsForUser(db, tenantAdmin, "", 20)
+	if err != nil {
+		t.Fatalf("list combo credits for admin: %v", err)
+	}
+	if len(adminItems) != 2 {
+		t.Fatalf("expected admin to see both combo credits, got %+v", adminItems)
 	}
 }
 

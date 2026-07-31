@@ -110,6 +110,20 @@ type saleReceiptData struct {
 	CanCredit        bool
 	CurrentUser      *User
 	Settings         BusinessSettings
+	Items            []saleReceiptItem
+	ItemCount        int
+	TotalQuantity    int
+}
+
+type saleReceiptItem struct {
+	ProductID     string
+	ProductName   string
+	Quantity      int
+	UnitPrice     float64
+	UnitPriceText string
+	LineTotal     float64
+	LineTotalText string
+	ProductSKU    string
 }
 
 type creditPaymentReceiptData struct {
@@ -336,6 +350,35 @@ type invoiceSourceSnapshot struct {
 	CreditSaleID int
 	Customer     *Customer
 	Item         invoiceItemData
+	Items        []invoiceItemData
+}
+
+type saleItemPayload struct {
+	ProductID string   `json:"product_id"`
+	Quantity  int      `json:"quantity"`
+	UnitPrice *float64 `json:"unit_price"`
+}
+
+type saleItemInput struct {
+	ProductID string
+	Quantity  int
+	UnitPrice *float64
+}
+
+type saleItemRecord struct {
+	ProductID   string
+	ProductSKU  string
+	ProductName string
+	Quantity    int
+	UnitPrice   float64
+	LineTotal   float64
+}
+
+type saleCreateResult struct {
+	SaleID        int64
+	Items         []saleItemRecord
+	TotalQuantity int
+	Subtotal      float64
 }
 
 type unitOption struct {
@@ -2324,6 +2367,22 @@ func tenantScopedProductAccessPredicate(entityAlias, productAlias string, user *
 	if user != nil && hasTenantWideVisibility(user.Role) {
 		return fmt.Sprintf("%s.tenant_id = ?", entityAlias), []any{tenantID}
 	}
+	if entityAlias == "v" {
+		return fmt.Sprintf(`(
+			%s.tenant_id = ?
+			AND (%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM sale_items svis
+				LEFT JOIN productos pvis
+				  ON pvis.tenant_id = svis.tenant_id
+				 AND pvis.sku = svis.product_id
+				WHERE svis.tenant_id = %s.tenant_id
+				  AND svis.sale_id = %s.id
+				  AND (pvis.sku IS NULL OR (pvis.owner_user_id IS NOT NULL AND pvis.owner_user_id <> ?))
+			)
+		)`, entityAlias, productAlias, productAlias, productAlias, entityAlias, entityAlias), []any{tenantID, user.ID, user.ID}
+	}
 	return fmt.Sprintf("(%s.tenant_id = ? AND (%s.sku IS NULL OR %s.owner_user_id IS NULL OR %s.owner_user_id = ?))", entityAlias, productAlias, productAlias, productAlias), []any{tenantID, user.ID}
 }
 
@@ -2342,15 +2401,106 @@ func creditVisibilityPredicate(creditAlias string, user *User) (string, []any) {
 		%s.tenant_id = ?
 		AND (
 			COALESCE(%s.kind, '%s') = '%s'
-			OR EXISTS (
-				SELECT 1
-				FROM productos pvis
-				WHERE pvis.tenant_id = %s.tenant_id
-				  AND pvis.sku = %s.product_id
-				  AND (pvis.owner_user_id IS NULL OR pvis.owner_user_id = ?)
+			OR (
+				EXISTS (
+					SELECT 1
+					FROM credit_sale_items csivis
+					WHERE csivis.tenant_id = %s.tenant_id
+					  AND csivis.credit_sale_id = %s.id
+				)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM credit_sale_items csivis
+					LEFT JOIN productos pvis
+					  ON pvis.tenant_id = csivis.tenant_id
+					 AND pvis.sku = csivis.product_id
+					WHERE csivis.tenant_id = %s.tenant_id
+					  AND csivis.credit_sale_id = %s.id
+					  AND (pvis.sku IS NULL OR (pvis.owner_user_id IS NOT NULL AND pvis.owner_user_id <> ?))
+				)
+			)
+			OR (
+				NOT EXISTS (
+					SELECT 1
+					FROM credit_sale_items csivis
+					WHERE csivis.tenant_id = %s.tenant_id
+					  AND csivis.credit_sale_id = %s.id
+				)
+				AND EXISTS (
+					SELECT 1
+					FROM productos pvis
+					WHERE pvis.tenant_id = %s.tenant_id
+					  AND pvis.sku = %s.product_id
+					  AND (pvis.owner_user_id IS NULL OR pvis.owner_user_id = ?)
+				)
 			)
 		)
-	)`, creditAlias, creditAlias, creditSaleKindProduct, creditSaleKindCash, creditAlias, creditAlias), []any{tenantID, user.ID}
+	)`, creditAlias, creditAlias, creditSaleKindProduct, creditSaleKindCash,
+		creditAlias, creditAlias, creditAlias, creditAlias,
+		creditAlias, creditAlias, creditAlias, creditAlias), []any{tenantID, user.ID, user.ID}
+}
+
+func loadCreditSaleItems(exec sqlQueryRunner, tenantID, creditSaleID int) ([]creditSaleItem, error) {
+	rows, err := exec.Query(`
+		SELECT
+			COALESCE(NULLIF(p.id, ''), csi.product_id),
+			csi.product_id,
+			COALESCE(NULLIF(csi.product_name, ''), NULLIF(p.nombre, ''), csi.product_id),
+			csi.quantity,
+			csi.unit_value,
+			csi.line_total
+		FROM credit_sale_items csi
+		LEFT JOIN productos p ON p.tenant_id = csi.tenant_id AND p.sku = csi.product_id
+		WHERE csi.tenant_id = ? AND csi.credit_sale_id = ?
+		ORDER BY csi.id ASC
+	`, normalizeTenantID(tenantID), creditSaleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []creditSaleItem{}
+	for rows.Next() {
+		var item creditSaleItem
+		if err := rows.Scan(&item.ProductID, &item.ProductSKU, &item.ProductName, &item.Quantity, &item.UnitValue, &item.LineTotal); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func creditItemsSummary(items []creditSaleItem, fallbackID, fallbackName string, fallbackQuantity int) (string, string, int) {
+	if len(items) == 0 {
+		return fallbackID, fallbackName, fallbackQuantity
+	}
+	quantity := 0
+	for _, item := range items {
+		quantity += item.Quantity
+	}
+	if len(items) == 1 {
+		return items[0].ProductID, items[0].ProductName, items[0].Quantity
+	}
+	return "", fmt.Sprintf("Compra combinada (%d productos)", len(items)), quantity
+}
+
+func creditItemsForAPI(items []creditSaleItem, kind creditSaleKind, fallbackID, fallbackName string, fallbackQuantity int, totalValue float64) []creditSaleItem {
+	if len(items) > 0 {
+		return items
+	}
+	if kind != creditSaleKindProduct || strings.TrimSpace(fallbackID) == "" {
+		return []creditSaleItem{}
+	}
+	if fallbackQuantity <= 0 {
+		fallbackQuantity = 1
+	}
+	return []creditSaleItem{{
+		ProductID:   fallbackID,
+		ProductName: fallbackName,
+		Quantity:    fallbackQuantity,
+		UnitValue:   totalValue / float64(fallbackQuantity),
+		LineTotal:   totalValue,
+	}}
 }
 
 func listRecentSalesForUser(db *sql.DB, user *User, limit int) ([]map[string]any, error) {
@@ -2361,7 +2511,10 @@ func listRecentSalesForUser(db *sql.DB, user *User, limit int) ([]map[string]any
 	args := append([]any{}, accessArgs...)
 	args = append(args, limit)
 	rows, err := db.Query(`
-		SELECT v.id, v.fecha, COALESCE(NULLIF(p.id, ''), v.producto_id), COALESCE(p.nombre, v.producto_id), v.cantidad, v.precio_final, COALESCE(v.metodo_pago, '')
+		SELECT v.id, v.fecha, COALESCE(NULLIF(p.id, ''), v.producto_id), COALESCE(p.nombre, v.producto_id),
+			COALESCE((SELECT SUM(si.quantity) FROM sale_items si WHERE si.tenant_id = v.tenant_id AND si.sale_id = v.id), v.cantidad),
+			COALESCE((SELECT SUM(si.total) / NULLIF(SUM(si.quantity), 0) FROM sale_items si WHERE si.tenant_id = v.tenant_id AND si.sale_id = v.id), v.precio_final),
+			COALESCE(v.metodo_pago, '')
 		FROM ventas v
 		LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
 		WHERE `+accessSQL+`
@@ -2382,15 +2535,22 @@ func listRecentSalesForUser(db *sql.DB, user *User, limit int) ([]map[string]any
 		if err := rows.Scan(&id, &fecha, &productoID, &producto, &cantidad, &precioFinal, &metodo); err != nil {
 			return nil, err
 		}
+		itemMaps, itemErr := loadSaleItems(db, user, id)
+		if itemErr != nil {
+			return nil, itemErr
+		}
 		items = append(items, map[string]any{
-			"id":           id,
-			"fecha":        formatDateWithSettings(fecha),
-			"producto_id":  productoID,
-			"producto":     producto,
-			"cantidad":     cantidad,
-			"precio_final": precioFinal,
-			"metodo_pago":  metodo,
-			"total":        precioFinal * float64(cantidad),
+			"id":               id,
+			"fecha":            formatDateWithSettings(fecha),
+			"producto_id":      productoID,
+			"producto":         producto,
+			"cantidad":         cantidad,
+			"precio_final":     precioFinal,
+			"metodo_pago":      metodo,
+			"total":            precioFinal * float64(cantidad),
+			"items":            saleItemMaps(itemMaps),
+			"item_count":       len(itemMaps),
+			"is_multi_product": len(itemMaps) > 1,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -2412,8 +2572,8 @@ func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit in
 			v.fecha,
 			COALESCE(NULLIF(p.id, ''), v.producto_id),
 			COALESCE(p.nombre, v.producto_id),
-			v.cantidad,
-			v.precio_final,
+			COALESCE((SELECT SUM(si.quantity) FROM sale_items si WHERE si.tenant_id = v.tenant_id AND si.sale_id = v.id), v.cantidad),
+			COALESCE((SELECT SUM(si.total) / NULLIF(SUM(si.quantity), 0) FROM sale_items si WHERE si.tenant_id = v.tenant_id AND si.sale_id = v.id), v.precio_final),
 			COALESCE(v.channel, ''),
 			COALESCE(v.sold_by, ''),
 			COALESCE(v.notas, ''),
@@ -2422,9 +2582,9 @@ func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit in
 		LEFT JOIN productos p ON p.sku = v.producto_id AND p.tenant_id = v.tenant_id
 		WHERE ` + accessSQL
 	if q != "" {
-		query += ` AND (LOWER(COALESCE(NULLIF(p.id, ''), v.producto_id)) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(v.channel, '')) LIKE ? OR LOWER(COALESCE(v.sold_by, '')) LIKE ? OR LOWER(COALESCE(v.notas, '')) LIKE ? OR LOWER(COALESCE(v.metodo_pago, '')) LIKE ?)`
+		query += ` AND (LOWER(COALESCE(NULLIF(p.id, ''), v.producto_id)) LIKE ? OR LOWER(COALESCE(p.nombre, '')) LIKE ? OR LOWER(COALESCE(v.channel, '')) LIKE ? OR LOWER(COALESCE(v.sold_by, '')) LIKE ? OR LOWER(COALESCE(v.notas, '')) LIKE ? OR LOWER(COALESCE(v.metodo_pago, '')) LIKE ? OR EXISTS (SELECT 1 FROM sale_items siq LEFT JOIN productos piq ON piq.tenant_id = siq.tenant_id AND piq.sku = siq.product_id WHERE siq.tenant_id = v.tenant_id AND siq.sale_id = v.id AND (LOWER(COALESCE(NULLIF(piq.id, ''), NULLIF(siq.product_visible_id, ''), siq.product_id)) LIKE ? OR LOWER(COALESCE(NULLIF(siq.product_name, ''), piq.nombre, '')) LIKE ?)))`
 		qLike := "%" + q + "%"
-		args = append(args, qLike, qLike, qLike, qLike, qLike, qLike)
+		args = append(args, qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike)
 	}
 	if fromStr != "" {
 		query += ` AND ` + sqlDatePrefixExpr("v.fecha") + ` >= ?`
@@ -2460,17 +2620,27 @@ func listSalesForUser(db *sql.DB, user *User, q, fromStr, toStr string, limit in
 		if err := rows.Scan(&id, &fecha, &productID, &productName, &quantity, &salePrice, &channel, &soldBy, &notes, &paymentMethod); err != nil {
 			return nil, err
 		}
+		itemMaps, itemErr := loadSaleItems(db, user, id)
+		if itemErr != nil {
+			return nil, itemErr
+		}
 		items = append(items, map[string]any{
-			"id":             id,
-			"fecha":          formatDateWithSettings(fecha),
-			"product_id":     productID,
-			"product_name":   productName,
-			"quantity":       quantity,
-			"sale_price":     salePrice,
-			"channel":        channel,
-			"sold_by":        soldBy,
-			"notes":          notes,
-			"payment_method": paymentMethod,
+			"id":               id,
+			"fecha":            formatDateWithSettings(fecha),
+			"product_id":       productID,
+			"product_name":     productName,
+			"quantity":         quantity,
+			"sale_price":       salePrice,
+			"channel":          channel,
+			"sold_by":          soldBy,
+			"notes":            notes,
+			"payment_method":   paymentMethod,
+			"items":            saleItemMaps(itemMaps),
+			"item_count":       len(itemMaps),
+			"total_quantity":   quantity,
+			"subtotal":         salePrice * float64(quantity),
+			"total":            salePrice * float64(quantity),
+			"is_multi_product": len(itemMaps) > 1,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -2577,7 +2747,7 @@ func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[stri
 			COALESCE(NULLIF(p.id, ''), cs.product_id, ''),
 			CASE
 				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
-				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id)
+				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
 			END,
 			cs.quantity,
 			COALESCE(cs.customer_id, 0),
@@ -2636,6 +2806,17 @@ func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[stri
 		query += ` AND (
 			LOWER(COALESCE(NULLIF(p.id, ''), cs.product_id, '')) LIKE ?
 			OR LOWER(COALESCE(p.nombre, '')) LIKE ?
+			OR EXISTS (
+				SELECT 1
+				FROM credit_sale_items csis
+				LEFT JOIN productos pis ON pis.tenant_id = csis.tenant_id AND pis.sku = csis.product_id
+				WHERE csis.tenant_id = cs.tenant_id
+				  AND csis.credit_sale_id = cs.id
+				  AND (
+					LOWER(COALESCE(NULLIF(pis.id, ''), csis.product_id)) LIKE ?
+					OR LOWER(COALESCE(NULLIF(csis.product_name, ''), pis.nombre, '')) LIKE ?
+				  )
+			)
 			OR LOWER(COALESCE(cs.kind, '')) LIKE ?
 			OR (COALESCE(cs.kind, ?) = ? AND LOWER('prestamo de dinero') LIKE ?)
 			OR LOWER(COALESCE(c.name, cs.debtor_name, '')) LIKE ?
@@ -2645,7 +2826,7 @@ func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[stri
 			OR LOWER(COALESCE(c.city, '')) LIKE ?
 		)`
 		qLike := "%" + q + "%"
-		args = append(args, qLike, qLike, qLike, string(creditSaleKindProduct), string(creditSaleKindCash), qLike, qLike, qLike, qLike, qLike, qLike)
+		args = append(args, qLike, qLike, qLike, qLike, qLike, string(creditSaleKindProduct), string(creditSaleKindCash), qLike, qLike, qLike, qLike, qLike, qLike)
 	}
 	query += ` ORDER BY cs.created_at DESC, cs.id DESC LIMIT ?`
 	args = append(args, limit)
@@ -2690,6 +2871,12 @@ func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[stri
 			return nil, err
 		}
 		kind := normalizeCreditSaleKind(kindRaw)
+		creditItems, err := loadCreditSaleItems(db, tenantIDFromUser(user), id)
+		if err != nil {
+			return nil, err
+		}
+		creditItems = creditItemsForAPI(creditItems, kind, productID, productName, quantity, totalValue)
+		productID, productName, quantity = creditItemsSummary(creditItems, productID, productName, quantity)
 		if paidInstallmentsCount < installmentsPaid {
 			paidInstallmentsCount = installmentsPaid
 		}
@@ -2708,6 +2895,9 @@ func listCreditsForUser(db *sql.DB, user *User, q string, limit int) ([]map[stri
 			"product_id":               productID,
 			"product":                  productName,
 			"quantity":                 quantity,
+			"items":                    creditItems,
+			"item_count":               len(creditItems),
+			"is_multi_product":         len(creditItems) > 1,
 			"customer_id":              customerID,
 			"customer_name":            debtorName,
 			"customer_phone":           debtorPhone,
@@ -2795,9 +2985,17 @@ func listCreditInstallmentsForUser(db *sql.DB, user *User, q, fromStr, toStr str
 				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
 				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
 			END) LIKE ?
+			OR EXISTS (
+				SELECT 1
+				FROM credit_sale_items csis
+				LEFT JOIN productos pis ON pis.tenant_id = csis.tenant_id AND pis.sku = csis.product_id
+				WHERE csis.tenant_id = cs.tenant_id
+				  AND csis.credit_sale_id = cs.id
+				  AND LOWER(COALESCE(NULLIF(csis.product_name, ''), pis.nombre, csis.product_id)) LIKE ?
+			)
 		)`
 		qLike := "%" + q + "%"
-		args = append(args, qLike, string(creditSaleKindProduct), string(creditSaleKindCash), qLike)
+		args = append(args, qLike, string(creditSaleKindProduct), string(creditSaleKindCash), qLike, qLike)
 	}
 	query += ` ORDER BY ci.created_at DESC, ci.id DESC LIMIT ?`
 	args = append(args, limit)
@@ -2822,6 +3020,11 @@ func listCreditInstallmentsForUser(db *sql.DB, user *User, q, fromStr, toStr str
 		if err := rows.Scan(&id, &creditSaleID, &customerName, &productName, &amountPaid, &paymentType, &createdAt); err != nil {
 			return nil, err
 		}
+		creditItems, err := loadCreditSaleItems(db, tenantIDFromUser(user), creditSaleID)
+		if err != nil {
+			return nil, err
+		}
+		_, productName, _ = creditItemsSummary(creditItems, "", productName, 0)
 		items = append(items, map[string]any{
 			"id":             id,
 			"credit_sale_id": creditSaleID,
@@ -2853,7 +3056,7 @@ func creditDetailForUser(db *sql.DB, user *User, creditSaleID int) (map[string]a
 			COALESCE(NULLIF(p.id, ''), cs.product_id, ''),
 			CASE
 				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
-				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id)
+				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
 			END,
 			cs.quantity,
 			COALESCE(cs.customer_id, 0),
@@ -2940,6 +3143,12 @@ func creditDetailForUser(db *sql.DB, user *User, creditSaleID int) (map[string]a
 		return nil, err
 	}
 	kind := normalizeCreditSaleKind(kindRaw)
+	creditItems, err := loadCreditSaleItems(db, tenantIDFromUser(user), id)
+	if err != nil {
+		return nil, err
+	}
+	creditItems = creditItemsForAPI(creditItems, kind, productID, productName, quantity, totalValue)
+	productID, productName, quantity = creditItemsSummary(creditItems, productID, productName, quantity)
 	if paidInstallmentsCount < installmentsPaid {
 		paidInstallmentsCount = installmentsPaid
 	}
@@ -2958,6 +3167,9 @@ func creditDetailForUser(db *sql.DB, user *User, creditSaleID int) (map[string]a
 		"product_id":               productID,
 		"product":                  productName,
 		"quantity":                 quantity,
+		"items":                    creditItems,
+		"item_count":               len(creditItems),
+		"is_multi_product":         len(creditItems) > 1,
 		"customer_id":              customerID,
 		"customer_name":            debtorName,
 		"customer_phone":           debtorPhone,
@@ -3851,7 +4063,7 @@ func listEditedCreditsReport(db *sql.DB, currentUser *User, tenantID int, filter
 			COALESCE(NULLIF(p.id, ''), cs.product_id, ''),
 			CASE
 				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
-				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id)
+				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
 			END,
 			COALESCE(c.id, 0),
 			COALESCE(c.name, cs.debtor_name, ''),
@@ -4644,12 +4856,12 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 	if movementEnabled(movementEnabledMap, "credito") {
 		var creditTotal float64
 		var creditCount int
-		creditArgs := append([]any{startStr, endStr}, visibilityArgs...)
+		creditAccessSQL, creditAccessArgs := creditVisibilityPredicate("cs", user)
+		creditArgs := append([]any{startStr, endStr}, creditAccessArgs...)
 		if err := db.QueryRow(`
 			SELECT COALESCE(SUM(cs.total_value), 0), COALESCE(COUNT(*), 0)
 			FROM credit_sales cs
-			LEFT JOIN productos p ON p.sku = cs.product_id
-			WHERE `+sqlDatePrefixExpr("cs.created_at")+` BETWEEN ? AND ? AND `+visibilitySQL, creditArgs...).Scan(&creditTotal, &creditCount); err != nil {
+			WHERE `+sqlDatePrefixExpr("cs.created_at")+` BETWEEN ? AND ? AND `+creditAccessSQL, creditArgs...).Scan(&creditTotal, &creditCount); err != nil {
 			return dashboardDataResponse{}, err
 		}
 		categoryTotals = append(categoryTotals, dashboardCategoryTotal{
@@ -6125,12 +6337,13 @@ func customerDetailForTenant(db *sql.DB, tenantID, customerID int) (map[string]a
 			COALESCE(NULLIF(p.id, ''), cs.product_id, ''),
 			CASE
 				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
-				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id)
+				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
 			END,
 			COALESCE(cs.quantity, 0),
 			COALESCE(cs.installments_total, 0),
 			COALESCE(cs.installments_paid, 0),
 			COALESCE(cs.installment_value, 0),
+			COALESCE(cs.total_value, 0),
 			COALESCE((
 				SELECT SUM(ci.amount_paid)
 				FROM credit_installments ci
@@ -6157,12 +6370,19 @@ func customerDetailForTenant(db *sql.DB, tenantID, customerID int) (map[string]a
 			installmentsTotal int
 			installmentsPaid  int
 			installmentValue  float64
+			totalValue        float64
 			totalPaid         float64
 		)
-		if err := rows.Scan(&creditID, &createdAt, &kindRaw, &productID, &productName, &quantity, &installmentsTotal, &installmentsPaid, &installmentValue, &totalPaid); err != nil {
+		if err := rows.Scan(&creditID, &createdAt, &kindRaw, &productID, &productName, &quantity, &installmentsTotal, &installmentsPaid, &installmentValue, &totalValue, &totalPaid); err != nil {
 			return nil, err
 		}
 		kind := normalizeCreditSaleKind(kindRaw)
+		creditItems, err := loadCreditSaleItems(db, tenantID, creditID)
+		if err != nil {
+			return nil, err
+		}
+		creditItems = creditItemsForAPI(creditItems, kind, productID, productName, quantity, totalValue)
+		productID, productName, quantity = creditItemsSummary(creditItems, productID, productName, quantity)
 		legacyPaid := math.Round((float64(installmentsPaid)*installmentValue)*100) / 100
 		if totalPaid < legacyPaid {
 			totalPaid = legacyPaid
@@ -6176,6 +6396,9 @@ func customerDetailForTenant(db *sql.DB, tenantID, customerID int) (map[string]a
 			"product_id":         productID,
 			"product_name":       productName,
 			"quantity":           quantity,
+			"items":              creditItems,
+			"item_count":         len(creditItems),
+			"is_multi_product":   len(creditItems) > 1,
 			"installments_total": installmentsTotal,
 			"installments_paid":  installmentsPaid,
 			"installment_value":  installmentValue,
@@ -6442,8 +6665,32 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 			UNION ALL
 
 			SELECT
+				COALESCE(NULLIF(p.id, ''), NULLIF(csi.product_id, ''), '') AS product_id,
+				COALESCE(NULLIF(csi.product_name, ''), NULLIF(p.nombre, ''), csi.product_id, '') AS product_name,
+				COALESCE(csi.quantity, 0) AS quantity,
+				CASE
+					WHEN COALESCE(cs.total_value, 0) > 0
+						THEN COALESCE(csi.line_total, 0) / cs.total_value * (COALESCE(cs.installments_total, 0) * COALESCE(cs.installment_value, 0))
+					ELSE COALESCE(csi.line_total, 0)
+				END AS total_value,
+				COALESCE(cs.created_at, '') AS created_at,
+				0 AS has_invoice,
+				1 AS has_credit
+			FROM credit_sales cs
+			INNER JOIN credit_sale_items csi ON csi.tenant_id = cs.tenant_id AND csi.credit_sale_id = cs.id
+			LEFT JOIN productos p ON p.sku = csi.product_id AND p.tenant_id = csi.tenant_id
+			WHERE cs.tenant_id = ? AND cs.customer_id = ? AND COALESCE(cs.kind, ?) = ?
+				AND NOT EXISTS (
+					SELECT 1
+					FROM invoices i
+					WHERE i.tenant_id = cs.tenant_id AND i.credit_sale_id = cs.id
+				)
+
+			UNION ALL
+
+			SELECT
 				COALESCE(NULLIF(p.id, ''), cs.product_id, '') AS product_id,
-				COALESCE(NULLIF(p.nombre, ''), cs.product_id) AS product_name,
+				COALESCE(NULLIF(p.nombre, ''), cs.product_id, '') AS product_name,
 				COALESCE(cs.quantity, 0) AS quantity,
 				COALESCE(cs.installments_total, 0) * COALESCE(cs.installment_value, 0) AS total_value,
 				COALESCE(cs.created_at, '') AS created_at,
@@ -6455,6 +6702,11 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 				AND COALESCE(cs.product_id, '') <> ''
 				AND NOT EXISTS (
 					SELECT 1
+					FROM credit_sale_items csi
+					WHERE csi.tenant_id = cs.tenant_id AND csi.credit_sale_id = cs.id
+				)
+				AND NOT EXISTS (
+					SELECT 1
 					FROM invoices i
 					WHERE i.tenant_id = cs.tenant_id AND i.credit_sale_id = cs.id
 				)
@@ -6462,7 +6714,7 @@ func listCustomerProductsForTenant(db *sql.DB, tenantID, customerID, limit int) 
 		GROUP BY product_id, product_name
 		ORDER BY MAX(created_at) DESC, product_name ASC
 		LIMIT ?
-	`, normalizeTenantID(tenantID), customerID, normalizeTenantID(tenantID), customerID, string(creditSaleKindProduct), string(creditSaleKindProduct), limit)
+	`, normalizeTenantID(tenantID), customerID, normalizeTenantID(tenantID), customerID, string(creditSaleKindProduct), string(creditSaleKindProduct), normalizeTenantID(tenantID), customerID, string(creditSaleKindProduct), string(creditSaleKindProduct), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -6811,6 +7063,7 @@ type creditSaleCreateInput struct {
 	ProductID         string
 	ProductName       string
 	Quantity          int
+	Items             []creditSaleItemInput
 	Customer          *Customer
 	InstallmentsTotal int
 	TotalValue        float64
@@ -6826,11 +7079,34 @@ type creditSaleCreateResult struct {
 	ProductID        string
 	ProductName      string
 	Quantity         int
+	Items            []creditSaleItem
 	InstallmentValue float64
 	DebtTotal        float64
 	TotalPaid        float64
 	CurrentDebt      float64
 	Message          string
+}
+
+type creditSaleItemInput struct {
+	ProductID   string
+	ProductName string
+	Quantity    int
+	UnitValue   float64
+}
+
+type creditSaleItem struct {
+	ProductID   string  `json:"product_id"`
+	ProductSKU  string  `json:"-"`
+	ProductName string  `json:"product_name"`
+	Quantity    int     `json:"quantity"`
+	UnitValue   float64 `json:"unit_value"`
+	LineTotal   float64 `json:"line_total"`
+}
+
+type apiCreditItemPayload struct {
+	ProductID string  `json:"product_id"`
+	Quantity  int     `json:"quantity"`
+	UnitValue float64 `json:"unit_value"`
 }
 
 type creditSaleUpdateInput struct {
@@ -6867,30 +7143,32 @@ type creditSaleDeleteResult struct {
 	Kind                creditSaleKind
 	ProductID           string
 	Quantity            int
+	DeletedItems        int
 	DeletedInstallments int
 }
 
 type apiCreditPayload struct {
-	Kind                   string   `json:"kind"`
-	ProductID              string   `json:"product_id"`
-	Quantity               int      `json:"quantity"`
-	CustomerID             int      `json:"customer_id"`
-	CustomerName           string   `json:"customer_name"`
-	CustomerPhone          string   `json:"customer_phone"`
-	CustomerDocumentType   string   `json:"customer_document_type"`
-	CustomerDocumentNumber string   `json:"customer_document_number"`
-	CustomerAddress        string   `json:"customer_address"`
-	CustomerCity           string   `json:"customer_city"`
-	CustomerNotes          string   `json:"customer_notes"`
-	DebtorName             string   `json:"debtor_name"`
-	DebtorDocumentType     string   `json:"debtor_document_type"`
-	DebtorDocumentNumber   string   `json:"debtor_document_number"`
-	DebtorPhone            string   `json:"debtor_phone"`
-	InstallmentsTotal      int      `json:"installments_total"`
-	TotalValue             float64  `json:"total_value"`
-	InterestPercent        float64  `json:"interest_percent"`
-	InstallmentValue       *float64 `json:"installment_value"`
-	Notes                  string   `json:"notes"`
+	Kind                   string                 `json:"kind"`
+	ProductID              string                 `json:"product_id"`
+	Quantity               int                    `json:"quantity"`
+	Items                  []apiCreditItemPayload `json:"items"`
+	CustomerID             int                    `json:"customer_id"`
+	CustomerName           string                 `json:"customer_name"`
+	CustomerPhone          string                 `json:"customer_phone"`
+	CustomerDocumentType   string                 `json:"customer_document_type"`
+	CustomerDocumentNumber string                 `json:"customer_document_number"`
+	CustomerAddress        string                 `json:"customer_address"`
+	CustomerCity           string                 `json:"customer_city"`
+	CustomerNotes          string                 `json:"customer_notes"`
+	DebtorName             string                 `json:"debtor_name"`
+	DebtorDocumentType     string                 `json:"debtor_document_type"`
+	DebtorDocumentNumber   string                 `json:"debtor_document_number"`
+	DebtorPhone            string                 `json:"debtor_phone"`
+	InstallmentsTotal      int                    `json:"installments_total"`
+	TotalValue             float64                `json:"total_value"`
+	InterestPercent        float64                `json:"interest_percent"`
+	InstallmentValue       *float64               `json:"installment_value"`
+	Notes                  string                 `json:"notes"`
 }
 
 func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, source string, decoratePayload func(map[string]any) map[string]any) (retomaOperationResult, error) {
@@ -7465,10 +7743,36 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		return creditSaleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Cliente inválido para el crédito."}
 	}
 	productSKU := ""
+	items := make([]creditSaleItem, 0, len(input.Items))
 	if input.Kind == creditSaleKindCash {
 		input.ProductID = ""
 		if input.ProductName == "" {
 			input.ProductName = "Préstamo de dinero"
+		}
+	} else if len(input.Items) > 0 {
+		input.ProductID = ""
+		input.ProductName = fmt.Sprintf("Compra combinada (%d productos)", len(input.Items))
+		input.Quantity = 0
+		for _, inputItem := range input.Items {
+			var item creditSaleItem
+			item.ProductID = strings.TrimSpace(inputItem.ProductID)
+			item.ProductName = strings.TrimSpace(inputItem.ProductName)
+			item.Quantity = inputItem.Quantity
+			item.UnitValue = inputItem.UnitValue
+			if err := tx.QueryRow(`
+				SELECT sku, id, COALESCE(nombre, '')
+				FROM productos
+				WHERE tenant_id = ? AND id = ?
+				LIMIT 1
+			`, tenantID, item.ProductID).Scan(&item.ProductSKU, &item.ProductID, &item.ProductName); err != nil {
+				if err == sql.ErrNoRows {
+					return creditSaleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Producto inválido para el crédito."}
+				}
+				return creditSaleCreateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar un producto del crédito."}
+			}
+			item.LineTotal = math.Round((item.UnitValue*float64(item.Quantity))*100) / 100
+			input.Quantity += item.Quantity
+			items = append(items, item)
 		}
 	} else {
 		if input.ProductID == "" {
@@ -7515,6 +7819,14 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 	if err != nil {
 		return creditSaleCreateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el crédito."}
 	}
+	for _, item := range items {
+		if _, err := tx.Exec(`
+			INSERT INTO credit_sale_items (tenant_id, credit_sale_id, product_id, product_name, quantity, unit_value, line_total, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, tenantID, creditSaleID, item.ProductSKU, item.ProductName, item.Quantity, item.UnitValue, item.LineTotal, now); err != nil {
+			return creditSaleCreateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron registrar los productos del crédito."}
+		}
+	}
 
 	if err := logCustomerEvent(tx, currentUser, input.Customer.ID, "credit_created", "credit_sale", strconv.FormatInt(creditSaleID, 10), debtTotal, map[string]any{
 		"kind":               string(input.Kind),
@@ -7526,6 +7838,8 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		"installments_total": input.InstallmentsTotal,
 		"installment_value":  input.InstallmentValue,
 		"current_debt":       debtTotal,
+		"items":              items,
+		"item_count":         len(items),
 	}); err != nil {
 		return creditSaleCreateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la trazabilidad del cliente."}
 	}
@@ -7557,6 +7871,9 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		"interest_percent":         input.InterestPercent,
 		"installment_value":        input.InstallmentValue,
 		"quantity":                 input.Quantity,
+		"items":                    items,
+		"item_count":               len(items),
+		"is_multi_product":         len(items) > 1,
 	}
 	if decoratePayload != nil {
 		auditPayload = decoratePayload(auditPayload)
@@ -7576,6 +7893,7 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		ProductID:        input.ProductID,
 		ProductName:      input.ProductName,
 		Quantity:         input.Quantity,
+		Items:            items,
 		InstallmentValue: input.InstallmentValue,
 		DebtTotal:        debtTotal,
 		TotalPaid:        0,
@@ -7608,7 +7926,7 @@ func updateCreditSale(db *sql.DB, currentUser *User, creditSaleID int, input cre
 			COALESCE(cs.product_id, ''),
 			CASE
 				WHEN COALESCE(cs.kind, ?) = ? THEN 'Préstamo de dinero'
-				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id)
+				ELSE COALESCE(NULLIF(p.nombre, ''), cs.product_id, '')
 			END,
 			cs.quantity,
 			COALESCE(cs.installments_total, 0),
@@ -7655,20 +7973,26 @@ func updateCreditSale(db *sql.DB, currentUser *User, creditSaleID int, input cre
 		return creditSaleUpdateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el crédito."}
 	}
 
-	if result.Kind == creditSaleKindProduct {
+	allowed, err := creditAccessibleByID(db, currentUser, creditSaleID)
+	if err != nil {
+		return creditSaleUpdateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al crédito."}
+	}
+	if !allowed {
+		return creditSaleUpdateResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este crédito."}
+	}
+	if result.Kind == creditSaleKindProduct && strings.TrimSpace(result.ProductID) != "" {
 		internalProductSKU := strings.TrimSpace(result.ProductID)
-		allowed, err := productAccessibleBySKU(db, currentUser, internalProductSKU)
-		if err != nil {
-			return creditSaleUpdateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al producto."}
-		}
-		if !allowed {
-			return creditSaleUpdateResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este crédito."}
-		}
 		visibleID, err := resolveVisibleProductIDBySKUForTenant(db, tenantID, internalProductSKU)
 		if err != nil {
 			return creditSaleUpdateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo resolver el ID visible del producto."}
 		}
 		result.ProductID = visibleID
+	} else if result.Kind == creditSaleKindProduct {
+		items, err := loadCreditSaleItems(db, tenantID, creditSaleID)
+		if err != nil {
+			return creditSaleUpdateResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron cargar los productos del crédito."}
+		}
+		result.ProductID, result.ProductName, result.Quantity = creditItemsSummary(items, result.ProductID, result.ProductName, result.Quantity)
 	}
 
 	if input.InstallmentsPaid < result.ActualQuotaPayments {
@@ -7855,6 +8179,11 @@ func deleteCreditSale(db *sql.DB, currentUser *User, creditSaleID int, source st
 		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el crédito."}
 	}
 	result.Kind = normalizeCreditSaleKind(kindRaw)
+	creditItems, err := loadCreditSaleItems(tx, tenantID, creditSaleID)
+	if err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron cargar los productos del crédito."}
+	}
+	result.ProductID, _, result.Quantity = creditItemsSummary(creditItems, result.ProductID, "", result.Quantity)
 
 	var invoiceCount int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM invoices WHERE tenant_id = ? AND credit_sale_id = ?`, tenantID, creditSaleID).Scan(&invoiceCount); err != nil {
@@ -7870,6 +8199,13 @@ func deleteCreditSale(db *sql.DB, currentUser *User, creditSaleID int, source st
 	}
 	if deleted, err := installments.RowsAffected(); err == nil {
 		result.DeletedInstallments = int(deleted)
+	}
+	deletedItems, err := tx.Exec(`DELETE FROM credit_sale_items WHERE tenant_id = ? AND credit_sale_id = ?`, tenantID, creditSaleID)
+	if err != nil {
+		return creditSaleDeleteResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron eliminar los productos del crédito."}
+	}
+	if deleted, err := deletedItems.RowsAffected(); err == nil {
+		result.DeletedItems = int(deleted)
 	}
 
 	deletedCredit, err := tx.Exec(`DELETE FROM credit_sales WHERE tenant_id = ? AND id = ?`, tenantID, creditSaleID)
@@ -7888,6 +8224,8 @@ func deleteCreditSale(db *sql.DB, currentUser *User, creditSaleID int, source st
 		"kind_label":           creditKindLabel(result.Kind),
 		"product_id":           result.ProductID,
 		"quantity":             result.Quantity,
+		"items":                creditItems,
+		"deleted_items":        result.DeletedItems,
 		"deleted_installments": result.DeletedInstallments,
 		"inventory_modified":   false,
 	}
@@ -7909,25 +8247,12 @@ func deleteCreditSale(db *sql.DB, currentUser *User, creditSaleID int, source st
 func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64, paymentTypeValue string, currentUser *User, source string, decoratePayload func(map[string]any) map[string]any) (creditInstallmentResult, error) {
 	tenantID := tenantIDFromUser(currentUser)
 	paymentType := normalizeCreditPaymentType(paymentTypeValue)
-	var (
-		accessProductID string
-		creditKindRaw   string
-	)
-	if err := db.QueryRow(`SELECT COALESCE(product_id, ''), COALESCE(kind, ?) FROM credit_sales WHERE tenant_id = ? AND id = ?`, string(creditSaleKindProduct), tenantID, creditSaleID).Scan(&accessProductID, &creditKindRaw); err != nil {
-		if err == sql.ErrNoRows {
-			return creditInstallmentResult{}, requestError{Status: http.StatusNotFound, Message: "Crédito no encontrado."}
-		}
-		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el crédito."}
+	allowed, err := creditAccessibleByID(db, currentUser, creditSaleID)
+	if err != nil {
+		return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al crédito."}
 	}
-	creditKind := normalizeCreditSaleKind(creditKindRaw)
-	if creditKind == creditSaleKindProduct {
-		allowed, err := productAccessibleBySKU(db, currentUser, accessProductID)
-		if err != nil {
-			return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al producto."}
-		}
-		if !allowed {
-			return creditInstallmentResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto."}
-		}
+	if !allowed {
+		return creditInstallmentResult{}, requestError{Status: http.StatusNotFound, Message: "Crédito no encontrado."}
 	}
 
 	tx, err := db.Begin()
@@ -7937,6 +8262,7 @@ func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64
 	defer tx.Rollback()
 
 	var result creditInstallmentResult
+	var creditKindRaw string
 	if err := tx.QueryRow(`
 		SELECT cs.id, COALESCE(cs.customer_id, 0), COALESCE(cs.kind, ?), COALESCE(cs.product_id, ''), COALESCE(p.nombre, ''), COALESCE(c.name, cs.debtor_name, ''), COALESCE(cs.installments_total, 0), COALESCE(cs.installments_paid, 0), COALESCE(cs.total_value, 0), COALESCE(cs.interest_percent, 0), COALESCE(cs.installment_value, 0),
 		       COALESCE((SELECT SUM(ci.amount_paid) FROM credit_installments ci WHERE ci.tenant_id = cs.tenant_id AND ci.credit_sale_id = cs.id), 0)
@@ -7962,6 +8288,12 @@ func addCreditInstallment(db *sql.DB, creditSaleID int, amountPaidValue *float64
 	}
 	if result.Kind == creditSaleKindCash && result.ProductName == "" {
 		result.ProductName = "Préstamo de dinero"
+	} else if result.Kind == creditSaleKindProduct && internalProductSKU == "" {
+		items, err := loadCreditSaleItems(tx, tenantID, creditSaleID)
+		if err != nil {
+			return creditInstallmentResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron cargar los productos del crédito."}
+		}
+		result.ProductID, result.ProductName, _ = creditItemsSummary(items, result.ProductID, result.ProductName, 0)
 	}
 	result.DebtTotal = creditDebtTotal(result.InstallmentsTotal, result.InstallmentValue)
 	legacyTotalPaid := math.Round((float64(result.InstallmentsPaid)*result.InstallmentValue)*100) / 100
@@ -8099,7 +8431,8 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 	payload.DebtorDocumentNumber = strings.TrimSpace(payload.DebtorDocumentNumber)
 	payload.DebtorPhone = strings.TrimSpace(payload.DebtorPhone)
 	payload.Notes = strings.TrimSpace(payload.Notes)
-	if payload.Quantity <= 0 {
+	itemsProvided := payload.Items != nil
+	if !itemsProvided && payload.Quantity <= 0 {
 		payload.Quantity = 1
 	}
 	customerInput := customerInput{
@@ -8129,6 +8462,8 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		stockByProd      map[string]int
 		selectedProduct  productOption
 		selectedFound    bool
+		validatedItems   []creditSaleItemInput
+		selectedByID     map[string]productOption
 	)
 	if creditKind == creditSaleKindProduct {
 		productsSnapshot, err = loadVisibleProductsForUser(db, currentUser)
@@ -8140,6 +8475,7 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		if err != nil {
 			return nil, requestError{Status: http.StatusInternalServerError, Message: "Error al consultar stock."}
 		}
+		selectedByID = map[string]productOption{}
 	}
 
 	fields := map[string]string{}
@@ -8181,25 +8517,86 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 	if payload.InterestPercent < 0 {
 		fields["interest_percent"] = "El porcentaje de interés debe ser un número mayor o igual a 0."
 	}
+	if creditKind == creditSaleKindCash && itemsProvided {
+		fields["items"] = "Los préstamos de dinero no aceptan productos."
+	}
 	if creditKind == creditSaleKindProduct {
-		if payload.ProductID == "" {
-			fields["product_id"] = "Selecciona un producto válido."
-		}
-		if payload.Quantity <= 0 {
-			fields["quantity"] = "La cantidad debe ser un número positivo."
-		}
-		if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
-			return nil, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al producto."}
-		} else if !allowed {
-			fields["product_id"] = "No tienes acceso a este producto."
-		}
-		selectedProduct, selectedFound = findProduct(productsSnapshot, payload.ProductID)
-		if !selectedFound {
-			fields["product_id"] = "Selecciona un producto válido."
-		}
-		if payload.ProductID != "" && payload.Quantity > 0 {
-			if available := stockByProd[payload.ProductID]; available > 0 && payload.Quantity > available {
-				fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
+		if itemsProvided {
+			if len(payload.Items) == 0 {
+				fields["items"] = "Debes indicar al menos un producto en items."
+			}
+			if payload.ProductID != "" || payload.Quantity != 0 {
+				fields["items"] = "No combines items con product_id o quantity."
+			}
+			seenProducts := map[string]struct{}{}
+			itemsTotal := 0.0
+			for index, item := range payload.Items {
+				item.ProductID = strings.TrimSpace(item.ProductID)
+				prefix := fmt.Sprintf("items[%d]", index)
+				if item.ProductID == "" {
+					fields[prefix+".product_id"] = "Selecciona un producto válido."
+				}
+				if item.Quantity <= 0 {
+					fields[prefix+".quantity"] = "La cantidad debe ser mayor a 0."
+				}
+				if item.UnitValue <= 0 {
+					fields[prefix+".unit_value"] = "El valor unitario debe ser mayor a 0."
+				}
+				if _, duplicate := seenProducts[item.ProductID]; duplicate && item.ProductID != "" {
+					fields[prefix+".product_id"] = "El producto está repetido en el crédito."
+				} else if item.ProductID != "" {
+					seenProducts[item.ProductID] = struct{}{}
+				}
+				allowed, accessErr := productAccessibleByID(db, currentUser, item.ProductID)
+				if accessErr != nil {
+					return nil, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso a un producto."}
+				}
+				if !allowed && item.ProductID != "" {
+					fields[prefix+".product_id"] = "No tienes acceso a este producto."
+				}
+				product, found := findProduct(productsSnapshot, item.ProductID)
+				if !found {
+					fields[prefix+".product_id"] = "Selecciona un producto válido."
+				} else {
+					selectedByID[item.ProductID] = product
+				}
+				if item.ProductID != "" && item.Quantity > 0 {
+					if available := stockByProd[item.ProductID]; available > 0 && item.Quantity > available {
+						fields[prefix+".quantity"] = "No hay stock disponible suficiente para completar la venta."
+					}
+				}
+				itemsTotal += math.Round((item.UnitValue*float64(item.Quantity))*100) / 100
+				validatedItems = append(validatedItems, creditSaleItemInput{
+					ProductID:   item.ProductID,
+					ProductName: product.Name,
+					Quantity:    item.Quantity,
+					UnitValue:   item.UnitValue,
+				})
+			}
+			itemsTotal = math.Round(itemsTotal*100) / 100
+			if math.Abs(itemsTotal-payload.TotalValue) > 0.01 {
+				fields["total_value"] = "El valor total debe coincidir con la suma de los productos."
+			}
+		} else {
+			if payload.ProductID == "" {
+				fields["product_id"] = "Selecciona un producto válido."
+			}
+			if payload.Quantity <= 0 {
+				fields["quantity"] = "La cantidad debe ser un número positivo."
+			}
+			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
+				return nil, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al producto."}
+			} else if !allowed {
+				fields["product_id"] = "No tienes acceso a este producto."
+			}
+			selectedProduct, selectedFound = findProduct(productsSnapshot, payload.ProductID)
+			if !selectedFound {
+				fields["product_id"] = "Selecciona un producto válido."
+			}
+			if payload.ProductID != "" && payload.Quantity > 0 {
+				if available := stockByProd[payload.ProductID]; available > 0 && payload.Quantity > available {
+					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
+				}
 			}
 		}
 	}
@@ -8230,7 +8627,29 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 
 	soldUnitIDs := []string{}
 	now := time.Now().Format(time.RFC3339)
-	if creditKind == creditSaleKindProduct {
+	if creditKind == creditSaleKindProduct && itemsProvided {
+		lockItems := append([]creditSaleItemInput(nil), validatedItems...)
+		sort.Slice(lockItems, func(left, right int) bool {
+			return selectedByID[lockItems[left].ProductID].refID() < selectedByID[lockItems[right].ProductID].refID()
+		})
+		for _, item := range lockItems {
+			units, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), item.ProductID, item.Quantity)
+			if err != nil {
+				if err == errInsufficientStock {
+					return nil, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente para completar la venta.", Fields: map[string]string{"items": "No hay stock disponible suficiente para completar la venta."}}
+				}
+				return nil, requestError{Status: http.StatusInternalServerError, Message: "Error al actualizar inventario."}
+			}
+			creditSummary := fmt.Sprintf("VENTA A CREDITO COMBINADA | Cuotas: %d | Interes: %.2f%% | Valor cuota: %.2f", payload.InstallmentsTotal, payload.InterestPercent, installmentValue)
+			if payload.Notes != "" {
+				creditSummary += " | " + payload.Notes
+			}
+			if err := logMovimientos(tx, selectedByID[item.ProductID].refID(), units, "venta_credito", creditSummary, currentUser, now); err != nil {
+				return nil, requestError{Status: http.StatusInternalServerError, Message: "Error al registrar movimiento de venta."}
+			}
+			soldUnitIDs = append(soldUnitIDs, units...)
+		}
+	} else if creditKind == creditSaleKindProduct {
 		soldUnitIDs, err = selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity)
 		if err != nil {
 			if err == errInsufficientStock {
@@ -8251,7 +8670,9 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		return nil, requestError{Status: http.StatusInternalServerError, Message: "Error al resolver el cliente del crédito."}
 	}
 	productName := "Préstamo de dinero"
-	if creditKind == creditSaleKindProduct && selectedFound {
+	if creditKind == creditSaleKindProduct && itemsProvided {
+		productName = fmt.Sprintf("Compra combinada (%d productos)", len(validatedItems))
+	} else if creditKind == creditSaleKindProduct && selectedFound {
 		productName = selectedProduct.Name
 	}
 	createdCredit, err := createCreditSale(tx, currentUser, creditSaleCreateInput{
@@ -8259,6 +8680,7 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		ProductID:         payload.ProductID,
 		ProductName:       productName,
 		Quantity:          payload.Quantity,
+		Items:             validatedItems,
 		Customer:          customer,
 		InstallmentsTotal: payload.InstallmentsTotal,
 		TotalValue:        payload.TotalValue,
@@ -8273,6 +8695,14 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		return nil, requestError{Status: http.StatusInternalServerError, Message: "Error al confirmar la venta a crédito."}
 	}
 
+	responseItems := createdCredit.Items
+	if createdCredit.Kind == creditSaleKindProduct && len(responseItems) == 0 {
+		unitValue := payload.TotalValue / float64(createdCredit.Quantity)
+		responseItems = []creditSaleItem{{
+			ProductID: createdCredit.ProductID, ProductName: createdCredit.ProductName,
+			Quantity: createdCredit.Quantity, UnitValue: unitValue, LineTotal: payload.TotalValue,
+		}}
+	}
 	return map[string]any{
 		"ok":                true,
 		"credit_sale_id":    createdCredit.CreditSaleID,
@@ -8282,6 +8712,9 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		"product_id":        createdCredit.ProductID,
 		"product_name":      createdCredit.ProductName,
 		"quantity":          createdCredit.Quantity,
+		"items":             responseItems,
+		"item_count":        len(responseItems),
+		"is_multi_product":  len(responseItems) > 1,
 		"installment_value": createdCredit.InstallmentValue,
 		"debt_total":        createdCredit.DebtTotal,
 		"total_paid":        createdCredit.TotalPaid,
@@ -8437,7 +8870,8 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty 
 		FROM unidades
 		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
 		ORDER BY creado_en, id
-		LIMIT ?`, normalizeTenantID(tenantID), productSKU, qty)
+		LIMIT ?
+		FOR UPDATE`, normalizeTenantID(tenantID), productSKU, qty)
 	if err != nil {
 		return nil, fmt.Errorf("query unidades: %w", err)
 	}
@@ -10585,13 +11019,43 @@ func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceipt
 		return saleReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar la venta."}
 	}
 
-	allowed, err := productAccessibleByID(db, currentUser, productID)
+	items, err := loadSaleItems(db, currentUser, saleID)
 	if err != nil {
-		return saleReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso a la venta."}
+		return saleReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar el detalle de la venta."}
 	}
-	if !allowed {
-		return saleReceiptData{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a esta venta."}
+	for _, item := range items {
+		allowed, accessErr := productAccessibleBySKU(db, currentUser, item.ProductSKU)
+		if accessErr != nil {
+			return saleReceiptData{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso a la venta."}
+		}
+		if !allowed {
+			return saleReceiptData{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a esta venta."}
+		}
 	}
+	if len(items) == 0 {
+		return saleReceiptData{}, requestError{Status: http.StatusNotFound, Message: "Venta no encontrada."}
+	}
+	receiptItems := make([]saleReceiptItem, 0, len(items))
+	totalQuantity := 0
+	total := 0.0
+	for _, item := range items {
+		receiptItems = append(receiptItems, saleReceiptItem{
+			ProductID:     item.ProductID,
+			ProductName:   item.ProductName,
+			Quantity:      item.Quantity,
+			UnitPrice:     item.UnitPrice,
+			UnitPriceText: formatCurrency(item.UnitPrice),
+			LineTotal:     item.LineTotal,
+			LineTotalText: formatCurrency(item.LineTotal),
+			ProductSKU:    item.ProductSKU,
+		})
+		totalQuantity += item.Quantity
+		total += item.LineTotal
+	}
+	productID = receiptItems[0].ProductID
+	productName = receiptItems[0].ProductName
+	quantity = totalQuantity
+	unitPrice = total / float64(totalQuantity)
 
 	saleDate := createdAtRaw
 	saleTime := ""
@@ -10625,7 +11089,7 @@ func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceipt
 		ProductoNom:      productName,
 		Cantidad:         quantity,
 		PrecioUnitario:   formatCurrency(unitPrice),
-		Total:            formatCurrency(unitPrice * float64(quantity)),
+		Total:            formatCurrency(total),
 		MetodoPago:       paymentMethod,
 		SoldBy:           soldBy,
 		Channel:          channel,
@@ -10639,6 +11103,9 @@ func loadSaleReceiptData(db *sql.DB, currentUser *User, saleID int) (saleReceipt
 		CanCredit:        movementEnabled(movementEnabledMap, "credito"),
 		CurrentUser:      currentUser,
 		Settings:         settings,
+		Items:            receiptItems,
+		ItemCount:        len(receiptItems),
+		TotalQuantity:    totalQuantity,
 	}, nil
 }
 
@@ -10675,8 +11142,30 @@ func loadSaleInvoiceSource(db *sql.DB, currentUser *User, saleID int) (invoiceSo
 	if err != nil {
 		return invoiceSourceSnapshot{}, err
 	}
-	unitPrice := parseCurrencyToFloat(data.PrecioUnitario)
-	lineTotal := parseCurrencyToFloat(data.Total)
+	items := make([]invoiceItemData, 0, len(data.Items))
+	for _, saleItem := range data.Items {
+		items = append(items, invoiceItemData{
+			ProductID:     saleItem.ProductID,
+			Description:   saleItem.ProductName,
+			Quantity:      saleItem.Quantity,
+			UnitPrice:     saleItem.UnitPrice,
+			UnitPriceText: saleItem.UnitPriceText,
+			LineTotal:     saleItem.LineTotal,
+			LineTotalText: saleItem.LineTotalText,
+		})
+	}
+	if len(items) == 0 {
+		items = append(items, invoiceItemData{
+			ProductID: data.ProductoID, Description: data.ProductoNom, Quantity: data.Cantidad,
+			UnitPrice: parseCurrencyToFloat(data.PrecioUnitario), UnitPriceText: data.PrecioUnitario,
+			LineTotal: parseCurrencyToFloat(data.Total), LineTotalText: data.Total,
+		})
+	}
+	unitPrice := items[0].UnitPrice
+	lineTotal := 0.0
+	for _, item := range items {
+		lineTotal += item.LineTotal
+	}
 	return invoiceSourceSnapshot{
 		SourceType:  "sale",
 		SourceLabel: "Venta",
@@ -10690,6 +11179,7 @@ func loadSaleInvoiceSource(db *sql.DB, currentUser *User, saleID int) (invoiceSo
 			LineTotal:     lineTotal,
 			LineTotalText: data.Total,
 		},
+		Items: items,
 	}, nil
 }
 
@@ -10731,6 +11221,27 @@ func loadCreditInvoiceSource(db *sql.DB, currentUser *User, creditSaleID int) (i
 		quantity = 1
 	}
 	unitPrice := totalValue / float64(quantity)
+	invoiceItems := []invoiceItemData{}
+	if creditItems, ok := item["items"].([]creditSaleItem); ok && len(creditItems) > 0 {
+		for _, creditItem := range creditItems {
+			invoiceItems = append(invoiceItems, invoiceItemData{
+				ProductID:     creditItem.ProductID,
+				Description:   creditItem.ProductName,
+				Quantity:      creditItem.Quantity,
+				UnitPrice:     creditItem.UnitValue,
+				UnitPriceText: formatCurrency(creditItem.UnitValue),
+				LineTotal:     creditItem.LineTotal,
+				LineTotalText: formatCurrency(creditItem.LineTotal),
+			})
+		}
+	}
+	if len(invoiceItems) == 0 {
+		invoiceItems = append(invoiceItems, invoiceItemData{
+			ProductID: productID, Description: productName, Quantity: quantity,
+			UnitPrice: unitPrice, UnitPriceText: formatCurrency(unitPrice),
+			LineTotal: totalValue, LineTotalText: formatCurrency(totalValue),
+		})
+	}
 	return invoiceSourceSnapshot{
 		SourceType:   "credit",
 		SourceLabel:  "Crédito",
@@ -10745,6 +11256,7 @@ func loadCreditInvoiceSource(db *sql.DB, currentUser *User, creditSaleID int) (i
 			LineTotal:     totalValue,
 			LineTotalText: formatCurrency(totalValue),
 		},
+		Items: invoiceItems,
 	}, nil
 }
 
@@ -11127,6 +11639,15 @@ func createInvoiceDocument(db *sql.DB, currentUser *User, input invoiceCreateInp
 	if err != nil {
 		return nil, false, err
 	}
+	sourceItems := sourceSnapshot.Items
+	if len(sourceItems) == 0 {
+		sourceItems = []invoiceItemData{sourceSnapshot.Item}
+	}
+	sourceTotal := 0.0
+	for _, sourceItem := range sourceItems {
+		sourceTotal += sourceItem.LineTotal
+	}
+	sourceTotal = math.Round(sourceTotal*100) / 100
 
 	customer, err := resolveCustomerForInvoice(tx, currentUser, sourceSnapshot, input.Customer)
 	if err != nil {
@@ -11140,7 +11661,7 @@ func createInvoiceDocument(db *sql.DB, currentUser *User, input invoiceCreateInp
 			customer_name, customer_phone, customer_document_type, customer_document_number,
 			customer_address, customer_city, notes, subtotal, total, status, created_by, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?)
-	`, tenantID, "", sourceSnapshot.SourceType, nullableIntValue(input.SaleID), nullableIntValue(input.CreditSaleID), nullableIntValue(customer.ID), customer.Name, customer.Phone, customer.DocumentType, customer.DocumentNumber, customer.Address, customer.City, input.Notes, sourceSnapshot.Item.LineTotal, sourceSnapshot.Item.LineTotal, nullableUserID(currentUser), now)
+	`, tenantID, "", sourceSnapshot.SourceType, nullableIntValue(input.SaleID), nullableIntValue(input.CreditSaleID), nullableIntValue(customer.ID), customer.Name, customer.Phone, customer.DocumentType, customer.DocumentNumber, customer.Address, customer.City, input.Notes, sourceTotal, sourceTotal, nullableUserID(currentUser), now)
 	if err != nil {
 		return nil, false, err
 	}
@@ -11148,11 +11669,13 @@ func createInvoiceDocument(db *sql.DB, currentUser *User, input invoiceCreateInp
 	if _, err := tx.Exec(`UPDATE invoices SET invoice_number = ? WHERE tenant_id = ? AND id = ?`, number, tenantID, invoiceID); err != nil {
 		return nil, false, err
 	}
-	if _, err := tx.Exec(`
-		INSERT INTO invoice_items (tenant_id, invoice_id, product_id, description, quantity, unit_price, total)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, tenantID, invoiceID, sourceSnapshot.Item.ProductID, sourceSnapshot.Item.Description, sourceSnapshot.Item.Quantity, sourceSnapshot.Item.UnitPrice, sourceSnapshot.Item.LineTotal); err != nil {
-		return nil, false, err
+	for _, sourceItem := range sourceItems {
+		if _, err := tx.Exec(`
+			INSERT INTO invoice_items (tenant_id, invoice_id, product_id, description, quantity, unit_price, total)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, tenantID, invoiceID, sourceItem.ProductID, sourceItem.Description, sourceItem.Quantity, sourceItem.UnitPrice, sourceItem.LineTotal); err != nil {
+			return nil, false, err
+		}
 	}
 	auditPayload := map[string]any{
 		"invoice_id":        invoiceID,
@@ -11163,7 +11686,8 @@ func createInvoiceDocument(db *sql.DB, currentUser *User, input invoiceCreateInp
 		"customer_id":       customer.ID,
 		"customer_name":     customer.Name,
 		"customer_document": customer.DocumentNumber,
-		"total":             sourceSnapshot.Item.LineTotal,
+		"total":             sourceTotal,
+		"item_count":        len(sourceItems),
 	}
 	if decoratePayload != nil {
 		auditPayload = decoratePayload(auditPayload)
@@ -11172,12 +11696,12 @@ func createInvoiceDocument(db *sql.DB, currentUser *User, input invoiceCreateInp
 		return nil, false, err
 	}
 	if customer.ID > 0 {
-		if err := logCustomerEvent(tx, currentUser, customer.ID, "invoice_created", "invoice", strconv.FormatInt(invoiceID, 10), sourceSnapshot.Item.LineTotal, map[string]any{
+		if err := logCustomerEvent(tx, currentUser, customer.ID, "invoice_created", "invoice", strconv.FormatInt(invoiceID, 10), sourceTotal, map[string]any{
 			"invoice_number": number,
 			"source_type":    sourceSnapshot.SourceType,
 			"sale_id":        input.SaleID,
 			"credit_sale_id": input.CreditSaleID,
-			"total":          sourceSnapshot.Item.LineTotal,
+			"total":          sourceTotal,
 		}); err != nil {
 			return nil, false, err
 		}
@@ -12015,6 +12539,11 @@ func hardResetTenantScope(db *sql.DB, currentUser *User, tenantID int, scope ten
 		} else {
 			summary.Counts["movimientos"] = rows
 		}
+		if rows, err := execDeleteCount(tx, `DELETE FROM sale_items WHERE tenant_id = ?`, tenant.ID); err != nil {
+			return tenantResetSummary{}, err
+		} else {
+			summary.Counts["sale_items"] = rows
+		}
 		if rows, err := execDeleteCount(tx, `DELETE FROM ventas WHERE tenant_id = ?`, tenant.ID); err != nil {
 			return tenantResetSummary{}, err
 		} else {
@@ -12079,6 +12608,11 @@ func hardResetTenantScope(db *sql.DB, currentUser *User, tenantID int, scope ten
 			return tenantResetSummary{}, err
 		} else {
 			summary.Counts["credit_installments"] = rows
+		}
+		if rows, err := execDeleteCount(tx, `DELETE FROM credit_sale_items WHERE tenant_id = ?`, tenant.ID); err != nil {
+			return tenantResetSummary{}, err
+		} else {
+			summary.Counts["credit_sale_items"] = rows
 		}
 		if rows, err := execDeleteCount(tx, `DELETE FROM credit_sales WHERE tenant_id = ?`, tenant.ID); err != nil {
 			return tenantResetSummary{}, err
@@ -12732,6 +13266,238 @@ func apiAssignableUsersForRequest(db *sql.DB, r *http.Request) ([]assignableUser
 	return loadAssignableUsersForTenant(db, tenantIDFromRequest(r))
 }
 
+func saleItemMaps(items []saleItemRecord) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, map[string]any{
+			"product_id":   item.ProductID,
+			"product_name": item.ProductName,
+			"quantity":     item.Quantity,
+			"unit_price":   item.UnitPrice,
+			"total":        item.LineTotal,
+		})
+	}
+	return result
+}
+
+func loadSaleItems(db *sql.DB, currentUser *User, saleID int) ([]saleItemRecord, error) {
+	tenantID := tenantIDFromUser(currentUser)
+	rows, err := db.Query(`
+		SELECT
+			si.product_id,
+			COALESCE(NULLIF(p.id, ''), NULLIF(si.product_visible_id, ''), si.product_id),
+			COALESCE(NULLIF(si.product_name, ''), NULLIF(p.nombre, ''), si.product_id),
+			si.quantity,
+			si.unit_price,
+			si.total
+		FROM sale_items si
+		LEFT JOIN productos p ON p.tenant_id = si.tenant_id AND p.sku = si.product_id
+		WHERE si.tenant_id = ? AND si.sale_id = ?
+		ORDER BY si.id ASC
+	`, tenantID, saleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]saleItemRecord, 0)
+	for rows.Next() {
+		var item saleItemRecord
+		if err := rows.Scan(&item.ProductSKU, &item.ProductID, &item.ProductName, &item.Quantity, &item.UnitPrice, &item.LineTotal); err != nil {
+			return nil, err
+		}
+		if currentUser != nil && !hasTenantWideVisibility(currentUser.Role) {
+			allowed, accessErr := productAccessibleBySKU(db, currentUser, item.ProductSKU)
+			if accessErr != nil {
+				return nil, accessErr
+			}
+			if !allowed {
+				return nil, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a esta venta."}
+			}
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) > 0 {
+		return items, nil
+	}
+
+	var item saleItemRecord
+	err = db.QueryRow(`
+		SELECT
+			v.producto_id,
+			COALESCE(NULLIF(p.id, ''), p.sku, v.producto_id),
+			COALESCE(p.nombre, v.producto_id),
+			v.cantidad,
+			v.precio_final,
+			v.precio_final * v.cantidad
+		FROM ventas v
+		LEFT JOIN productos p ON p.tenant_id = v.tenant_id AND p.sku = v.producto_id
+		WHERE v.tenant_id = ? AND v.id = ?
+		LIMIT 1
+	`, tenantID, saleID).Scan(&item.ProductSKU, &item.ProductID, &item.ProductName, &item.Quantity, &item.UnitPrice, &item.LineTotal)
+	if err != nil {
+		return nil, err
+	}
+	return []saleItemRecord{item}, nil
+}
+
+func saleProductForTransaction(tx sqlQueryExecer, tenantID int, user *User, productID string) (saleItemRecord, error) {
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return saleItemRecord{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{"product_id": "Selecciona un producto válido."}}
+	}
+	var (
+		item            saleItemRecord
+		ownerUserID     sql.NullInt64
+		configuredPrice float64
+	)
+	err := tx.QueryRow(`
+		SELECT sku, id, nombre, COALESCE(precio_venta, 0), owner_user_id
+		FROM productos
+		WHERE tenant_id = ? AND id = ?
+		LIMIT 1
+	`, normalizeTenantID(tenantID), productID).Scan(&item.ProductSKU, &item.ProductID, &item.ProductName, &configuredPrice, &ownerUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return saleItemRecord{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{"product_id": "Selecciona un producto válido."}}
+		}
+		return saleItemRecord{}, err
+	}
+	if user == nil || (!hasTenantWideVisibility(user.Role) && ownerUserID.Valid && int(ownerUserID.Int64) != user.ID) {
+		return saleItemRecord{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto.", Fields: map[string]string{"product_id": "No tienes acceso a este producto."}}
+	}
+	item.UnitPrice = configuredPrice
+	return item, nil
+}
+
+func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy bool, legacyTotal, legacySalePrice, legacyUnitPrice *float64, paymentMethod, channel, soldBy, notes, source string, auditPayload map[string]any) (saleCreateResult, error) {
+	if len(items) == 0 {
+		return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{"items": "Debes indicar al menos un producto."}}
+	}
+	tenantID, err := tenantIDFromUserStrict(currentUser)
+	if err != nil {
+		return saleCreateResult{}, requestError{Status: http.StatusForbidden, Message: "No autorizado."}
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return saleCreateResult{}, err
+	}
+	defer tx.Rollback()
+
+	resolved := make([]saleItemRecord, len(items))
+	for index, input := range items {
+		item, err := saleProductForTransaction(tx, tenantID, currentUser, input.ProductID)
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok && reqErr.Fields != nil {
+				for field, message := range reqErr.Fields {
+					if field == "product_id" && !legacy {
+						reqErr.Fields[fmt.Sprintf("items[%d].product_id", index)] = message
+						delete(reqErr.Fields, field)
+					}
+				}
+				return saleCreateResult{}, reqErr
+			}
+			return saleCreateResult{}, err
+		}
+		if input.Quantity <= 0 {
+			field := fmt.Sprintf("items[%d].quantity", index)
+			if legacy {
+				field = "quantity"
+			}
+			return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{field: "La cantidad debe ser un número positivo."}}
+		}
+		if !legacy {
+			if input.UnitPrice == nil || *input.UnitPrice <= 0 {
+				return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{fmt.Sprintf("items[%d].unit_price", index): "El precio unitario debe ser un número mayor a 0."}}
+			}
+			item.UnitPrice = *input.UnitPrice
+		} else {
+			switch {
+			case legacyTotal != nil && *legacyTotal > 0:
+				item.UnitPrice = *legacyTotal / float64(input.Quantity)
+			case legacySalePrice != nil:
+				item.UnitPrice = *legacySalePrice
+			case legacyUnitPrice != nil:
+				item.UnitPrice = *legacyUnitPrice
+			}
+			if item.UnitPrice <= 0 {
+				return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{"sale_price": "Ingresa sale_price o configura un precio de venta válido para el producto."}}
+			}
+		}
+		item.Quantity = input.Quantity
+		item.LineTotal = item.UnitPrice * float64(item.Quantity)
+		resolved[index] = item
+	}
+
+	// Lock units in a stable order so concurrent multi-product sales do not deadlock.
+	order := make([]int, len(resolved))
+	for index := range order {
+		order[index] = index
+	}
+	sort.Slice(order, func(left, right int) bool {
+		return resolved[order[left]].ProductSKU < resolved[order[right]].ProductSKU
+	})
+	now := time.Now().Format(time.RFC3339)
+	totalQuantity := 0
+	subtotal := 0.0
+	for _, index := range order {
+		item := resolved[index]
+		soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantID, item.ProductID, item.Quantity)
+		if err != nil {
+			if err == errInsufficientStock {
+				field := "quantity"
+				if !legacy {
+					field = fmt.Sprintf("items[%d].quantity", index)
+				}
+				return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente para completar la venta.", Fields: map[string]string{field: "No hay stock disponible suficiente para completar la venta."}}
+			}
+			return saleCreateResult{}, err
+		}
+		if err := logMovimientos(tx, item.ProductSKU, soldUnitIDs, "venta", notes, currentUser, now); err != nil {
+			return saleCreateResult{}, err
+		}
+		totalQuantity += item.Quantity
+		subtotal += item.LineTotal
+	}
+	subtotal = math.Round(subtotal*100) / 100
+	averagePrice := subtotal / float64(totalQuantity)
+	first := resolved[0]
+	saleID, err := insertAndReturnID(tx, `
+		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, tenantID, first.ProductSKU, totalQuantity, averagePrice, paymentMethod, channel, soldBy, notes, now)
+	if err != nil {
+		return saleCreateResult{}, err
+	}
+	for _, item := range resolved {
+		if _, err := tx.Exec(`
+			INSERT INTO sale_items (tenant_id, sale_id, product_id, product_visible_id, product_name, quantity, unit_price, total)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, tenantID, saleID, item.ProductSKU, item.ProductID, item.ProductName, item.Quantity, item.UnitPrice, item.LineTotal); err != nil {
+			return saleCreateResult{}, err
+		}
+	}
+	if auditPayload == nil {
+		auditPayload = map[string]any{}
+	}
+	auditPayload["sale_id"] = saleID
+	auditPayload["item_count"] = len(resolved)
+	auditPayload["total_quantity"] = totalQuantity
+	auditPayload["subtotal"] = subtotal
+	auditPayload["items"] = saleItemMaps(resolved)
+	if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", first.ProductID, source, auditPayload); err != nil {
+		return saleCreateResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return saleCreateResult{}, err
+	}
+	return saleCreateResult{SaleID: saleID, Items: resolved, TotalQuantity: totalQuantity, Subtotal: subtotal}, nil
+}
+
 func handleAPISales(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -12774,15 +13540,16 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 				return
 			}
 			var payload struct {
-				ProductID     string   `json:"product_id"`
-				Quantity      *int     `json:"quantity"`
-				PaymentMethod string   `json:"payment_method"`
-				UnitPrice     *float64 `json:"unit_price"`
-				Total         *float64 `json:"total"`
-				SalePrice     *float64 `json:"sale_price"`
-				Channel       string   `json:"channel"`
-				SoldBy        string   `json:"sold_by"`
-				Notes         string   `json:"notes"`
+				ProductID     string          `json:"product_id"`
+				Quantity      *int            `json:"quantity"`
+				PaymentMethod string          `json:"payment_method"`
+				UnitPrice     *float64        `json:"unit_price"`
+				Total         *float64        `json:"total"`
+				SalePrice     *float64        `json:"sale_price"`
+				Channel       string          `json:"channel"`
+				SoldBy        string          `json:"sold_by"`
+				Notes         string          `json:"notes"`
+				Items         json.RawMessage `json:"items"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
@@ -12793,10 +13560,13 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 			payload.Channel = strings.TrimSpace(payload.Channel)
 			payload.SoldBy = strings.TrimSpace(payload.SoldBy)
 			payload.Notes = strings.TrimSpace(payload.Notes)
-
-			quantity := 1
-			if payload.Quantity != nil {
-				quantity = *payload.Quantity
+			itemsPresent := payload.Items != nil
+			multiItems := make([]saleItemPayload, 0)
+			if itemsPresent && string(payload.Items) != "null" {
+				if err := json.Unmarshal(payload.Items, &multiItems); err != nil {
+					writeAPIError(w, http.StatusBadRequest, "El campo items debe ser un arreglo válido.", map[string]string{"items": "El campo items debe ser un arreglo válido."})
+					return
+				}
 			}
 
 			activePaymentMethods, err := loadPaymentMethodsForTenant(db, tenantIDFromUser(currentUser), true)
@@ -12805,55 +13575,6 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 				return
 			}
 			paymentMethodOptions := paymentMethodNames(activePaymentMethods)
-
-			fields := map[string]string{}
-			if payload.ProductID == "" {
-				fields["product_id"] = "Selecciona un producto válido."
-			}
-			if quantity <= 0 {
-				fields["quantity"] = "La cantidad debe ser un número positivo."
-			}
-
-			var (
-				productName      string
-				productSalePrice float64
-				productSKU       string
-			)
-			if payload.ProductID != "" {
-				if resolvedSKU, _, resolveErr := resolveProductRefForTenant(db, tenantIDFromUser(currentUser), payload.ProductID); resolveErr != nil {
-					if resolveErr == sql.ErrNoRows {
-						fields["product_id"] = "Selecciona un producto válido."
-					} else {
-						writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el producto.", nil)
-						return
-					}
-				} else if err := db.QueryRow(`SELECT nombre, COALESCE(precio_venta, 0), sku FROM productos WHERE tenant_id = ? AND sku = ? LIMIT 1`, tenantIDFromUser(currentUser), resolvedSKU).Scan(&productName, &productSalePrice, &productSKU); err != nil {
-					if err == sql.ErrNoRows {
-						fields["product_id"] = "Selecciona un producto válido."
-					} else {
-						writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el producto.", nil)
-						return
-					}
-				}
-			}
-
-			if allowed, err := productAccessibleByID(db, currentUser, payload.ProductID); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar acceso al producto.", nil)
-				return
-			} else if !allowed && fields["product_id"] == "" {
-				fields["product_id"] = "No tienes acceso a este producto."
-			}
-
-			stockByProd, err := availableCountsByProduct(db, tenantIDFromUser(currentUser))
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al consultar stock.", nil)
-				return
-			}
-			if payload.ProductID != "" && quantity > 0 {
-				if available := stockByProd[payload.ProductID]; available > 0 && quantity > available {
-					fields["quantity"] = "No hay stock disponible suficiente para completar la venta."
-				}
-			}
 
 			paymentMethod := payload.PaymentMethod
 			if paymentMethod == "" && len(paymentMethodOptions) > 0 {
@@ -12866,83 +13587,83 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 					break
 				}
 			}
+			fields := map[string]string{}
 			if !validMethod {
 				fields["payment_method"] = "Selecciona un método de pago válido."
 			}
-
-			salePrice := productSalePrice
-			switch {
-			case payload.Total != nil && *payload.Total > 0 && quantity > 0:
-				salePrice = *payload.Total / float64(quantity)
-			case payload.SalePrice != nil:
-				salePrice = *payload.SalePrice
-			case payload.UnitPrice != nil:
-				salePrice = *payload.UnitPrice
+			legacy := !itemsPresent
+			if legacy && payload.ProductID == "" {
+				fields["product_id"] = "Selecciona un producto válido."
 			}
-			if salePrice <= 0 {
-				fields["sale_price"] = "Ingresa sale_price o configura un precio de venta válido para el producto."
+			if !legacy && (payload.ProductID != "" || len(multiItems) == 0) {
+				fields["items"] = "Usa product_id + quantity o items con al menos un producto, pero no ambos."
 			}
-
 			if len(fields) > 0 {
 				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
 				return
 			}
 
-			tx, err := db.Begin()
+			inputs := make([]saleItemInput, 0)
+			if legacy {
+				quantity := 1
+				if payload.Quantity != nil {
+					quantity = *payload.Quantity
+				}
+				inputs = append(inputs, saleItemInput{ProductID: payload.ProductID, Quantity: quantity})
+			} else {
+				seen := map[string]bool{}
+				for index, item := range multiItems {
+					item.ProductID = strings.TrimSpace(item.ProductID)
+					if item.ProductID == "" {
+						fields[fmt.Sprintf("items[%d].product_id", index)] = "Selecciona un producto válido."
+					}
+					if seen[strings.ToLower(item.ProductID)] {
+						fields[fmt.Sprintf("items[%d].product_id", index)] = "El producto no puede repetirse dentro de items."
+					}
+					seen[strings.ToLower(item.ProductID)] = true
+					if item.Quantity <= 0 {
+						fields[fmt.Sprintf("items[%d].quantity", index)] = "La cantidad debe ser un número positivo."
+					}
+					inputs = append(inputs, saleItemInput{ProductID: item.ProductID, Quantity: item.Quantity, UnitPrice: item.UnitPrice})
+				}
+			}
+			if len(fields) > 0 {
+				writeAPIError(w, http.StatusBadRequest, "Datos inválidos.", fields)
+				return
+			}
+			result, err := registerSale(db, currentUser, inputs, legacy, payload.Total, payload.SalePrice, payload.UnitPrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, "api", withAPIAuditMetadata(r, map[string]any{
+				"payment_method": paymentMethod,
+				"channel":        payload.Channel,
+				"sold_by":        payload.SoldBy,
+				"notes":          payload.Notes,
+			}))
 			if err != nil {
+				if reqErr, ok := requestErrorDetails(err); ok {
+					writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+					return
+				}
 				writeAPIError(w, http.StatusInternalServerError, "Error al procesar la venta.", nil)
 				return
 			}
-			defer tx.Rollback()
-
-			soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, quantity)
-			if err != nil {
-				if err == errInsufficientStock {
-					writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar la venta.", map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."})
-					return
-				}
-				writeAPIError(w, http.StatusInternalServerError, "Error al actualizar inventario.", nil)
-				return
-			}
-
-			now := time.Now().Format(time.RFC3339)
-			if err := logMovimientos(tx, productSKU, soldUnitIDs, "venta", payload.Notes, currentUser, now); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar movimiento de venta.", nil)
-				return
-			}
-			saleID, err := insertAndReturnID(tx, `INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, channel, sold_by, notas, fecha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, tenantIDFromUser(currentUser), productSKU, quantity, salePrice, paymentMethod, payload.Channel, payload.SoldBy, payload.Notes, now)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la venta.", nil)
-				return
-			}
-			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", payload.ProductID, "api", withAPIAuditMetadata(r, map[string]any{
-				"sale_id":     saleID,
-				"producto_id": payload.ProductID,
-				"product_sku": productSKU,
-				"producto":    productName,
-				"cantidad":    quantity,
-				"sale_price":  salePrice,
-				"metodo_pago": paymentMethod,
-				"channel":     payload.Channel,
-				"sold_by":     payload.SoldBy,
-				"notes":       payload.Notes,
-				"total":       salePrice * float64(quantity),
-			})); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al registrar la auditoría de la venta.", nil)
-				return
-			}
-			if err := tx.Commit(); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "Error al confirmar la venta.", nil)
-				return
-			}
+			first := result.Items[0]
 			writeAPIJSON(w, http.StatusCreated, map[string]any{
-				"ok":           true,
-				"sale_id":      saleID,
-				"product_id":   payload.ProductID,
-				"product_name": productName,
-				"quantity":     quantity,
-				"sale_price":   salePrice,
-				"message":      "Venta registrada correctamente.",
+				"ok":                   true,
+				"sale_id":              result.SaleID,
+				"product_id":           first.ProductID,
+				"product_name":         first.ProductName,
+				"quantity":             first.Quantity,
+				"sale_price":           first.UnitPrice,
+				"items":                saleItemMaps(result.Items),
+				"item_count":           len(result.Items),
+				"total_quantity":       result.TotalQuantity,
+				"subtotal":             result.Subtotal,
+				"total":                result.Subtotal,
+				"is_multi_product":     len(result.Items) > 1,
+				"receipt_url":          saleReceiptViewURL(int(result.SaleID)),
+				"receipt_download_url": saleReceiptDownloadURL(int(result.SaleID)),
+				"thermal_ticket_url":   saleThermalTicketViewURL(int(result.SaleID)),
+				"invoice_create_url":   invoiceNewFromSaleURL(int(result.SaleID)),
+				"message":              "Venta registrada correctamente.",
 			})
 
 		default:
@@ -15888,6 +16609,68 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 	return nil
 }
 
+func ensureSaleItemsBase(db *sql.DB) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS sale_items (
+			id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+			tenant_id INTEGER NOT NULL DEFAULT 1,
+			sale_id INTEGER NOT NULL,
+			product_id TEXT NOT NULL,
+			product_visible_id TEXT NOT NULL DEFAULT '',
+			product_name TEXT NOT NULL DEFAULT '',
+			quantity INTEGER NOT NULL,
+			unit_price REAL NOT NULL,
+			total REAL NOT NULL
+		)
+	`); err != nil {
+		return err
+	}
+	cols, err := tableColumns(db, "sale_items")
+	if err != nil {
+		return err
+	}
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{name: "product_visible_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "product_name", definition: "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if !cols[column.name] {
+			if _, err := db.Exec("ALTER TABLE sale_items ADD COLUMN " + column.name + " " + column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uq_sale_items_tenant_sale_product ON sale_items (tenant_id, sale_id, product_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_sale ON sale_items (tenant_id, sale_id, id)`); err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+		INSERT INTO sale_items (tenant_id, sale_id, product_id, product_visible_id, product_name, quantity, unit_price, total)
+		SELECT
+			v.tenant_id,
+			v.id,
+			v.producto_id,
+			COALESCE(NULLIF(p.id, ''), v.producto_id),
+			COALESCE(NULLIF(p.nombre, ''), v.producto_id),
+			v.cantidad,
+			v.precio_final,
+			v.precio_final * v.cantidad
+		FROM ventas v
+		LEFT JOIN productos p ON p.tenant_id = v.tenant_id AND p.sku = v.producto_id
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM sale_items si
+			WHERE si.tenant_id = v.tenant_id
+			  AND si.sale_id = v.id
+		)
+	`)
+	return err
+}
+
 func ensureCustomerCRMBase(db *sql.DB) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS customers (
@@ -16180,6 +16963,20 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 	CREATE INDEX IF NOT EXISTS idx_ventas_tenant_fecha ON ventas (tenant_id, fecha);
 	CREATE INDEX IF NOT EXISTS idx_ventas_tenant_metodo ON ventas (tenant_id, metodo_pago);
 
+	CREATE TABLE IF NOT EXISTS sale_items (
+		id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		sale_id INTEGER NOT NULL,
+		product_id TEXT NOT NULL,
+		product_visible_id TEXT NOT NULL DEFAULT '',
+		product_name TEXT NOT NULL DEFAULT '',
+		quantity INTEGER NOT NULL,
+		unit_price REAL NOT NULL,
+		total REAL NOT NULL
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS uq_sale_items_tenant_sale_product ON sale_items (tenant_id, sale_id, product_id);
+	CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_sale ON sale_items (tenant_id, sale_id, id);
+
 	CREATE TABLE IF NOT EXISTS retomas (
 		id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
 		tenant_id INTEGER NOT NULL DEFAULT 1,
@@ -16380,6 +17177,20 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 	);
 	CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_product_id ON credit_sales (tenant_id, product_id, created_at);
 	CREATE INDEX IF NOT EXISTS idx_credit_sales_tenant_debtor_name ON credit_sales (tenant_id, debtor_name);
+
+	CREATE TABLE IF NOT EXISTS credit_sale_items (
+		id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		credit_sale_id INTEGER NOT NULL,
+		product_id TEXT NOT NULL,
+		product_name TEXT NOT NULL DEFAULT '',
+		quantity INTEGER NOT NULL,
+		unit_value REAL NOT NULL,
+		line_total REAL NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text)
+	);
+	CREATE INDEX IF NOT EXISTS idx_credit_sale_items_tenant_credit ON credit_sale_items (tenant_id, credit_sale_id, id);
+	CREATE INDEX IF NOT EXISTS idx_credit_sale_items_tenant_product ON credit_sale_items (tenant_id, product_id, credit_sale_id);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -16391,6 +17202,10 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		return nil, err
 	}
 	if err := ensureLegacyOperationalColumns(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := ensureSaleItemsBase(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -19789,7 +20604,17 @@ func main() {
 			writeJSONError(http.StatusBadRequest, "ID de venta inválido.")
 			return
 		}
-		res, err := db.Exec(`DELETE FROM ventas WHERE id = ?`, ventaID)
+		tx, err := db.Begin()
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo eliminar la venta.")
+			return
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec(`DELETE FROM sale_items WHERE sale_id = ?`, ventaID); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo eliminar el detalle de la venta.")
+			return
+		}
+		res, err := tx.Exec(`DELETE FROM ventas WHERE id = ?`, ventaID)
 		if err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo eliminar la venta.")
 			return
@@ -19797,6 +20622,10 @@ func main() {
 		affected, err := res.RowsAffected()
 		if err != nil || affected == 0 {
 			writeJSONError(http.StatusNotFound, "La venta no existe o ya fue eliminada.")
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la eliminación de la venta.")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -19938,7 +20767,7 @@ func main() {
 		creditRows, err := db.Query(`
 			SELECT
 				cs.id,
-				cs.product_id,
+				COALESCE(cs.product_id, ''),
 				cs.quantity,
 				COALESCE(cs.customer_id, 0),
 				COALESCE(c.name, cs.debtor_name, ''),
@@ -20034,6 +20863,27 @@ func main() {
 				totalPaid = legacyTotalPaid
 			}
 			product, ok := allowedProducts[productID]
+			if productID == "" {
+				creditItems, loadErr := loadCreditSaleItems(db, tenantIDFromUser(currentUser), creditID)
+				if loadErr != nil {
+					http.Error(w, "Error al cargar productos del crédito", http.StatusInternalServerError)
+					return
+				}
+				allAllowed := len(creditItems) > 0
+				for _, item := range creditItems {
+					if _, itemAllowed := allowedProducts[item.ProductSKU]; !itemAllowed {
+						allAllowed = false
+						break
+					}
+				}
+				if !allAllowed {
+					continue
+				}
+				_, summaryName, totalQuantity := creditItemsSummary(creditItems, "", "", quantity)
+				product = productOption{Name: summaryName, SalePrice: totalValue / float64(max(totalQuantity, 1))}
+				quantity = totalQuantity
+				ok = true
+			}
 			if !ok {
 				continue
 			}
