@@ -68,6 +68,8 @@
       --primary:        {{businessPrimaryColor .}};
       --primary-strong: {{businessPrimaryStrong .}};
       --primary-soft:   {{businessPrimarySoft .}};
+      --primary-contrast: {{businessPrimaryContrast .}};
+      --primary-strong-contrast: {{businessPrimaryStrongContrast .}};
 
       --secondary:      #212121;
       --secondary-soft: #f5f7fa;
@@ -210,6 +212,8 @@
       --primary:        #d1d5db;
       --primary-strong: #b6bcc4;
       --primary-soft:   rgba(209, 213, 219, 0.16);
+      --primary-contrast: #121212;
+      --primary-strong-contrast: #121212;
       --secondary:      #e5e5e5;
       --secondary-soft: rgba(229, 229, 229, 0.1);
       --focus-ring:     rgba(209, 213, 219, 0.3);
@@ -1753,7 +1757,6 @@
 
     details.range-picker summary,
     .multi-select summary,
-    details.settings-accordion summary,
     .dashboard-panel summary,
     details.accordion summary {
       display: inline-flex;
@@ -1775,7 +1778,6 @@
 
     details.range-picker summary::-webkit-details-marker,
     .multi-select summary::-webkit-details-marker,
-    details.settings-accordion summary::-webkit-details-marker,
     .dashboard-panel summary::-webkit-details-marker,
     details.accordion summary::-webkit-details-marker {
       display: none;
@@ -1783,7 +1785,6 @@
 
     details.range-picker summary:hover,
     .multi-select summary:hover,
-    details.settings-accordion summary:hover,
     .dashboard-panel summary:hover,
     details.accordion summary:hover {
       background: var(--secondary-soft);
@@ -1793,7 +1794,6 @@
 
     details.range-picker[open] summary,
     .multi-select[open] summary,
-    details.settings-accordion[open] summary,
     .dashboard-panel[open] summary,
     details.accordion[open] summary {
       background: var(--secondary-soft);

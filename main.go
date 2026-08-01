@@ -9275,6 +9275,41 @@ func shadeHexColor(hex string, delta int) string {
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
+func hexRelativeLuminance(hex string) float64 {
+	hex = normalizeHexColor(hex, defaultBusinessSettings().PrimaryColor)
+	parse := func(part string) float64 {
+		value, err := strconv.ParseInt(part, 16, 0)
+		if err != nil {
+			return 0
+		}
+		return float64(value) / 255
+	}
+	linear := func(channel float64) float64 {
+		if channel <= 0.04045 {
+			return channel / 12.92
+		}
+		return math.Pow((channel+0.055)/1.055, 2.4)
+	}
+	return 0.2126*linear(parse(hex[1:3])) + 0.7152*linear(parse(hex[3:5])) + 0.0722*linear(parse(hex[5:7]))
+}
+
+func contrastTextHex(background string) string {
+	luminance := hexRelativeLuminance(background)
+	if (luminance+0.05)/0.05 >= 1.05/(luminance+0.05) {
+		return "#000000"
+	}
+	return "#ffffff"
+}
+
+func hexContrastRatio(first, second string) float64 {
+	firstLuminance := hexRelativeLuminance(first)
+	secondLuminance := hexRelativeLuminance(second)
+	if firstLuminance < secondLuminance {
+		firstLuminance, secondLuminance = secondLuminance, firstLuminance
+	}
+	return (firstLuminance + 0.05) / (secondLuminance + 0.05)
+}
+
 func parseDateFlexible(raw string) (time.Time, bool) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -17640,6 +17675,12 @@ func main() {
 		},
 		"businessPrimarySoft": func(data any) string {
 			return shadeHexColor(resolveTemplateSettings(data).PrimaryColor, 208)
+		},
+		"businessPrimaryContrast": func(data any) string {
+			return contrastTextHex(resolveTemplateSettings(data).PrimaryColor)
+		},
+		"businessPrimaryStrongContrast": func(data any) string {
+			return contrastTextHex(shadeHexColor(resolveTemplateSettings(data).PrimaryColor, -24))
 		},
 		"pageCanLoan": func(data any) bool {
 			return movementEnabledFromTemplateData(db, data, "CanLoan", "prestamo")

@@ -1596,13 +1596,15 @@ func TestLabelProfilesAreTenantScopedAndDrivePhysicalLayout(t *testing.T) {
 
 func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	templates, err := template.New("").Funcs(template.FuncMap{
-		"businessName":          func(any) string { return "Negocio prueba" },
-		"businessLogoPath":      func(any) string { return "" },
-		"businessPrimaryColor":  func(any) string { return "#172554" },
-		"businessPrimaryStrong": func(any) string { return "#0f172a" },
-		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
-		"pageCanLoan":           func(any) bool { return false },
-		"pageCanCredit":         func(any) bool { return true },
+		"businessName":                  func(any) string { return "Negocio prueba" },
+		"businessLogoPath":              func(any) string { return "" },
+		"businessPrimaryColor":          func(any) string { return "#172554" },
+		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
+		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
+		"pageCanLoan":                   func(any) bool { return false },
+		"pageCanCredit":                 func(any) bool { return true },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -1666,14 +1668,16 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 
 func TestSaleFlowTemplatesParse(t *testing.T) {
 	_, err := template.New("").Funcs(template.FuncMap{
-		"businessName":          func(any) string { return "Negocio prueba" },
-		"businessLogoPath":      func(any) string { return "" },
-		"businessPrimaryColor":  func(any) string { return "#172554" },
-		"businessPrimaryStrong": func(any) string { return "#0f172a" },
-		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
-		"pageCanLoan":           func(any) bool { return false },
-		"pageCanCredit":         func(any) bool { return true },
-		"money":                 func(value float64) string { return formatCurrency(value) },
+		"businessName":                  func(any) string { return "Negocio prueba" },
+		"businessLogoPath":              func(any) string { return "" },
+		"businessPrimaryColor":          func(any) string { return "#172554" },
+		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
+		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
+		"pageCanLoan":                   func(any) bool { return false },
+		"pageCanCredit":                 func(any) bool { return true },
+		"money":                         func(value float64) string { return formatCurrency(value) },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -1689,13 +1693,15 @@ func TestSaleFlowTemplatesParse(t *testing.T) {
 
 func TestBusinessSettingsTemplateParsesLabelProfiles(t *testing.T) {
 	_, err := template.New("").Funcs(template.FuncMap{
-		"businessName":          func(any) string { return "Negocio prueba" },
-		"businessLogoPath":      func(any) string { return "" },
-		"businessPrimaryColor":  func(any) string { return "#172554" },
-		"businessPrimaryStrong": func(any) string { return "#0f172a" },
-		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
-		"pageCanLoan":           func(any) bool { return false },
-		"pageCanCredit":         func(any) bool { return false },
+		"businessName":                  func(any) string { return "Negocio prueba" },
+		"businessLogoPath":              func(any) string { return "" },
+		"businessPrimaryColor":          func(any) string { return "#172554" },
+		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
+		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
+		"pageCanLoan":                   func(any) bool { return false },
+		"pageCanCredit":                 func(any) bool { return false },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -1706,16 +1712,64 @@ func TestBusinessSettingsTemplateParsesLabelProfiles(t *testing.T) {
 	}
 }
 
+func TestContrastTextHexMeetsWCAGAA(t *testing.T) {
+	for _, primary := range []string{"#ffffff", "#000000", "#777777", "#5b5bd6", "#ffff00"} {
+		for _, background := range []string{primary, shadeHexColor(primary, -24)} {
+			foreground := contrastTextHex(background)
+			if foreground != "#000000" && foreground != "#ffffff" {
+				t.Fatalf("unexpected contrast color %q for %s", foreground, background)
+			}
+			if ratio := hexContrastRatio(background, foreground); ratio < 4.5 {
+				t.Fatalf("contrast for background %s and foreground %s is %.2f, want at least 4.5", background, foreground, ratio)
+			}
+		}
+	}
+}
+
+func TestBusinessSettingsTemplateMaintainsFixedSections(t *testing.T) {
+	content, err := os.ReadFile("templates/business_settings.html")
+	if err != nil {
+		t.Fatalf("read business settings template: %v", err)
+	}
+
+	for _, field := range []string{"new_tenant_admin_password", "new_tenant_admin_password_confirm"} {
+		start := bytes.Index(content, []byte(`id="`+field+`"`))
+		if start < 0 {
+			t.Fatalf("missing %s field", field)
+		}
+		end := bytes.Index(content[start:], []byte(`/>`))
+		if end < 0 || !bytes.Contains(content[start:start+end], []byte(`autocomplete="new-password"`)) {
+			t.Fatalf("%s should identify itself as a new password field", field)
+		}
+	}
+	if bytes.Contains(content, []byte(`<details`)) || bytes.Contains(content, []byte(`<summary`)) || bytes.Contains(content, []byte(`settings-accordion`)) {
+		t.Fatal("business settings should use fixed sections instead of accordions")
+	}
+	for _, section := range []string{"negocio", "inventario", "metodos-pago", "usuarios", "integraciones", "avanzado", "empresas"} {
+		if got := bytes.Count(content, []byte(`data-settings-section="`+section+`"`)); got != 1 {
+			t.Fatalf("expected one fixed %s settings section, got %d", section, got)
+		}
+	}
+	if !bytes.Contains(content, []byte(`data-settings-section="empresas"`)) || !bytes.Contains(content, []byte(`{{if .CanManageTenants}}`)) {
+		t.Fatal("tenant management should remain separately identified and restricted to platform admins")
+	}
+	if !bytes.Contains(content, []byte(`URL.revokeObjectURL`)) {
+		t.Fatal("logo preview should release temporary object URLs")
+	}
+}
+
 func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	templates, err := template.New("").Funcs(template.FuncMap{
-		"businessName":          func(any) string { return "Negocio prueba" },
-		"businessLogoPath":      func(any) string { return "" },
-		"businessPrimaryColor":  func(any) string { return "#172554" },
-		"businessPrimaryStrong": func(any) string { return "#0f172a" },
-		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
-		"pageCanLoan":           func(any) bool { return false },
-		"pageCanCredit":         func(any) bool { return true },
-		"money":                 func(float64) string { return "$0" },
+		"businessName":                  func(any) string { return "Negocio prueba" },
+		"businessLogoPath":              func(any) string { return "" },
+		"businessPrimaryColor":          func(any) string { return "#172554" },
+		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
+		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
+		"pageCanLoan":                   func(any) bool { return false },
+		"pageCanCredit":                 func(any) bool { return true },
+		"money":                         func(float64) string { return "$0" },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -1725,11 +1779,11 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 		t.Fatalf("parse inventory template: %v", err)
 	}
 
-	renderDeleteButton := func(role string) []byte {
+	renderDeleteButton := func(role string, canSell bool) []byte {
 		var rendered bytes.Buffer
 		data := inventoryPageData{
 			Title:       "Inventario",
-			CanSell:     true,
+			CanSell:     canSell,
 			CanCredit:   true,
 			CurrentUser: &User{Role: role},
 		}
@@ -1739,7 +1793,7 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 		return rendered.Bytes()
 	}
 
-	adminRendered := renderDeleteButton("admin")
+	adminRendered := renderDeleteButton("admin", true)
 	if got := bytes.Count(adminRendered, []byte(`id="edit-delete-product"`)); got != 1 {
 		t.Fatalf("admin inventory page should render exactly one delete-product action, got %d", got)
 	}
@@ -1764,15 +1818,36 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 		t.Fatalf("admin edit-credit modal should expose the delete-credit action")
 	}
 
-	employeeRendered := renderDeleteButton("empleado")
+	employeeRendered := renderDeleteButton("empleado", true)
 	if bytes.Contains(employeeRendered, []byte(`id="edit-delete-product"`)) {
 		t.Fatalf("non-admin inventory modal should not expose the delete-product action")
 	}
 	if bytes.Contains(employeeRendered, []byte(`id="credit-edit-delete"`)) {
 		t.Fatalf("non-admin inventory modal should not expose the delete-credit action")
 	}
-	if !bytes.Contains(adminRendered, []byte(`inventory-cart-link`)) || !bytes.Contains(adminRendered, []byte(`data-sale-cart`)) {
-		t.Fatal("inventory page should expose the cart link and cart root")
+	if !bytes.Contains(adminRendered, []byte(`inventory-cart-bubble`)) || !bytes.Contains(adminRendered, []byte(`data-sale-cart`)) {
+		t.Fatal("inventory page should expose the floating cart link and cart root")
+	}
+	bubbleStart := bytes.Index(adminRendered, []byte(`<a class="button inventory-cart-bubble"`))
+	if bubbleStart < 0 {
+		t.Fatal("could not locate the floating cart bubble")
+	}
+	bubbleEnd := bytes.Index(adminRendered[bubbleStart:], []byte(`</a>`))
+	if bubbleEnd < 0 {
+		t.Fatal("could not locate the end of the floating cart bubble")
+	}
+	bubble := adminRendered[bubbleStart : bubbleStart+bubbleEnd]
+	if !bytes.Contains(bubble, []byte(`href="/venta/carrito"`)) || !bytes.Contains(bubble, []byte(`aria-label="Abrir carrito de venta"`)) || !bytes.Contains(bubble, []byte(`data-cart-count aria-live="polite"`)) {
+		t.Fatal("floating cart bubble should retain its route and accessible counter")
+	}
+	if bytes.Contains(bubble, []byte(`title=`)) {
+		t.Fatal("floating cart bubble should not duplicate its accessible name as a title")
+	}
+	if !bytes.Contains(adminRendered, []byte(`color: var(--primary-contrast);`)) || !bytes.Contains(adminRendered, []byte(`color: var(--primary-strong-contrast);`)) || !bytes.Contains(adminRendered, []byte(`right: calc(16px + env(safe-area-inset-right));`)) {
+		t.Fatal("floating cart bubble should use contrast tokens and the mobile right safe area")
+	}
+	if withoutSales := renderDeleteButton("admin", false); bytes.Contains(withoutSales, []byte(`<a class="button inventory-cart-bubble"`)) {
+		t.Fatal("inventory page should hide the floating cart bubble when sales are unavailable")
 	}
 	if !bytes.Contains(adminRendered, []byte(`data-sidebar-shell`)) || !bytes.Contains(adminRendered, []byte(`id="sidebar-panel"`)) || !bytes.Contains(adminRendered, []byte(`id="theme-toggle"`)) {
 		t.Fatal("inventory page should render the shared collapsible sidebar shell")
@@ -1805,30 +1880,36 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	if !bytes.Contains(adminRendered, []byte(`id="logout-trigger"`)) || !bytes.Contains(adminRendered, []byte(`id="logout-modal"`)) || !bytes.Contains(adminRendered, []byte(`>Aceptar</button>`)) {
 		t.Fatal("sidebar should expose the username logout confirmation")
 	}
-	if !bytes.Contains(adminRendered, []byte(`id="credit-manage-open"`)) || !bytes.Contains(adminRendered, []byte(`href="/inventario?open=credit-manager"`)) {
-		t.Fatal("admin inventory page should expose the credit management deep link")
+	if !bytes.Contains(adminRendered, []byte(`id="loan-open"`)) || !bytes.Contains(adminRendered, []byte(`href="/inventario?open=loan"`)) {
+		t.Fatal("admin inventory page should expose the new loan deep link")
 	}
-	if bytes.Contains(adminRendered, []byte(`<button id="credit-manage-open"`)) {
-		t.Fatal("credit management should not be rendered as a dead shared-header button")
+	if bytes.Contains(adminRendered, []byte(`<button id="loan-open"`)) {
+		t.Fatal("new loan should not be rendered as a dead shared-header button")
 	}
-	for _, marker := range []string{"const openCreditManager =", "history.replaceState", "creditManagerQuery.get(\"open\")", "productsMenuSummary"} {
+	for _, marker := range []string{"const openLoanModal =", "history.replaceState", "loanQuery.get(\"open\")", "openLoanModal(\"cash_loan\", loanOpen)"} {
 		if !bytes.Contains(adminRendered, []byte(marker)) {
-			t.Fatalf("inventory should expose resilient credit deep-link marker %q", marker)
+			t.Fatalf("inventory should expose resilient loan deep-link marker %q", marker)
 		}
 	}
-	for _, label := range []string{"Nuevo producto", "Editar créditos", "Manual del producto", "Configuración"} {
+	for _, label := range []string{"Nuevo producto", "Nuevo Préstamo", "Manual del producto", "Configuración"} {
 		if !bytes.Contains(adminRendered, []byte(label)) {
 			t.Fatalf("admin sidebar should expose promoted action %q", label)
 		}
 	}
-	if bytes.Count(adminRendered, []byte(`aria-label="Nuevo producto"`)) != 1 || bytes.Count(adminRendered, []byte(`aria-label="Configuración"`)) != 1 || bytes.Count(adminRendered, []byte(`aria-label="Manual del producto"`)) != 1 {
+	if bytes.Contains(adminRendered, []byte(`aria-label="Editar créditos"`)) {
+		t.Fatal("sidebar should not expose an edit credits action")
+	}
+	if bytes.Count(adminRendered, []byte(`aria-label="Nuevo producto"`)) != 1 || bytes.Count(adminRendered, []byte(`aria-label="Nuevo Préstamo"`)) != 1 || bytes.Count(adminRendered, []byte(`aria-label="Configuración"`)) != 1 || bytes.Count(adminRendered, []byte(`aria-label="Manual del producto"`)) != 1 {
 		t.Fatal("promoted sidebar actions should not be duplicated in submenus")
+	}
+	if !bytes.Contains(adminRendered, []byte(`class="button inventory-cart-bubble"`)) || !bytes.Contains(adminRendered, []byte(`data-cart-count`)) {
+		t.Fatal("inventory should render the floating cart bubble with its counter")
 	}
 
 	if !bytes.Contains(employeeRendered, []byte("Manual del producto")) {
 		t.Fatal("manual should be available to authenticated employees")
 	}
-	if bytes.Contains(employeeRendered, []byte(`aria-label="Nuevo producto"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Editar créditos"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Configuración"`)) {
+	if bytes.Contains(employeeRendered, []byte(`aria-label="Nuevo producto"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Nuevo Préstamo"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Configuración"`)) {
 		t.Fatal("employee sidebar should not expose admin-only promoted actions")
 	}
 }

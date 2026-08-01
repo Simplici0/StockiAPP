@@ -23,45 +23,55 @@
                 box-shadow: var(--shadow-xs);
             }
 
-            .filters-actions {
-                display: flex;
-                gap: 8px;
-                flex-wrap: wrap;
-                align-items: center;
-                padding-bottom: 12px;
-                border-bottom: 1px solid var(--border);
-            }
-
-            .filters-actions:empty {
-                display: none;
-            }
-
-            .filters .filters-actions .inventory-cart-link {
+            .page-content .inventory-cart-bubble {
+                position: fixed;
+                right: 24px;
+                bottom: 24px;
+                z-index: 260;
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                gap: 8px;
-                min-width: 64px;
-                min-height: 44px;
-                margin-left: auto;
-                padding: 0 10px;
+                width: 56px;
+                min-width: 56px;
+                height: 56px;
+                min-height: 56px;
+                padding: 0;
+                border-color: var(--primary-strong);
+                border-radius: 50%;
+                background: var(--primary);
+                color: var(--primary-contrast);
+                box-shadow: 0 10px 24px var(--primary-shadow);
+            }
+
+            .page-content .inventory-cart-bubble:hover,
+            .page-content .inventory-cart-bubble:focus-visible {
+                background: var(--primary-strong);
+                border-color: var(--primary-strong);
+                color: var(--primary-strong-contrast);
+                outline: 3px solid var(--focus-ring);
+                outline-offset: 3px;
             }
 
             .inventory-cart-icon {
-                width: 18px;
-                height: 18px;
-                flex: 0 0 auto;
+                width: 23px;
+                height: 23px;
             }
 
             .inventory-cart-count {
+                position: absolute;
+                top: -5px;
+                right: -5px;
                 min-width: 22px;
                 padding: 2px 6px;
                 border-radius: 999px;
-                background: var(--primary);
-                color: var(--bg-card-strong);
+                border: 1px solid var(--primary-strong);
+                background: var(--bg-card);
+                color: var(--text);
                 text-align: center;
                 font-size: 12px;
+                font-weight: 800;
                 line-height: 1.2;
+                box-shadow: var(--shadow-xs);
             }
 
             .cart-status {
@@ -70,42 +80,6 @@
                 color: var(--primary);
                 font-size: 11px;
                 font-weight: 700;
-            }
-
-            /* Todos los botones de acción: tamaño discreto, tablet-first */
-            .filters-actions button,
-            .filters-actions a.button {
-                min-height: 34px;
-                padding: 0 14px;
-                font-size: 12.5px;
-                font-weight: 700;
-                border-radius: 8px;
-                letter-spacing: 0.01em;
-            }
-
-            /* Acción principal del modal de crédito */
-            .filters-actions button.secondary {
-                background: var(--secondary-soft);
-                border-color: var(--border-strong);
-                color: var(--secondary);
-            }
-            .filters-actions button.secondary:hover {
-                background: var(--secondary-hover);
-                border-color: var(--secondary-hover-border);
-            }
-
-            /* Editar créditos / Ver préstamos: outline visible, no transparente */
-            .filters-actions button.ghost,
-            .filters-actions a.button.ghost {
-                background: transparent;
-                border: 1px solid transparent;
-                color: var(--secondary);
-            }
-            .filters-actions button.ghost:hover,
-            .filters-actions a.button.ghost:hover {
-                background: var(--bg-card-muted);
-                border-color: var(--border-strong);
-                color: var(--text);
             }
 
             .filters-row {
@@ -1195,10 +1169,6 @@
                 cursor: pointer;
             }
 
-            .credit-launch {
-                justify-content: center;
-            }
-
             .credit-kind-switch {
                 display: grid;
                 gap: 10px;
@@ -1452,7 +1422,6 @@
                 box-shadow: var(--shadow-xs);
             }
 
-            [data-theme="dark"] .filters-actions,
             [data-theme="dark"] .modal-header,
             [data-theme="dark"] .credit-edit-history-head,
             [data-theme="dark"] .sale-receipt-actions,
@@ -1460,8 +1429,6 @@
                 border-color: var(--border);
             }
 
-            [data-theme="dark"] .filters-actions button.ghost,
-            [data-theme="dark"] .filters-actions a.button.ghost,
             [data-theme="dark"] .actions button.ghost,
             [data-theme="dark"] .menu > button.ghost,
             [data-theme="dark"] .credit-details-toggle,
@@ -1490,8 +1457,6 @@
                 border-color: var(--border);
             }
 
-            [data-theme="dark"] .filters-actions button.ghost:hover,
-            [data-theme="dark"] .filters-actions a.button.ghost:hover,
             [data-theme="dark"] .actions button.ghost:hover,
             [data-theme="dark"] .menu > button.ghost:hover,
             [data-theme="dark"] .credit-kind-option.active {
@@ -1625,22 +1590,6 @@
                     padding: 14px;
                 }
 
-                .filters-actions {
-                    gap: 6px;
-                }
-
-                .filters-actions .button,
-                .filters-actions button {
-                    flex: 1 1 auto;
-                    justify-content: center;
-                }
-
-                .filters-actions .inventory-cart-link {
-                    flex: 0 0 auto;
-                    width: auto;
-                    min-width: 64px;
-                }
-
                 .filters-row {
                     grid-template-columns: 1fr;
                 }
@@ -1661,22 +1610,9 @@
                     box-shadow: none;
                 }
 
-                .filters-actions {
-                    width: 100%;
-                    padding: 0;
-                    border: 0;
-                }
-
-                .filters-actions .credit-launch {
-                    flex: 0 0 auto;
-                    width: auto;
-                    min-height: 44px;
-                    padding: 0 16px;
-                    border-radius: 12px;
-                    background: var(--primary);
-                    border-color: var(--primary-strong);
-                    color: var(--text-inverse);
-                    box-shadow: 0 8px 18px var(--primary-shadow);
+                .page-content .inventory-cart-bubble {
+                    right: calc(16px + env(safe-area-inset-right));
+                    bottom: calc(16px + env(safe-area-inset-bottom));
                 }
 
                 .filters-row {
@@ -2015,27 +1951,6 @@
             </div>
             {{end}}
             <section class="filters">
-                <div class="filters-actions">
-                    {{if .CanCredit}}
-                    <button
-                        id="loan-open"
-                        type="button"
-                        class="secondary credit-launch"
-                    >
-                        Nuevo crédito / préstamo
-                    </button>
-                    {{end}}
-                    {{if .CanSell}}
-                    <a class="button secondary inventory-cart-link" href="/venta/carrito" aria-label="Abrir carrito de venta" title="Abrir carrito de venta">
-                        <svg class="inventory-cart-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                            <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" />
-                            <circle cx="10" cy="20" r="1" />
-                            <circle cx="18" cy="20" r="1" />
-                        </svg>
-                        <span class="inventory-cart-count" data-cart-count aria-live="polite">0</span>
-                    </a>
-                    {{end}}
-                </div>
                 <div class="filters-row">
                     <div class="filter-group search-group">
                         <label for="searchFilter">Búsqueda</label>
@@ -2080,6 +1995,17 @@
                 </div>
                 <input id="expiryToggle" type="checkbox" hidden />
             </section>
+
+            {{if .CanSell}}
+            <a class="button inventory-cart-bubble" href="/venta/carrito" aria-label="Abrir carrito de venta">
+                <svg class="inventory-cart-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" />
+                    <circle cx="10" cy="20" r="1" />
+                    <circle cx="18" cy="20" r="1" />
+                </svg>
+                <span class="inventory-cart-count" data-cart-count aria-live="polite">0</span>
+            </a>
+            {{end}}
 
             <section id="summary" class="summary" aria-live="polite"></section>
 
@@ -6783,13 +6709,14 @@
                 setLoanStage("form");
             };
 
-            const openLoanModal = (kind = "cash_loan") => {
+            const openLoanModal = (kind = "cash_loan", opener) => {
                 resetLoanModalState();
                 loanContext.kind = kind;
                 syncLoanKindUI();
                 openModal(
                     loanModal,
                     "Crédito o préstamo.",
+                    opener,
                 );
                 if (kind === "product_credit" && loanProductId) {
                     loanProductId.focus();
@@ -6932,9 +6859,18 @@
                     syncCreditTotalFromSalePrice,
                 );
             if (loanOpen) {
-                loanOpen.addEventListener("click", () => {
+                loanOpen.addEventListener("click", (event) => {
+                    if (
+                        event.button !== 0 ||
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey
+                    )
+                        return;
+                    event.preventDefault();
                     closeOpenMenuPanels();
-                    openLoanModal("cash_loan");
+                    openLoanModal("cash_loan", loanOpen);
                 });
             }
             if (labelPrintBtn) {
@@ -6973,6 +6909,20 @@
                 );
                 window.requestAnimationFrame(() =>
                     openCreditManager(productsMenuSummary || creditManageOpen),
+                );
+            }
+
+            const loanQuery = new URLSearchParams(window.location.search);
+            if (loanOpen && loanQuery.get("open") === "loan") {
+                const cleanURL = new URL(window.location.href);
+                cleanURL.searchParams.delete("open");
+                window.history.replaceState(
+                    {},
+                    "",
+                    `${cleanURL.pathname}${cleanURL.search}${cleanURL.hash}`,
+                );
+                window.requestAnimationFrame(() =>
+                    openLoanModal("cash_loan", loanOpen),
                 );
             }
             loanKindButtons.forEach((button) => {

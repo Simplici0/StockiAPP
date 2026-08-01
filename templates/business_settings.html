@@ -13,9 +13,9 @@
             .settings-nav {
                 display: grid;
                 grid-template-columns: repeat(6, minmax(0, 1fr));
-                gap: 8px;
-                margin-bottom: 20px;
-                padding: 8px;
+                gap: var(--space-1);
+                margin-bottom: var(--space-4);
+                padding: var(--space-1);
                 border: 1px solid var(--border-strong);
                 border-radius: var(--radius-lg);
                 background: var(--bg-card);
@@ -29,7 +29,7 @@
                 min-height: 64px;
                 padding: 10px 8px;
                 border: 1px solid transparent;
-                border-radius: 10px;
+                border-radius: var(--radius-sm);
                 color: var(--text-muted);
                 font-size: 12px;
                 font-weight: 750;
@@ -58,7 +58,7 @@
                 display: grid;
                 justify-items: start;
                 gap: 10px;
-                padding: 24px;
+                padding: var(--space-5);
                 border: 1px dashed var(--border-strong);
                 border-radius: var(--radius-lg);
                 background: var(--bg-card-muted);
@@ -79,7 +79,7 @@
                 width: 42px;
                 height: 42px;
                 place-items: center;
-                border-radius: 12px;
+                border-radius: var(--control-radius);
                 background: var(--primary-soft);
                 color: var(--primary-strong);
                 font-size: 21px;
@@ -94,7 +94,7 @@
 
             .stack {
                 display: grid;
-                gap: 16px;
+                gap: var(--space-3);
             }
 
             .preview-card {
@@ -105,9 +105,9 @@
             .logo-preview {
                 display: flex;
                 align-items: center;
-                gap: 16px;
+                gap: var(--space-3);
                 padding: 18px;
-                border-radius: 16px;
+                border-radius: var(--radius-md);
                 border: 1px dashed var(--border-strong);
                 background: var(--bg-card);
             }
@@ -145,7 +145,7 @@
 
             .color-row {
                 display: grid;
-                gap: 12px;
+                gap: var(--space-2);
                 grid-template-columns: 74px minmax(0, 1fr);
                 align-items: center;
             }
@@ -168,7 +168,7 @@
                 display: grid;
                 gap: 10px;
                 padding: 16px 18px;
-                border-radius: 16px;
+                border-radius: var(--radius-md);
                 border: 1px solid var(--border);
                 background: var(--bg-card);
                 box-shadow: var(--shadow-xs);
@@ -357,22 +357,18 @@
             [data-theme="dark"] .credential-callout,
             [data-theme="dark"] .tenant-scope-note,
             [data-theme="dark"] .reset-warning,
-            [data-theme="dark"] .settings-accordion,
-            [data-theme="dark"] .settings-accordion summary,
+            [data-theme="dark"] .settings-panel-card,
+            [data-theme="dark"] .settings-panel-head,
             [data-theme="dark"] .platform-block {
                 border-color: var(--border);
                 background: var(--bg-card);
             }
 
-            [data-theme="dark"] .settings-accordion summary:hover {
-                background: var(--bg-card-muted);
-            }
-
-            [data-theme="dark"] .settings-accordion-title h2 {
+            [data-theme="dark"] .settings-panel-title h2 {
                 color: var(--text);
             }
 
-            [data-theme="dark"] .settings-accordion-title p {
+            [data-theme="dark"] .settings-panel-title p {
                 color: var(--text-muted);
             }
 
@@ -382,12 +378,6 @@
             [data-theme="dark"] .tenant-summary-card,
             [data-theme="dark"] .reset-form,
             [data-theme="dark"] .settings-note,
-            [data-theme="dark"] .settings-accordion-icon {
-                background: var(--bg-card-muted);
-                border-color: var(--border);
-                box-shadow: none;
-            }
-
             [data-theme="dark"] .line-row {
                 border-color: var(--border);
                 background: var(--bg-card);
@@ -424,16 +414,6 @@
 
             [data-theme="dark"] .line-row .secondary:hover {
                 background: var(--info-soft);
-                border-color: var(--info-border);
-            }
-
-            [data-theme="dark"] .settings-accordion-icon::before,
-            [data-theme="dark"] .settings-accordion-icon::after {
-                background: var(--text);
-            }
-
-            [data-theme="dark"] .settings-accordion[open] .settings-accordion-icon {
-                background: var(--primary-soft);
                 border-color: var(--info-border);
             }
 
@@ -567,7 +547,7 @@
                 color: var(--text-muted);
             }
 
-            .settings-accordion {
+            .settings-panel-card {
                 border: 1px solid var(--border-strong);
                 border-radius: var(--radius-lg);
                 background: var(--bg-card);
@@ -575,88 +555,35 @@
                 overflow: hidden;
             }
 
-            .settings-accordion + .settings-accordion {
+            .settings-panel-card + .settings-panel-card {
                 margin-top: 0;
             }
 
-            .settings-accordion summary {
-                list-style: none;
+            .settings-panel-head {
                 display: flex;
                 align-items: flex-start;
-                justify-content: space-between;
                 gap: 16px;
                 padding: var(--surface-padding-compact) var(--surface-padding);
-                cursor: pointer;
                 background: var(--bg-card);
             }
 
-            .settings-accordion summary::-webkit-details-marker {
-                display: none;
-            }
-
-            .settings-accordion summary:hover {
-                background: var(--bg-card-muted);
-            }
-
-            .settings-accordion-title {
+            .settings-panel-title {
                 display: grid;
                 gap: 3px;
                 min-width: 0;
             }
 
-            .settings-accordion-title h2 {
+            .settings-panel-title h2 {
                 margin: 0;
             }
 
-            .settings-accordion-title p {
+            .settings-panel-title p {
                 margin: 0;
                 font-size: 12.5px;
                 color: var(--text-muted);
             }
 
-            .settings-accordion-icon {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                width: 30px;
-                height: 30px;
-                border-radius: 999px;
-                border: 1px solid var(--border-strong);
-                background: var(--bg-card);
-                color: var(--secondary);
-                font-size: 0;
-                font-weight: 700;
-                flex: 0 0 auto;
-                position: relative;
-                transition:
-                    transform 0.18s ease,
-                    background 0.18s ease;
-            }
-
-            .settings-accordion-icon::before,
-            .settings-accordion-icon::after {
-                content: "";
-                position: absolute;
-                border-radius: 999px;
-                background: currentColor;
-            }
-
-            .settings-accordion-icon::before {
-                width: 12px;
-                height: 2.5px;
-            }
-
-            .settings-accordion-icon::after {
-                width: 2.5px;
-                height: 12px;
-            }
-
-            .settings-accordion[open] .settings-accordion-icon {
-                transform: rotate(45deg);
-                background: var(--secondary-soft);
-            }
-
-            .settings-accordion-body {
+            .settings-panel-body {
                 display: grid;
                 gap: var(--section-gap);
                 padding: 0 var(--surface-padding) var(--surface-padding);
@@ -771,18 +698,13 @@
                         <h2>Configuración</h2>
                     </div>
 
-                    <details class="settings-accordion settings-panel" data-settings-section="negocio" {{if ne .Section "negocio"}}hidden{{end}}>
-                        <summary>
-                            <div class="settings-accordion-title">
-                                <h2>General</h2>
+                    <section class="settings-panel-card settings-panel" data-settings-section="negocio" {{if ne .Section "negocio"}}hidden{{end}} aria-labelledby="settings-general-title">
+                        <div class="settings-panel-head">
+                            <div class="settings-panel-title">
+                                <h2 id="settings-general-title">General</h2>
                             </div>
-                            <span
-                                class="settings-accordion-icon"
-                                aria-hidden="true"
-                                >+</span
-                            >
-                        </summary>
-                        <div class="settings-accordion-body">
+                        </div>
+                        <div class="settings-panel-body">
                             <div class="settings-grid">
                                 <form
                                     class="card stack"
@@ -1055,19 +977,16 @@
                                 </aside>
                             </div>
                         </div>
-                    </details>
+                    </section>
                 </section>
 
-                <details class="settings-accordion settings-panel" data-settings-section="inventario" {{if ne .Section "inventario"}}hidden{{end}}>
-                    <summary>
-                        <div class="settings-accordion-title">
-                            <h2>Inventario</h2>
+                <section class="settings-panel-card settings-panel" data-settings-section="inventario" {{if ne .Section "inventario"}}hidden{{end}} aria-labelledby="settings-inventory-title">
+                    <div class="settings-panel-head">
+                        <div class="settings-panel-title">
+                            <h2 id="settings-inventory-title">Inventario</h2>
                         </div>
-                        <span class="settings-accordion-icon" aria-hidden="true"
-                            >+</span
-                        >
-                    </summary>
-                    <div class="settings-accordion-body">
+                    </div>
+                    <div class="settings-panel-body">
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>Líneas de negocio</h3>
@@ -1168,17 +1087,16 @@
                         </section>
 
                     </div>
-                </details>
+                </section>
 
-                <details class="settings-accordion settings-panel" data-settings-section="metodos-pago" {{if ne .Section "metodos-pago"}}hidden{{end}}>
-                    <summary>
-                        <div class="settings-accordion-title">
-                            <h2>Métodos de pago</h2>
+                <section class="settings-panel-card settings-panel" data-settings-section="metodos-pago" {{if ne .Section "metodos-pago"}}hidden{{end}} aria-labelledby="settings-payment-methods-title">
+                    <div class="settings-panel-head">
+                        <div class="settings-panel-title">
+                            <h2 id="settings-payment-methods-title">Métodos de pago</h2>
                             <p>Configura los canales que estarán disponibles en nuevas ventas.</p>
                         </div>
-                        <span class="settings-accordion-icon" aria-hidden="true">+</span>
-                    </summary>
-                    <div class="settings-accordion-body">
+                    </div>
+                    <div class="settings-panel-body">
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>Canales de pago</h3>
@@ -1296,23 +1214,20 @@
                             {{end}}
                         </section>
                     </div>
-                </details>
+                </section>
 
                 {{if .CanManageTenants}}
-                <details class="settings-accordion settings-panel" data-settings-section="avanzado" {{if ne .Section "avanzado"}}hidden{{end}}>
-                    <summary>
-                        <div class="settings-accordion-title">
-                            <h2>Plataforma: empresas</h2>
+                <section class="settings-panel-card settings-panel" data-settings-section="empresas" {{if ne .Section "avanzado"}}hidden{{end}} aria-labelledby="settings-tenants-title">
+                    <div class="settings-panel-head">
+                        <div class="settings-panel-title">
+                            <h2 id="settings-tenants-title">Plataforma: empresas</h2>
                             <p>
                                 Gestión global de empresas, separado de la
                                 configuración local del negocio actual.
                             </p>
                         </div>
-                        <span class="settings-accordion-icon" aria-hidden="true"
-                            >+</span
-                        >
-                    </summary>
-                    <div class="settings-accordion-body">
+                    </div>
+                    <div class="settings-panel-body">
                         <section class="card line-card platform-block">
                             <div class="settings-subsection-head">
                                 <p class="platform-kicker">
@@ -1380,6 +1295,7 @@
                                             id="new_tenant_admin_password"
                                             name="admin_password"
                                             type="password"
+                                            autocomplete="new-password"
                                             required
                                         />
                                     </div>
@@ -1394,6 +1310,7 @@
                                             id="new_tenant_admin_password_confirm"
                                             name="admin_password_confirm"
                                             type="password"
+                                            autocomplete="new-password"
                                             required
                                         />
                                     </div>
@@ -1786,19 +1703,16 @@
                             {{end}}
                         </section>
                     </div>
-                </details>
+                </section>
                 {{end}}
 
-                <details class="settings-accordion settings-panel" data-settings-section="integraciones" {{if ne .Section "integraciones"}}hidden{{end}}>
-                    <summary>
-                        <div class="settings-accordion-title">
-                            <h2>Usuarios / permisos e integraciones</h2>
+                <section class="settings-panel-card settings-panel" data-settings-section="integraciones" {{if ne .Section "integraciones"}}hidden{{end}} aria-labelledby="settings-integrations-title">
+                    <div class="settings-panel-head">
+                        <div class="settings-panel-title">
+                            <h2 id="settings-integrations-title">Usuarios / permisos e integraciones</h2>
                         </div>
-                        <span class="settings-accordion-icon" aria-hidden="true"
-                            >+</span
-                        >
-                    </summary>
-                    <div class="settings-accordion-body">
+                    </div>
+                    <div class="settings-panel-body">
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>API keys</h3>
@@ -1931,7 +1845,7 @@
                             {{end}}
                         </section>
                     </div>
-                </details>
+                </section>
 
                 <section class="card settings-empty-state settings-panel" data-settings-section="usuarios" {{if ne .Section "usuarios"}}hidden{{end}} aria-labelledby="users-settings-title">
                     <span class="settings-empty-icon" aria-hidden="true">♙</span>
@@ -1940,16 +1854,13 @@
                     <a class="button primary" href="/admin/users">Gestionar usuarios</a>
                 </section>
 
-                <details class="settings-accordion settings-panel" data-settings-section="avanzado" {{if ne .Section "avanzado"}}hidden{{end}}>
-                    <summary>
-                        <div class="settings-accordion-title">
-                            <h2>Ajustes avanzados</h2>
+                <section class="settings-panel-card settings-panel" data-settings-section="avanzado" {{if ne .Section "avanzado"}}hidden{{end}} aria-labelledby="settings-advanced-title">
+                    <div class="settings-panel-head">
+                        <div class="settings-panel-title">
+                            <h2 id="settings-advanced-title">Ajustes avanzados</h2>
                         </div>
-                        <span class="settings-accordion-icon" aria-hidden="true"
-                            >+</span
-                        >
-                    </summary>
-                    <div class="settings-accordion-body">
+                    </div>
+                    <div class="settings-panel-body">
                         <section class="card line-card">
                             <div class="settings-subsection-head">
                                 <h3>Tipos de movimiento</h3>
@@ -2010,7 +1921,7 @@
                             {{end}}
                         </section>
                     </div>
-                </details>
+                </section>
 
                 <div class="settings-version">{{.VersionLabel}}</div>
             </section>
@@ -2081,12 +1992,20 @@
             }
 
             if (logoInput && logoPreview) {
+                let logoPreviewURL = "";
+                const clearLogoPreviewURL = () => {
+                    if (!logoPreviewURL) return;
+                    URL.revokeObjectURL(logoPreviewURL);
+                    logoPreviewURL = "";
+                };
                 logoInput.addEventListener("change", () => {
                     const file = logoInput.files && logoInput.files[0];
                     if (!file) return;
-                    const url = URL.createObjectURL(file);
-                    logoPreview.src = url;
+                    clearLogoPreviewURL();
+                    logoPreviewURL = URL.createObjectURL(file);
+                    logoPreview.src = logoPreviewURL;
                 });
+                window.addEventListener("pagehide", clearLogoPreviewURL);
             }
         </script>
     </body>
