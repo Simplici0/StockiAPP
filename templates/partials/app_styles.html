@@ -149,6 +149,10 @@
       --surface-padding: 22px;
       --surface-padding-compact: 18px;
       --section-gap: 18px;
+      --sidebar-width-expanded: 256px;
+      --sidebar-width-collapsed: 80px;
+      --sidebar-padding-expanded: 16px;
+      --sidebar-padding-collapsed: 12px;
 
       --bg-page:        var(--page-bg);
       --bg-page-accent: var(--page-accent);
@@ -327,6 +331,36 @@
       margin: 0 auto;
       padding: var(--space-4) 0 calc(var(--space-6) + 6px);
       animation: page-enter 280ms ease-out;
+    }
+
+    body.sidebar-layout {
+      --sidebar-width: var(--sidebar-width-expanded);
+    }
+
+    body.sidebar-layout.sidebar-collapsed {
+      --sidebar-width: var(--sidebar-width-collapsed);
+    }
+
+    body.sidebar-layout .page-content {
+      width: min(1320px, calc(100% - var(--sidebar-width) - 48px));
+      margin-right: 24px;
+      margin-left: calc(var(--sidebar-width) + 24px);
+    }
+
+    @media (max-width: 767px) {
+      body.sidebar-layout .page-content {
+        width: calc(100% - 32px);
+        margin-right: 16px;
+        margin-left: 16px;
+      }
+    }
+
+    @media print {
+      body.sidebar-layout .page-content {
+        width: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
     }
 
     /* ── Tarjetas y superficies ── */

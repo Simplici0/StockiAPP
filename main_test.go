@@ -1602,7 +1602,7 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 		"businessPrimaryStrong": func(any) string { return "#0f172a" },
 		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
 		"pageCanLoan":           func(any) bool { return false },
-		"pageCanCredit":         func(any) bool { return false },
+		"pageCanCredit":         func(any) bool { return true },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -1714,7 +1714,7 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 		"businessPrimaryStrong": func(any) string { return "#0f172a" },
 		"businessPrimarySoft":   func(any) string { return "#e0e7ff" },
 		"pageCanLoan":           func(any) bool { return false },
-		"pageCanCredit":         func(any) bool { return false },
+		"pageCanCredit":         func(any) bool { return true },
 		"money":                 func(float64) string { return "$0" },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
@@ -1773,6 +1773,63 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	}
 	if !bytes.Contains(adminRendered, []byte(`inventory-cart-link`)) || !bytes.Contains(adminRendered, []byte(`data-sale-cart`)) {
 		t.Fatal("inventory page should expose the cart link and cart root")
+	}
+	if !bytes.Contains(adminRendered, []byte(`data-sidebar-shell`)) || !bytes.Contains(adminRendered, []byte(`id="sidebar-panel"`)) || !bytes.Contains(adminRendered, []byte(`id="theme-toggle"`)) {
+		t.Fatal("inventory page should render the shared collapsible sidebar shell")
+	}
+	if !bytes.Contains(adminRendered, []byte(`class="sidebar-menu-group"`)) {
+		t.Fatal("sidebar should expose hierarchical submenu groups")
+	}
+	if !bytes.Contains(adminRendered, []byte(`class="sidebar-fixed-brand"`)) {
+		t.Fatal("sidebar should render a fixed brand")
+	}
+	for _, label := range []string{`aria-label="Inventario"`, `aria-label="Dashboard"`, `aria-label="Clientes"`, `aria-label="Productos"`, `aria-label="Gestión"`} {
+		if !bytes.Contains(adminRendered, []byte(label)) {
+			t.Fatalf("collapsed sidebar control should expose accessible label %s", label)
+		}
+	}
+	brandStart := bytes.Index(adminRendered, []byte(`class="sidebar-fixed-brand"`))
+	panelStart := bytes.Index(adminRendered, []byte(`id="sidebar-panel"`))
+	if brandStart < 0 || panelStart < 0 || brandStart >= panelStart {
+		t.Fatal("fixed brand should render outside the sidebar panel")
+	}
+	if bytes.Contains(adminRendered, []byte(`class="sidebar-empty-toggle"`)) || bytes.Contains(adminRendered, []byte(`class="topbar-logout"`)) {
+		t.Fatal("sidebar should not render the previous collapse or logout buttons")
+	}
+	if bytes.Contains(adminRendered, []byte(`class="sidebar-collapse-toggle"`)) || !bytes.Contains(adminRendered, []byte(`aria-keyshortcuts="Alt+["`)) || !bytes.Contains(adminRendered, []byte("sidebar-shortcut-hint")) {
+		t.Fatal("sidebar should use free-space and Alt+[ collapse affordances")
+	}
+	if !bytes.Contains(adminRendered, []byte(`class="sidebar-utilities"`)) || bytes.Count(adminRendered, []byte(`class="sidebar-utility-link"`)) != 2 {
+		t.Fatal("admin sidebar should render manual and configuration utilities")
+	}
+	if !bytes.Contains(adminRendered, []byte(`id="logout-trigger"`)) || !bytes.Contains(adminRendered, []byte(`id="logout-modal"`)) || !bytes.Contains(adminRendered, []byte(`>Aceptar</button>`)) {
+		t.Fatal("sidebar should expose the username logout confirmation")
+	}
+	if !bytes.Contains(adminRendered, []byte(`id="credit-manage-open"`)) || !bytes.Contains(adminRendered, []byte(`href="/inventario?open=credit-manager"`)) {
+		t.Fatal("admin inventory page should expose the credit management deep link")
+	}
+	if bytes.Contains(adminRendered, []byte(`<button id="credit-manage-open"`)) {
+		t.Fatal("credit management should not be rendered as a dead shared-header button")
+	}
+	for _, marker := range []string{"const openCreditManager =", "history.replaceState", "creditManagerQuery.get(\"open\")", "productsMenuSummary"} {
+		if !bytes.Contains(adminRendered, []byte(marker)) {
+			t.Fatalf("inventory should expose resilient credit deep-link marker %q", marker)
+		}
+	}
+	for _, label := range []string{"Nuevo producto", "Editar créditos", "Manual del producto", "Configuración"} {
+		if !bytes.Contains(adminRendered, []byte(label)) {
+			t.Fatalf("admin sidebar should expose promoted action %q", label)
+		}
+	}
+	if bytes.Count(adminRendered, []byte(`aria-label="Nuevo producto"`)) != 1 || bytes.Count(adminRendered, []byte(`aria-label="Configuración"`)) != 1 || bytes.Count(adminRendered, []byte(`aria-label="Manual del producto"`)) != 1 {
+		t.Fatal("promoted sidebar actions should not be duplicated in submenus")
+	}
+
+	if !bytes.Contains(employeeRendered, []byte("Manual del producto")) {
+		t.Fatal("manual should be available to authenticated employees")
+	}
+	if bytes.Contains(employeeRendered, []byte(`aria-label="Nuevo producto"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Editar créditos"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Configuración"`)) {
+		t.Fatal("employee sidebar should not expose admin-only promoted actions")
 	}
 }
 

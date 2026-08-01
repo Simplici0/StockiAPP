@@ -46,3 +46,9 @@ static/uploads/branding/
 # Local download artifacts
 rclone-*.zip
 rclone-v*/
+
+# Local agent/design artifacts
+.impeccable/
+.omo/
+.playwright-mcp/
+DESIGN.md

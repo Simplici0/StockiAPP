@@ -36,10 +36,15 @@
                 display: none;
             }
 
-            .inventory-cart-link {
+            .filters .filters-actions .inventory-cart-link {
                 display: inline-flex;
                 align-items: center;
+                justify-content: center;
                 gap: 8px;
+                min-width: 64px;
+                min-height: 44px;
+                margin-left: auto;
+                padding: 0 10px;
             }
 
             .inventory-cart-icon {
@@ -1630,6 +1635,12 @@
                     justify-content: center;
                 }
 
+                .filters-actions .inventory-cart-link {
+                    flex: 0 0 auto;
+                    width: auto;
+                    min-width: 64px;
+                }
+
                 .filters-row {
                     grid-template-columns: 1fr;
                 }
@@ -1651,7 +1662,7 @@
                 }
 
                 .filters-actions {
-                    width: fit-content;
+                    width: 100%;
                     padding: 0;
                     border: 0;
                 }
@@ -2005,17 +2016,6 @@
             {{end}}
             <section class="filters">
                 <div class="filters-actions">
-                    {{if .CanSell}}
-                    <a class="button secondary inventory-cart-link" href="/venta/carrito" aria-label="Abrir carrito de venta">
-                        <svg class="inventory-cart-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                            <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" />
-                            <circle cx="10" cy="20" r="1" />
-                            <circle cx="18" cy="20" r="1" />
-                        </svg>
-                        <span>Carrito</span>
-                        <span class="inventory-cart-count" data-cart-count aria-live="polite">0</span>
-                    </a>
-                    {{end}}
                     {{if .CanCredit}}
                     <button
                         id="loan-open"
@@ -2024,6 +2024,16 @@
                     >
                         Nuevo crédito / préstamo
                     </button>
+                    {{end}}
+                    {{if .CanSell}}
+                    <a class="button secondary inventory-cart-link" href="/venta/carrito" aria-label="Abrir carrito de venta" title="Abrir carrito de venta">
+                        <svg class="inventory-cart-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" />
+                            <circle cx="10" cy="20" r="1" />
+                            <circle cx="18" cy="20" r="1" />
+                        </svg>
+                        <span class="inventory-cart-count" data-cart-count aria-live="polite">0</span>
+                    </a>
                     {{end}}
                 </div>
                 <div class="filters-row">
@@ -5125,6 +5135,9 @@
             );
             const creditManageOpen =
                 document.getElementById("credit-manage-open");
+            const productsMenuSummary = document.getElementById(
+                "products-menu-summary",
+            );
             const creditManageModal = document.getElementById(
                 "credit-manage-modal",
             );
@@ -5487,11 +5500,11 @@
                     ? document.getElementById(dialogIdOrElement)
                     : dialogIdOrElement;
 
-            const openModal = (dialogIdOrElement, subtitleText) => {
+            const openModal = (dialogIdOrElement, subtitleText, openerOverride) => {
                 const backdrop = resolveModal(dialogIdOrElement);
                 if (!backdrop) return;
                 const dialog = backdrop.querySelector('[role="dialog"]');
-                const opener = document.activeElement;
+                const opener = openerOverride || document.activeElement;
                 if (opener && opener !== document.body) {
                     modalOpeners.set(backdrop, opener);
                 }
@@ -6472,6 +6485,13 @@
                 }
             };
 
+            const openCreditManager = async (opener = creditManageOpen) => {
+                if (!creditManageModal) return;
+                closeOpenMenuPanels();
+                openModal(creditManageModal, "Editar créditos", opener);
+                await fetchEditableCredits();
+            };
+
             const populateCreditEditForm = (credit) => {
                 creditEditContext = {
                     id: Number(credit.id || 0),
@@ -6925,11 +6945,35 @@
                 });
             }
             if (creditManageOpen) {
-                creditManageOpen.addEventListener("click", async () => {
-                    closeOpenMenuPanels();
-                    openModal(creditManageModal, "Editar créditos");
-                    await fetchEditableCredits();
+                creditManageOpen.addEventListener("click", (event) => {
+                    if (
+                        event.button !== 0 ||
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey
+                    )
+                        return;
+                    event.preventDefault();
+                    openCreditManager(creditManageOpen);
                 });
+            }
+
+            const creditManagerQuery = new URLSearchParams(window.location.search);
+            if (
+                creditManageOpen &&
+                creditManagerQuery.get("open") === "credit-manager"
+            ) {
+                const cleanURL = new URL(window.location.href);
+                cleanURL.searchParams.delete("open");
+                window.history.replaceState(
+                    {},
+                    "",
+                    `${cleanURL.pathname}${cleanURL.search}${cleanURL.hash}`,
+                );
+                window.requestAnimationFrame(() =>
+                    openCreditManager(productsMenuSummary || creditManageOpen),
+                );
             }
             loanKindButtons.forEach((button) => {
                 button.addEventListener("click", () => {

@@ -28,16 +28,21 @@
             }
 
             .dashboard-toolbar-copy {
-                display: flex;
-                align-items: center;
+                display: grid;
+                gap: 4px;
                 min-width: min(100%, 420px);
             }
 
-            .dashboard-toolbar-copy strong {
-                font-size: 16px;
+            .dashboard-toolbar-copy h1 {
+                margin: 0;
+                font-size: 20px;
                 line-height: 1.2;
                 color: var(--text);
                 letter-spacing: -0.02em;
+            }
+
+            .dashboard-toolbar-copy p {
+                font-size: 12.5px;
             }
 
             .dashboard-toolbar-actions {
@@ -59,7 +64,7 @@
                 background: var(--bg-card-muted);
                 border-radius: 999px;
                 padding: 0 14px;
-                min-height: 38px;
+                min-height: 44px;
                 font-size: 12.5px;
                 font-weight: 700;
                 color: var(--text-muted);
@@ -110,6 +115,35 @@
                 align-items: end;
             }
 
+            .range-form .button,
+            .dashboard-confirm-actions .button {
+                min-height: 44px;
+            }
+
+            .range-error {
+                grid-column: 1 / -1;
+                margin: 0;
+                color: var(--danger-ink);
+                font-size: 12.5px;
+                font-weight: 600;
+            }
+
+            .dashboard-live-status {
+                min-height: 20px;
+                margin: -8px 0 12px;
+                color: var(--text-muted);
+                font-size: 12.5px;
+                font-weight: 600;
+            }
+
+            .dashboard-live-status[data-state="error"] {
+                color: var(--danger-ink);
+            }
+
+            .dashboard-live-status[data-state="loading"] {
+                color: var(--info-ink);
+            }
+
             /* Dashboard grid */
             .grid {
                 display: grid;
@@ -119,10 +153,6 @@
 
             .span-full {
                 grid-column: 1 / -1;
-            }
-
-            #panel-summary {
-                order: -1;
             }
 
             .card h2 {
@@ -359,6 +389,85 @@
                 background: var(--bg-card-muted);
                 color: var(--text-muted);
                 font-size: 12.5px;
+            }
+
+            .chart-accessible-summary {
+                margin: 0;
+                color: var(--text-muted);
+                font-size: 12.5px;
+                line-height: 1.5;
+            }
+
+            .chart-data {
+                border-top: 1px solid var(--border);
+                padding-top: 10px;
+            }
+
+            .chart-data summary {
+                color: var(--info-ink);
+            }
+
+            .dashboard-table-wrap {
+                margin-top: 8px;
+            }
+
+            .dashboard-sales-table {
+                min-width: 680px;
+            }
+
+            .dashboard-sales-table td:last-child {
+                min-width: 210px;
+            }
+
+            .dashboard-sales-table .button {
+                min-height: 44px;
+            }
+
+            .dashboard-confirm-dialog {
+                width: min(440px, calc(100vw - 32px));
+                padding: 0;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-lg);
+                background: var(--bg-card);
+                color: var(--text);
+                box-shadow: var(--shadow-md);
+            }
+
+            .dashboard-confirm-dialog::backdrop {
+                background: var(--overlay);
+            }
+
+            .dashboard-confirm-dialog form {
+                display: grid;
+                gap: 16px;
+                padding: 20px;
+            }
+
+            .dashboard-confirm-dialog h2,
+            .dashboard-confirm-dialog p {
+                margin: 0;
+            }
+
+            .dashboard-confirm-dialog p {
+                color: var(--text-muted);
+            }
+
+            .dashboard-confirm-context {
+                display: grid;
+                gap: 6px;
+                padding: 12px;
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                background: var(--bg-card-muted);
+                color: var(--text);
+                font-size: 13px;
+            }
+
+            .dashboard-confirm-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                flex-wrap: wrap;
             }
 
             /* State list */
@@ -681,7 +790,7 @@
             .bar-fill {
                 height: 100%;
                 border-radius: inherit;
-                min-width: 0;
+                min-width: 2px;
             }
 
             .section-tools {
@@ -716,7 +825,7 @@
                 );
             }
 
-            [data-theme="dark"] .dashboard-toolbar-copy strong,
+            [data-theme="dark"] .dashboard-toolbar-copy h1,
             [data-theme="dark"] .card h2,
             [data-theme="dark"] .panel-title,
             [data-theme="dark"] .bar-meta strong,
@@ -827,6 +936,84 @@
                     max-height: calc(100dvh - 24px);
                     overflow-y: auto;
                 }
+
+                .dashboard-sales-table {
+                    min-width: 0;
+                }
+
+                .dashboard-sales-table th:nth-child(1),
+                .dashboard-sales-table td:nth-child(1),
+                .dashboard-sales-table th:nth-child(4),
+                .dashboard-sales-table td:nth-child(4),
+                .dashboard-sales-table th:nth-child(6),
+                .dashboard-sales-table td:nth-child(6) {
+                    display: none;
+                }
+
+                .dashboard-sales-table td:last-child {
+                    min-width: 172px;
+                }
+            }
+
+            /* El template de estilos compartidos se carga después; estos selectores
+               mantienen la composición específica del dashboard sin alterar el shell. */
+            .page-content .dashboard-toolbar {
+                align-items: center;
+                margin-bottom: 16px;
+                padding: 16px;
+            }
+
+            .page-content .dashboard-toolbar-copy {
+                display: grid;
+                gap: 4px;
+            }
+
+            .page-content .dashboard-toolbar-actions {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 10px;
+            }
+
+            .page-content details.range-picker summary {
+                width: auto;
+                min-height: 44px;
+                padding: 0 14px;
+                border-radius: 999px;
+                background: var(--bg-card-muted);
+            }
+
+            .page-content .dashboard-panel summary {
+                min-height: 64px;
+                padding: 16px 20px;
+                border: 0;
+                border-radius: 0;
+                background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-card-muted) 100%);
+            }
+
+            .page-content .dashboard-panel summary:hover,
+            .page-content .dashboard-panel[open] summary {
+                background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-card-strong) 100%);
+            }
+
+            .page-content .dashboard-panel summary:focus-visible,
+            .page-content details.range-picker summary:focus-visible,
+            .page-content .dashboard-sales-table a.button:focus-visible,
+            .page-content .dashboard-sales-table button:focus-visible,
+            .dashboard-confirm-dialog button:focus-visible {
+                outline: 3px solid var(--focus-ring);
+                outline-offset: 2px;
+            }
+
+            @media (max-width: 720px) {
+                .page-content .dashboard-toolbar {
+                    padding: 14px;
+                }
+
+                .page-content .dashboard-toolbar-actions {
+                    width: 100%;
+                    justify-content: stretch;
+                }
             }
         </style>
         {{template "app_styles" .}}
@@ -835,9 +1022,10 @@
         {{template "header" .}}
 
         <main class="page-content">
-            <div class="dashboard-toolbar">
+            <header class="dashboard-toolbar">
                 <div class="dashboard-toolbar-copy">
-                    <strong>Dashboard</strong>
+                    <h1>Resumen de ventas</h1>
+                    <p id="dashboard-period-copy">Control diario del {{.RangeStart}} al {{.RangeEnd}}.</p>
                 </div>
                 <div class="dashboard-toolbar-actions">
                     <details class="range-picker" id="dash-range">
@@ -881,6 +1069,7 @@
                                         Aplicar
                                     </button>
                                 </div>
+                                <p id="dash-range-error" class="range-error" role="alert" hidden></p>
                             </form>
                         </div>
                     </details>
@@ -892,7 +1081,8 @@
                         >Descargar ventas</a
                     >
                 </div>
-            </div>
+            </header>
+            <p id="dashboard-live-status" class="dashboard-live-status" role="status" aria-live="polite" aria-atomic="true"></p>
 
             <section class="grid">
                 <details
@@ -920,7 +1110,7 @@
                         <section class="panel-section">
                             <div class="card-head">
                                 <div class="kpi">
-                                    <div class="kpi-label">Venta total</div>
+                                    <div class="kpi-label">Total vendido</div>
                                     <div id="kpi-total" class="kpi-value">
                                         {{.RangeTotal}}
                                     </div>
@@ -933,7 +1123,11 @@
                                 viewBox="0 0 1000 260"
                                 role="img"
                                 aria-label="Histórico de ventas"
+                                {{if .Timeline}}{{else}}hidden{{end}}
                             ></svg>
+                            <div id="timeline-empty" class="empty-chart" {{if .Timeline}}hidden{{end}}>
+                                {{if .Timeline}}{{else}}No hay ventas registradas en el rango seleccionado.{{end}}
+                            </div>
                             <div class="timeline-grid">
                                 <div id="timeline-max">
                                     Máximo: {{.MaxTimelineText}}
@@ -942,20 +1136,22 @@
                                     Días visibles: {{len .Timeline}}
                                 </div>
                             </div>
+                            <p id="timeline-accessible-summary" class="chart-accessible-summary">Total vendido {{.RangeTotal}}. Máximo diario: {{.MaxTimelineText}}.</p>
                         </section>
 
-                        <details id="timeline-details">
-                                <summary>Detalle</summary>
-                            <table>
+                        <details id="timeline-details" class="chart-data">
+                            <summary id="timeline-details-summary">Detalle de ventas ({{.RangeCount}})</summary>
+                            <div class="table-wrap dashboard-table-wrap" tabindex="0" aria-label="Tabla desplazable de ventas del periodo">
+                            <table class="dashboard-sales-table">
                                 <thead>
                                     <tr>
-                                        <th>ID</th>
-                                        <th>Fecha</th>
-                                        <th>Producto</th>
-                                        <th>Cantidad</th>
-                                        <th>Total</th>
-                                        <th>Método</th>
-                                        <th>Acciones</th>
+                                        <th scope="col">ID</th>
+                                        <th scope="col">Fecha</th>
+                                        <th scope="col">Producto</th>
+                                        <th scope="col">Cantidad</th>
+                                        <th scope="col">Total</th>
+                                        <th scope="col">Método</th>
+                                        <th scope="col">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody id="sales-table-body">
@@ -979,8 +1175,10 @@
                                             $.CurrentUser.Role "admin")}}
                                             <button
                                                 type="button"
-                                                class="button secondary"
+                                                class="button danger"
                                                 data-sale-delete="{{.ID}}"
+                                                data-sale-product="{{.Producto}}"
+                                                data-sale-total="{{.Total}}"
                                             >
                                                 Eliminar
                                             </button>
@@ -990,6 +1188,7 @@
                                     {{end}}
                                 </tbody>
                             </table>
+                            </div>
                         </details>
                     </div>
                 </details>
@@ -997,7 +1196,6 @@
                 <details
                     class="card dashboard-panel span-full"
                     id="panel-sales-user"
-                    open
                 >
                     <summary>
                         <div class="panel-title-wrap">
@@ -1038,6 +1236,7 @@
                                 </span>
                                 {{end}}
                             </div>
+                            <p id="user-timeline-accessible-summary" class="chart-accessible-summary"></p>
                             <div
                                 id="user-timeline-detail"
                                 class="state-list"
@@ -1072,7 +1271,6 @@
                 <details
                     class="card dashboard-panel span-full"
                     id="panel-summary"
-                    open
                 >
                     <summary>
                         <div class="panel-title-wrap">
@@ -1132,39 +1330,10 @@
                                                 ></span
                                             >
                                         </div>
+                                        {{else}}
+                                        <div class="empty-chart">No hay pagos registrados en el rango seleccionado.</div>
                                         {{end}}
                                     </div>
-                                </div>
-                            </section>
-
-                            <section class="summary-block">
-                                <div class="summary-header">
-                                    <h3 class="summary-title">
-                                        Ventas por usuario
-                                    </h3>
-                                </div>
-                                <div class="state-list" id="summary-user-list">
-                                    {{range .UserTimeline}}
-                                    <div class="user-sale-row">
-                                        <span class="user-sale-left">
-                                            <span
-                                                class="legend-dot"
-                                                style="background: {{.Color}};"
-                                            ></span>
-                                            <span>{{.UserLabel}}</span>
-                                        </span>
-                                        <span class="user-sale-total"
-                                            >{{.Total}}</span
-                                        >
-                                    </div>
-                                    {{else}}
-                                    <div
-                                        class="empty-chart"
-                                        style="min-height: 60px"
-                                    >
-                                        Sin datos
-                                    </div>
-                                    {{end}}
                                 </div>
                             </section>
 
@@ -1190,6 +1359,9 @@
                                         </div>
                                     </div>
                                     {{end}}
+                                    {{if not .CategoryTotals}}
+                                    <div class="empty-chart">No hay categorías con ventas en el rango seleccionado.</div>
+                                    {{end}}
                                 </div>
                             </section>
                         </div>
@@ -1198,15 +1370,39 @@
             </section>
         </main>
 
+        <dialog id="sale-delete-dialog" class="dashboard-confirm-dialog" aria-labelledby="sale-delete-title" aria-describedby="sale-delete-message">
+            <form method="dialog" id="sale-delete-form">
+                <h2 id="sale-delete-title">Eliminar venta</h2>
+                <p id="sale-delete-message">Esta acción elimina la venta y no se puede deshacer.</p>
+                <div id="sale-delete-context" class="dashboard-confirm-context"></div>
+                <div class="dashboard-confirm-actions">
+                    <button type="submit" value="cancel" class="button secondary">Cancelar</button>
+                    <button type="submit" value="confirm" class="button danger">Eliminar venta</button>
+                </div>
+            </form>
+        </dialog>
+
         <script>
             const dash = (() => {
               const startInput = document.getElementById("start_date");
               const endInput = document.getElementById("end_date");
-              const rangeBadge = document.getElementById("dash-range-badge");
-              const downloadBtn = document.getElementById("dash-download");
+               const rangeBadge = document.getElementById("dash-range-badge");
+               const downloadBtn = document.getElementById("dash-download");
+               const rangeForm = document.getElementById("dash-range-form");
+               const rangePicker = document.getElementById("dash-range");
+               const rangeError = document.getElementById("dash-range-error");
+               const liveStatus = document.getElementById("dashboard-live-status");
+               const periodCopy = document.getElementById("dashboard-period-copy");
+               const timelineSummary = document.getElementById("timeline-accessible-summary");
+               const userTimelineSummary = document.getElementById("user-timeline-accessible-summary");
+               const timelineDetailsSummary = document.getElementById("timeline-details-summary");
+               const deleteDialog = document.getElementById("sale-delete-dialog");
+               const deleteForm = document.getElementById("sale-delete-form");
+               const deleteContext = document.getElementById("sale-delete-context");
                const pieSvg = document.getElementById("pie-svg");
                const pieLegend = document.getElementById("pie-legend");
                const timelineSvg = document.getElementById("timeline-svg");
+               const timelineEmpty = document.getElementById("timeline-empty");
                const timelineMax = document.getElementById("timeline-max");
                const timelineDays = document.getElementById("timeline-days");
                const userTimelineSvg = document.getElementById("user-timeline-svg");
@@ -1219,7 +1415,7 @@
                const salesTableBody = document.getElementById("sales-table-body");
                const kpiTotal = document.getElementById("kpi-total");
                const isAdmin = {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}true{{else}}false{{end}};
-               const panelStorageKey = "stockiapp.dashboard.panels";
+                const panelStorageKey = "stockiapp.dashboard.panels.v2";
 
                const moneyFmt = (() => {
                  try {
@@ -1229,15 +1425,50 @@
                  }
                })();
                const fmtMoney = (value) => `$${moneyFmt.format(Math.round(Number(value || 0)))}`;
+               const dateFmt = (() => {
+                 try {
+                   return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric" });
+                 } catch (_) {
+                   return null;
+                 }
+               })();
+               const formatDateLabel = (value) => {
+                 const raw = String(value ?? "").trim();
+                 if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || !dateFmt) return raw;
+                 return dateFmt.format(new Date(`${raw}T00:00:00`)).replace(/\.$/, "");
+               };
+
+               const setLiveStatus = (message = "", state = "") => {
+                 if (!liveStatus) return;
+                 liveStatus.textContent = message;
+                 if (state) liveStatus.dataset.state = state;
+                 else delete liveStatus.dataset.state;
+               };
+
+               const setRangeError = (message = "") => {
+                 if (!rangeError) return;
+                 rangeError.textContent = message;
+                 rangeError.hidden = !message;
+               };
+
+               const setSVGDescription = (svg, title, description) => {
+                 if (!svg) return;
+                 clearEl(svg);
+                 svg.setAttribute("aria-label", title);
+                 svg.appendChild(el("title", {}, title));
+                 svg.appendChild(el("desc", {}, description));
+               };
 
               const setRangeBadge = (start, end, count, totalText) => {
                 if (!rangeBadge) return;
                 const suffix = Number.isFinite(count) ? ` · ${count} ventas` : "";
-                rangeBadge.textContent = `${start} → ${end}${suffix}`;
-                if (kpiTotal && totalText) kpiTotal.textContent = totalText;
-                if (panelSalesDayPill && Number.isFinite(count)) panelSalesDayPill.textContent = `${count} ventas`;
-                if (downloadBtn) downloadBtn.href = `/csv/ventas?${new URLSearchParams({ start_date: start, end_date: end }).toString()}`;
-              };
+                 rangeBadge.textContent = `${formatDateLabel(start)} → ${formatDateLabel(end)}${suffix}`;
+                 if (kpiTotal && totalText) kpiTotal.textContent = totalText;
+                 if (panelSalesDayPill && Number.isFinite(count)) panelSalesDayPill.textContent = `${count} ventas`;
+                 if (downloadBtn) downloadBtn.href = `/csv/ventas?${new URLSearchParams({ start_date: start, end_date: end }).toString()}`;
+                 if (periodCopy) periodCopy.textContent = `Control diario del ${formatDateLabel(start)} al ${formatDateLabel(end)}.`;
+                 if (timelineDetailsSummary && Number.isFinite(count)) timelineDetailsSummary.textContent = `Detalle de ventas (${count})`;
+               };
 
               const loadPanelState = () => {
                 try {
@@ -1280,18 +1511,6 @@
                 return node;
               };
 
-              const escapeHTML = (value) =>
-                String(value ?? "").replace(/[&<>"']/g, (char) => {
-                  switch (char) {
-                    case "&": return "&amp;";
-                    case "<": return "&lt;";
-                    case ">": return "&gt;";
-                    case '"': return "&quot;";
-                    case "'": return "&#39;";
-                    default: return char;
-                  }
-                });
-
               const safeCssColor = (value, fallback) => {
                 const raw = String(value ?? "").trim();
                 if (/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8})$/.test(raw)) return raw;
@@ -1325,14 +1544,17 @@
                 return cell;
               };
 
-               const renderDonut = (data) => {
-                 if (!pieSvg) return;
-                 clearEl(pieSvg);
-                 const palette = dashboardPalette();
+                const renderDonut = (data) => {
+                  if (!pieSvg) return;
+                  const palette = dashboardPalette();
 
-                 const slices = Array.isArray(data.pie_slices) ? data.pie_slices : [];
-                 const total = String(data.pie_total || fmtMoney(0));
-                 const longTotal = total.length >= 14;
+                  const slices = Array.isArray(data.pie_slices) ? data.pie_slices : [];
+                  const total = String(data.pie_total || fmtMoney(0));
+                  const longTotal = total.length >= 14;
+                  const description = slices.length
+                    ? `Pagos del periodo. Total ${total}. ${slices.map((slice) => `${slice.metodo || "Sin método"}: ${slice.total || fmtMoney(0)}, ${Math.round(Number(slice.percent || 0))} por ciento`).join(". ")}.`
+                    : "No hay pagos registrados en el rango seleccionado.";
+                  setSVGDescription(pieSvg, "Ventas por método de pago", description);
 
                  pieSvg.appendChild(el("circle", { cx: 60, cy: 60, r: 45, fill: "none", stroke: palette.chartTrack, "stroke-width": 16 }));
                  slices.forEach((s) => {
@@ -1389,17 +1611,27 @@
                 }
               };
 
-              const renderTimeline = (data) => {
-                if (!timelineSvg) return;
-                clearEl(timelineSvg);
-                const palette = dashboardPalette();
+                const renderTimeline = (data) => {
+                  if (!timelineSvg) return;
+                  const palette = dashboardPalette();
 
                 const timeline = Array.isArray(data.timeline) ? data.timeline : [];
                 const maxV = Number(data.max_timeline || 0);
                 const maxText = String(data.max_timeline_text || fmtMoney(maxV));
 
-                if (timelineMax) timelineMax.textContent = `Máximo: ${maxText}`;
-                if (timelineDays) timelineDays.textContent = `Días visibles: ${timeline.length}`;
+                 if (timelineMax) timelineMax.textContent = `Máximo: ${maxText}`;
+                 if (timelineDays) timelineDays.textContent = `Días visibles: ${timeline.length}`;
+                 const total = String(data.range_total || fmtMoney(0));
+                 const description = timeline.length
+                   ? `Ventas diarias del periodo. Total vendido ${total}. Máximo diario ${maxText}. ${timeline.length} días visibles.`
+                   : "No hay ventas registradas en el rango seleccionado.";
+                 setSVGDescription(timelineSvg, "Histórico de ventas por día", description);
+                 if (timelineSummary) timelineSummary.textContent = description;
+                 timelineSvg.toggleAttribute("hidden", !timeline.length);
+                 if (timelineEmpty) {
+                   timelineEmpty.hidden = timeline.length > 0;
+                   timelineEmpty.textContent = timeline.length ? "" : "No hay ventas registradas en el rango seleccionado.";
+                 }
 
                 const W = 1000;
                 const H = 260;
@@ -1438,7 +1670,7 @@
                 const labelsIdx = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
                 labelsIdx.forEach((i) => {
                   const x = xAt(i);
-                  const d = timeline[i]?.fecha || "";
+                   const d = formatDateLabel(timeline[i]?.fecha || "");
                   timelineSvg.appendChild(el("text", { x, y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: palette.chartLabel }, d));
                 });
                 timelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: palette.chartLabel }, "Fecha"));
@@ -1489,20 +1721,29 @@
 
                };
 
-               const renderSales = (data) => {
+                const renderSales = (data) => {
                  if (!salesTableBody) return;
-                 const sales = Array.isArray(data.sales) ? data.sales : [];
-                 salesTableBody.innerHTML = "";
-                 sales.forEach((s) => {
+                  const sales = Array.isArray(data.sales) ? data.sales : [];
+                  salesTableBody.innerHTML = "";
+                  if (!sales.length) {
+                    const row = document.createElement("tr");
+                    const cell = document.createElement("td");
+                    cell.colSpan = 7;
+                    cell.textContent = "No hay ventas registradas en el rango seleccionado.";
+                    row.appendChild(cell);
+                    salesTableBody.appendChild(row);
+                    return;
+                  }
+                  sales.forEach((s) => {
                    const tr = document.createElement("tr");
                    appendTextCell(tr, s.id ?? "-");
-                   appendTextCell(tr, s.fecha || "-");
+                    appendTextCell(tr, formatDateLabel(s.fecha || "-"));
                    appendTextCell(tr, s.producto || "-");
                    appendTextCell(tr, s.cantidad ?? "-");
                    appendTextCell(tr, s.total || "-");
                    appendTextCell(tr, s.metodo_pago || "-");
 
-                   const actionCell = document.createElement("td");
+                    const actionCell = document.createElement("td");
                    const receiptHref = `/venta/comprobante?sale_id=${encodeURIComponent(String(s.id ?? ""))}`;
                    const receiptLink = document.createElement("a");
                    receiptLink.className = "button secondary";
@@ -1515,9 +1756,11 @@
                      actionCell.appendChild(document.createTextNode(" "));
                      const deleteButton = document.createElement("button");
                      deleteButton.type = "button";
-                     deleteButton.className = "button secondary";
-                     deleteButton.dataset.saleDelete = String(s.id ?? "");
-                     deleteButton.textContent = "Eliminar";
+                      deleteButton.className = "button danger";
+                      deleteButton.dataset.saleDelete = String(s.id ?? "");
+                      deleteButton.dataset.saleProduct = String(s.producto || "Venta sin producto");
+                      deleteButton.dataset.saleTotal = String(s.total || fmtMoney(0));
+                      deleteButton.textContent = "Eliminar";
                      actionCell.appendChild(deleteButton);
                    }
                    tr.appendChild(actionCell);
@@ -1525,18 +1768,21 @@
                  });
                };
 
-               const renderUserTimeline = (data) => {
-                 if (!userTimelineSvg) return;
-                 clearEl(userTimelineSvg);
-                 const palette = dashboardPalette();
-                 const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
+                const renderUserTimeline = (data) => {
+                  if (!userTimelineSvg) return;
+                  const palette = dashboardPalette();
+                  const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
                  if (userTimelineLegend) userTimelineLegend.innerHTML = "";
                  if (panelSalesUserPill) panelSalesUserPill.textContent = `${series.length} usuarios`;
-                 if (!series.length) {
-                   userTimelineSvg.setAttribute("hidden", "hidden");
-                   return;
-                 }
-                 userTimelineSvg.removeAttribute("hidden");
+                  if (!series.length) {
+                    userTimelineSvg.setAttribute("hidden", "hidden");
+                    if (userTimelineSummary) userTimelineSummary.textContent = "No hay ventas registradas por usuario en el rango seleccionado.";
+                    return;
+                  }
+                  userTimelineSvg.removeAttribute("hidden");
+                  const description = `Ventas por usuario. ${series.map((item) => `${item.user_label || "Sin usuario"}: ${item.total || fmtMoney(0)}`).join(". ")}.`;
+                  setSVGDescription(userTimelineSvg, "Ventas por usuario", description);
+                  if (userTimelineSummary) userTimelineSummary.textContent = description;
 
                  const pointsLen = Array.isArray(series[0]?.points) ? series[0].points.length : 0;
                  const W = 1000;
@@ -1565,7 +1811,7 @@
 
                  const labelsIdx = pointsLen <= 1 ? [0] : [0, Math.floor((pointsLen - 1) / 2), pointsLen - 1];
                  labelsIdx.forEach((i) => {
-                   const d = series[0]?.points?.[i]?.fecha || "";
+                    const d = formatDateLabel(series[0]?.points?.[i]?.fecha || "");
                    userTimelineSvg.appendChild(el("text", { x: xAt(i), y: H - padB + 22, "text-anchor": "middle", "font-size": 11, fill: palette.chartLabel }, d));
                  });
                  userTimelineSvg.appendChild(el("text", { x: W - padR, y: H - 10, "text-anchor": "end", "font-size": 11, fill: palette.chartLabel }, "Fecha"));
@@ -1645,11 +1891,17 @@
                  });
                };
 
-               const renderCategoryBars = (data) => {
+                const renderCategoryBars = (data) => {
                  if (!categoryBars) return;
-                 const categories = Array.isArray(data.category_totals) ? data.category_totals : [];
-                 categoryBars.innerHTML = "";
-                 if (!categories.length) return;
+                  const categories = Array.isArray(data.category_totals) ? data.category_totals : [];
+                  categoryBars.innerHTML = "";
+                  if (!categories.length) {
+                    const empty = document.createElement("div");
+                    empty.className = "empty-chart";
+                    empty.textContent = "No hay categorías con ventas en el rango seleccionado.";
+                    categoryBars.appendChild(empty);
+                    return;
+                  }
                  const maxV = categories.reduce((acc, item) => Math.max(acc, Number(item.value || 0)), 0);
                  const safeMax = Math.max(maxV, 1);
                  categories.forEach((item) => {
@@ -1680,129 +1932,139 @@
                  });
                };
 
-               const renderSummaryUserList = (data) => {
-                 const list = document.getElementById("summary-user-list");
-                 if (!list) return;
-                 const series = Array.isArray(data.user_timeline) ? data.user_timeline : [];
-                 list.innerHTML = "";
-                 if (!series.length) {
-                   const empty = document.createElement("div");
-                   empty.className = "empty-chart";
-                   empty.style.minHeight = "60px";
-                   empty.textContent = "Sin datos";
-                   list.appendChild(empty);
-                   return;
-                 }
-                 series.forEach((item) => {
-                   const row = document.createElement("div");
-                   row.className = "user-sale-row";
-                   const left = document.createElement("span");
-                   left.className = "user-sale-left";
-                   const dot = document.createElement("span");
-                   dot.className = "legend-dot";
-                   dot.style.background = safeCssColor(item.color);
-                   dot.style.borderRadius = "50%";
-                   dot.style.display = "inline-block";
-                   dot.style.width = "8px";
-                   dot.style.height = "8px";
-                   dot.style.flexShrink = "0";
-                   const label = document.createElement("span");
-                   label.textContent = item.user_label || "-";
-                   left.appendChild(dot);
-                   left.appendChild(label);
-                   const total = document.createElement("span");
-                   total.className = "user-sale-total";
-                   total.textContent = item.total || fmtMoney(0);
-                   row.appendChild(left);
-                   row.appendChild(total);
-                   list.appendChild(row);
-                 });
-               };
-
-               const applyData = (data) => {
-                 if (!data || !data.ok) return;
+                const applyData = (data) => {
+                  if (!data || !data.ok) return;
                  latestData = data;
                  setRangeBadge(data.range_start, data.range_end, data.range_count, data.range_total);
                  renderDonut(data);
-                 renderTimeline(data);
-                 renderUserTimeline(data);
-                 renderUserTimelineDetail(data);
-                 renderSummaryUserList(data);
-                 renderCategoryBars(data);
-                 renderSales(data);
+                  renderTimeline(data);
+                  renderUserTimeline(data);
+                  renderUserTimelineDetail(data);
+                  renderCategoryBars(data);
+                  renderSales(data);
+                };
+
+               let latestData = null;
+               const requestDashboardData = async () => {
+                 const start = startInput?.value;
+                 const end = endInput?.value;
+                 if (!start || !end) {
+                   setRangeError("Indica una fecha inicial y una fecha final.");
+                   return;
+                 }
+                 if (start > end) {
+                   setRangeError("La fecha inicial debe ser anterior o igual a la fecha final.");
+                   return;
+                 }
+                 setRangeError();
+                 setLiveStatus("Actualizando datos del dashboard…", "loading");
+                 const qs = new URLSearchParams({ start_date: start, end_date: end });
+                 try {
+                   const resp = await fetch(`/dashboard/data?${qs.toString()}`, { headers: { "Accept": "application/json" } });
+                   const data = await resp.json().catch(() => ({}));
+                   if (!resp.ok || !data.ok) throw new Error(data.error || "No se pudo actualizar el dashboard.");
+                   window.history.replaceState({}, "", `/dashboard?${qs.toString()}`);
+                   applyData(data);
+                   if (rangePicker) rangePicker.open = false;
+                   setLiveStatus(`Datos actualizados: ${data.range_count || 0} ventas en el periodo.`);
+                 } catch (err) {
+                   const message = err?.message || "No se pudo actualizar el dashboard. Revisa tu conexión e inténtalo de nuevo.";
+                   setLiveStatus(`${message} Ajusta el rango y vuelve a intentarlo.`, "error");
+                   if (typeof window.showToast === "function") window.showToast(message, "error");
+                 }
                };
 
-              let pending = null;
-              let latestData = null;
-              const schedule = () => {
-                if (pending) clearTimeout(pending);
-                pending = setTimeout(async () => {
-                  const start = startInput?.value;
-                  const end = endInput?.value;
-                  if (!start || !end) return;
-                  const qs = new URLSearchParams({ start_date: start, end_date: end });
-                  const url = `/dashboard/data?${qs.toString()}`;
-                  try {
-                    const resp = await fetch(url, { headers: { "Accept": "application/json" } });
-                    const data = await resp.json().catch(() => ({}));
-                    if (!resp.ok || !data.ok) return;
-                    // Keep URL in sync without hard reload.
-                    const nextUrl = `/dashboard?${qs.toString()}`;
-                    window.history.replaceState({}, "", nextUrl);
-                    applyData(data);
-                  } catch (_) {
-                    if (typeof window.showToast === "function") {
-                      window.showToast("No se pudo actualizar el dashboard. Revisa tu conexión e inténtalo de nuevo.", "error");
-                    }
+                rangeForm?.addEventListener("submit", (event) => {
+                  event.preventDefault();
+                  requestDashboardData();
+                });
+                document.addEventListener("keydown", (event) => {
+                  if (event.key === "Escape" && rangePicker?.open) rangePicker.open = false;
+                });
+                document.addEventListener("click", (event) => {
+                  if (rangePicker?.open && event.target instanceof Node && !rangePicker.contains(event.target)) {
+                    rangePicker.open = false;
                   }
-                }, 250);
-              };
+                });
+                window.addEventListener("stocki:theme-change", () => {
+                  if (latestData) applyData(latestData);
+                });
+                applyPanelState();
+                dashboardPanels.forEach((panel) => panel.addEventListener("toggle", savePanelState));
+                if (salesTableBody && isAdmin) {
+                  let pendingDelete = null;
+                  let deleteOpener = null;
 
-               if (startInput) startInput.addEventListener("change", schedule);
-               if (endInput) endInput.addEventListener("change", schedule);
-               window.addEventListener("stocki:theme-change", () => {
-                 if (latestData) applyData(latestData);
-               });
-               applyPanelState();
-               dashboardPanels.forEach((panel) => panel.addEventListener("toggle", savePanelState));
-               if (salesTableBody && isAdmin) {
-                 salesTableBody.addEventListener("click", async (event) => {
-                   const btn = event.target.closest("[data-sale-delete]");
-                   if (!btn) return;
-                   const saleId = String(btn.getAttribute("data-sale-delete") || "").trim();
-                   if (!saleId) return;
-                   if (!window.confirm("¿Eliminar esta venta? Esta acción no se puede deshacer.")) return;
-                   btn.setAttribute("disabled", "disabled");
-                   try {
-                     const resp = await fetch("/dashboard/ventas/delete", {
-                       method: "POST",
-                       headers: {
-                         "Content-Type": "application/x-www-form-urlencoded",
-                         "Accept": "application/json"
-                       },
-                       body: new URLSearchParams({ venta_id: saleId }).toString()
-                     });
-                     const data = await resp.json().catch(() => ({}));
-                     if (!resp.ok || !data.ok) {
-                       throw new Error(data.error || "No se pudo eliminar la venta.");
-                     }
-                     if (typeof window.showToast === "function") {
-                       window.showToast("Venta eliminada correctamente.", "success");
-                     }
-                     schedule();
-                   } catch (err) {
-                     if (typeof window.showToast === "function") {
-                       window.showToast(err?.message || "No se pudo eliminar la venta. Revisa los permisos e inténtalo de nuevo.", "error");
-                     }
-                   } finally {
-                     btn.removeAttribute("disabled");
-                   }
-                 });
-               }
+                  const closeDeleteDialog = () => {
+                    pendingDelete = null;
+                    if (deleteDialog?.open) deleteDialog.close();
+                    if (deleteOpener?.isConnected) deleteOpener.focus();
+                    deleteOpener = null;
+                  };
 
-               // First render: reuse server-provided range values by fetching JSON once.
-               schedule();
-              return { schedule };
+                  const deleteSale = async (saleId, button) => {
+                    button?.setAttribute("disabled", "disabled");
+                    try {
+                      const resp = await fetch("/dashboard/ventas/delete", {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/x-www-form-urlencoded",
+                          "Accept": "application/json"
+                        },
+                        body: new URLSearchParams({ venta_id: saleId }).toString()
+                      });
+                      const data = await resp.json().catch(() => ({}));
+                      if (!resp.ok || !data.ok) throw new Error(data.error || "No se pudo eliminar la venta.");
+                      if (typeof window.showToast === "function") window.showToast("Venta eliminada correctamente.", "success");
+                      await requestDashboardData();
+                    } catch (err) {
+                      if (typeof window.showToast === "function") {
+                        window.showToast(err?.message || "No se pudo eliminar la venta. Revisa los permisos e inténtalo de nuevo.", "error");
+                      }
+                    } finally {
+                      button?.removeAttribute("disabled");
+                    }
+                  };
+
+                  salesTableBody.addEventListener("click", (event) => {
+                    const btn = event.target.closest("[data-sale-delete]");
+                    if (!(btn instanceof HTMLButtonElement)) return;
+                    const saleId = String(btn.getAttribute("data-sale-delete") || "").trim();
+                    if (!saleId) return;
+                    pendingDelete = { saleId, button: btn };
+                    deleteOpener = btn;
+                    if (deleteContext) {
+                      deleteContext.textContent = `Venta #${saleId} · ${btn.dataset.saleProduct || "Venta sin producto"} · ${btn.dataset.saleTotal || fmtMoney(0)}`;
+                    }
+                    if (deleteDialog?.showModal) deleteDialog.showModal();
+                    else deleteSale(saleId, btn);
+                  });
+
+                  deleteForm?.addEventListener("submit", (event) => {
+                    event.preventDefault();
+                    const action = event.submitter?.value;
+                    const current = pendingDelete;
+                    if (action !== "confirm" || !current) {
+                      closeDeleteDialog();
+                      return;
+                    }
+                    if (deleteDialog?.open) deleteDialog.close();
+                    pendingDelete = null;
+                    deleteSale(current.saleId, current.button);
+                  });
+
+                  deleteDialog?.addEventListener("cancel", () => {
+                    pendingDelete = null;
+                  });
+                  deleteDialog?.addEventListener("close", () => {
+                    if (!pendingDelete && deleteOpener?.isConnected) deleteOpener.focus();
+                    deleteOpener = null;
+                  });
+                }
+
+                // Render the dynamic charts from the server-provided range once the page is ready.
+                requestDashboardData();
+               return { refresh: requestDashboardData };
             })();
         </script>
     </body>
