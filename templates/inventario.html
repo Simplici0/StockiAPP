@@ -74,10 +74,10 @@
                 box-shadow: var(--shadow-xs);
             }
 
-            .cart-status {
+            .cart-error {
                 display: inline-block;
                 margin-left: 8px;
-                color: var(--primary);
+                color: var(--danger-ink);
                 font-size: 11px;
                 font-weight: 700;
             }
@@ -345,23 +345,70 @@
             }
 
             /* Product name cell */
-            .product-name {
+            .page-content .product-name {
                 display: inline-flex;
                 align-items: center;
                 gap: 8px;
                 margin-bottom: 4px;
+                padding: 0;
+                border: 0;
+                background: transparent;
                 font-size: 14.5px;
                 font-weight: 800;
                 color: var(--text);
                 cursor: pointer;
+                font-family: inherit;
+                min-height: 0;
+                text-align: left;
                 line-height: 1.12;
                 letter-spacing: -0.01em;
+                box-shadow: none;
             }
 
-            .product-name::after {
+            .page-content .product-name::after {
                 content: " ▾";
                 font-size: 10px;
                 opacity: 0.45;
+            }
+
+            .page-content .product-name:hover,
+            .page-content .product-name:focus-visible {
+                color: var(--primary-strong);
+            }
+
+            .page-content .product-name:focus-visible {
+                outline: 3px solid var(--focus-ring);
+                outline-offset: 3px;
+            }
+
+            .product-cart-control {
+                position: relative;
+                display: inline-flex;
+            }
+
+            .product-cart-badge {
+                position: absolute;
+                top: -8px;
+                right: -8px;
+                z-index: 1;
+                display: grid;
+                min-width: 22px;
+                min-height: 22px;
+                padding: 2px 6px;
+                place-items: center;
+                border: 1px solid var(--primary-strong);
+                border-radius: 999px;
+                background: var(--bg-card);
+                color: var(--text);
+                font-size: 12px;
+                font-weight: 800;
+                line-height: 1;
+                box-shadow: var(--shadow-xs);
+                pointer-events: none;
+            }
+
+            .product-cart-badge[hidden] {
+                display: none;
             }
 
             .mobile-product-meta {
@@ -1946,7 +1993,7 @@
             data-sale-cart-key="stocki-sale-cart-{{.CurrentUser.TenantID}}-{{.CurrentUser.ID}}"
         >
             {{if .Flash}}
-            <div class="flash" data-persistent>
+            <div class="flash">
                 <div>{{.Flash}}</div>
             </div>
             {{end}}
@@ -3975,6 +4022,17 @@
                                     />
                                 </div>
                                 <div>
+                                    <label for="edit-quantity">Cantidad disponible</label>
+                                    <input
+                                        id="edit-quantity"
+                                        name="cantidad"
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        required
+                                    />
+                                </div>
+                                <div>
                                     <label for="edit-price"
                                         >Precio de venta</label
                                     >
@@ -4633,15 +4691,18 @@
                       : ``
                     : canSell && availableUnits > 0
                       ? `<input type="number" min="1" max="${Math.max(availableUnits, 1)}" value="1" data-qty="${productId}" aria-label="Cantidad para ${productName}" />
-                         <button class="primary product-primary-action" data-action="add-to-cart" data-add-to-cart data-product="${productId}" data-product-name="${productName}" data-unit-price="${Number(product.salePrice || 0)}" data-stock="${availableUnits}">Agregar al carrito</button>
-                         <span class="cart-status" data-cart-status="${productId}" hidden></span>`
+                         <span class="product-cart-control">
+                           <button class="primary product-primary-action" data-action="add-to-cart" data-add-to-cart data-product="${productId}" data-product-name="${productName}" data-unit-price="${Number(product.salePrice || 0)}" data-stock="${availableUnits}">Agregar al carrito</button>
+                            <span class="product-cart-badge" data-cart-badge="${productId}" data-cart-product-name="${productName}" aria-live="polite" aria-atomic="true" hidden></span>
+                         </span>
+                         <span class="cart-error" data-cart-error="${productId}" role="status" hidden></span>`
                       : ``;
                 row.innerHTML = `
                   <td data-label="Producto">
-                    <div class="product-name" data-product="${productId}">
+                    <button type="button" class="product-name" data-product="${productId}" aria-controls="units-row-${productId}" aria-expanded="false">
                       ${productName}
                       ${product.ageAlert ? `<span class="age-pill" title="En stock ${esc(product.ageMonths)} meses (fecha ingreso: ${productIngreso})">+6 meses</span>` : ``}
-                    </div>
+                    </button>
                     <div class="fifo-note desktop-product-meta">${isCredit ? `ID ${productId} · Crédito · Producto ${productBaseId}` : isPhysicalLoan ? `ID ${productId} · Préstamo · Producto ${productBaseId}` : `ID ${productId} · ${esc(product.available)} disponibles`}</div>
                     <div class="fifo-note mobile-product-meta">${isCredit ? `ID ${productId} · Crédito · ${productLine}` : isPhysicalLoan ? `ID ${productId} · Préstamo · ${productLine}` : `ID ${productId} · ${productLine} · ${esc(product.available)} disponibles`}</div>
                     ${product.entryType === "product" && product.location ? `<div class="fifo-note">Locación · ${productLocation}</div>` : ``}
@@ -4728,14 +4789,12 @@
                             `}
                         <div class="menu-separator"></div>
                         <div class="menu-group-label">Consultar</div>
-                        <button type="button" data-menu-action="units" data-product="${productId}">Ver unidades</button>
                         <button type="button" data-menu-action="history" data-product="${productId}">Ver historial</button>
                         <div class="menu-separator"></div>
                         <div class="menu-group-label">Administrar</div>
                         ${isCredit ? `{{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}<button type="button" data-menu-action="edit-credit" data-product="${productId}">Editar crédito</button>{{end}}` : ``}
                         ${!isCredit && !isPhysicalLoan ? `<button type="button" data-menu-action="edit" data-product="${productId}">Editar producto</button>
-                        <button type="button" data-menu-action="print-label" data-product="${productId}">Imprimir etiqueta</button>
-                        {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "empleado"))}}<button type="button" data-menu-action="stock" data-product="${productId}">Ajustar stock</button>{{end}}` : ``}
+                        <button type="button" data-menu-action="print-label" data-product="${productId}">Imprimir etiqueta</button>` : ``}
                       </div>
                     </div>
                   </td>
@@ -4832,6 +4891,7 @@
 
                 productTable.appendChild(unitsRow);
               });
+              window.StockiSaleCart?.refresh?.();
             };
 
             populateLineFilter();
@@ -5254,6 +5314,7 @@
             const editForm = document.getElementById("edit-form");
             const editError = document.getElementById("edit-error");
             const editSKU = document.getElementById("edit-sku");
+            const editQuantity = document.getElementById("edit-quantity");
             const editPrice = document.getElementById("edit-price");
             const editName = document.getElementById("edit-name");
             const editLine = document.getElementById("edit-line");
@@ -7022,6 +7083,10 @@
                 setEditError("");
 
                 if (editSKU) editSKU.value = product.id || "";
+                if (editQuantity)
+                    editQuantity.value = String(
+                        Math.max(0, Number(product.available || 0)),
+                    );
                 if (editPrice)
                     editPrice.value =
                         Number(product.salePrice || 0) > 0
@@ -8458,6 +8523,10 @@
                     if (!editContext) return;
 
                     const sku = String(editSKU?.value || "").trim();
+                    const quantity = Number.parseInt(
+                        String(editQuantity?.value || ""),
+                        10,
+                    );
                     const priceText = String(editPrice?.value || "").trim();
                     const parsedPrice = parseCOP(priceText);
                     const retomaPriceText = String(
@@ -8475,6 +8544,10 @@
                         setEditError("Precio de venta inválido.");
                         return;
                     }
+                    if (!Number.isInteger(quantity) || quantity < 0) {
+                        setEditError("Cantidad disponible inválida.");
+                        return;
+                    }
                     if (
                         editRetomaEnabled?.checked &&
                         (!retomaPriceText ||
@@ -8490,6 +8563,7 @@
                         const body = new URLSearchParams({
                             producto_id: editContext.productId,
                             sku,
+                            cantidad: String(quantity),
                             precio_venta: String(parsedPrice),
                             location: String(editLocation?.value || "").trim(),
                             notas: String(editNotes?.value || "").trim(),
@@ -8769,10 +8843,6 @@
                         );
                         return;
                     }
-                    if (action === "units") {
-                        toggleUnitsRow(productId);
-                        return;
-                    }
                     if (action === "swap") {
                         const params = new URLSearchParams({
                             producto_id: productId,
@@ -8817,33 +8887,6 @@
                         }
                         closeOpenMenuPanels();
                         openModal(labelModal);
-                        return;
-                    }
-                    if (action === "stock") {
-                        const currentStock = Number.isFinite(maxQty)
-                            ? Math.max(0, maxQty)
-                            : 0;
-                        openActionModal({
-                            title: "Ajustar stock",
-                            subtitle: product
-                                ? `${product.name} · ID ${productId}`
-                                : `ID ${productId}`,
-                            endpoint: "/inventario/stock",
-                            productId,
-                            productName: product?.name || "",
-                            maxQty: currentStock,
-                            defaultQty: currentStock,
-                            valueLabel: "Stock actual",
-                            mode: "adjust_stock",
-                            minQty: 0,
-                            allowGreaterThanMax: true,
-                            allowPriceEdit: true,
-                            defaultPrice: Number(product?.salePrice || 0),
-                            retomaEnabled: !!product?.retomaEnabled,
-                            retomaPrice: Number(product?.retomaPrice || 0),
-                            noteLabel: "Nota del ajuste (opcional)",
-                            notePlaceholder: "Ej: conteo físico de inventario.",
-                        });
                         return;
                     }
                     if (action === "history") {
@@ -8947,7 +8990,7 @@
 
                 const productTrigger = event.target.closest(".product-name");
                 if (!productTrigger) return;
-                toggleUnitsRow(productTrigger.dataset.product);
+                toggleUnitsRow(productTrigger.dataset.product, productTrigger);
             });
 
             document.addEventListener("keydown", (event) => {

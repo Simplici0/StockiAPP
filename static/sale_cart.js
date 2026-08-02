@@ -69,10 +69,18 @@
 
   function updateInventory(cart) {
     const byID = new Map(cart.map((item) => [String(item.product_id), item]));
-    document.querySelectorAll("[data-cart-status]").forEach((status) => {
-      const item = byID.get(String(status.dataset.cartStatus || ""));
-      status.textContent = item ? `En carrito: ${item.quantity}` : "";
-      status.hidden = !item;
+    document.querySelectorAll("[data-cart-badge]").forEach((badge) => {
+      const item = byID.get(String(badge.dataset.cartBadge || ""));
+      const quantity = Math.max(0, Number(item?.quantity) || 0);
+      const visible = quantity > 0;
+      badge.textContent = visible ? String(quantity) : "";
+      badge.hidden = !visible;
+      badge.setAttribute(
+        "aria-label",
+        visible
+          ? `${quantity} unidades de ${badge.dataset.cartProductName || item.product_name || item.product_id} en el carrito`
+          : "",
+      );
     });
     document.querySelectorAll("[data-add-to-cart]").forEach((button) => {
       const item = byID.get(String(button.dataset.product || ""));
@@ -296,11 +304,11 @@
         unit_price: Number(button.dataset.unitPrice) || 0,
         stock: Number(button.dataset.stock) || 0,
       });
-      const status = row?.querySelector("[data-cart-status]");
-      if (status && !result.ok) {
-        status.hidden = false;
-        status.textContent = result.error;
-      }
+    const status = row?.querySelector("[data-cart-error]");
+    if (status) {
+      status.hidden = result.ok;
+      status.textContent = result.ok ? "" : result.error;
+    }
     });
   }
 
@@ -361,7 +369,7 @@
   }
 
   document.addEventListener("stocki:cart-changed", render);
-  window.StockiSaleCart = { add: addItem };
+  window.StockiSaleCart = { add: addItem, refresh: render };
   bindCatalog(readCart());
   bindInventoryCatalog();
   bindCheckout();

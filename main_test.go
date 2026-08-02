@@ -1806,6 +1806,9 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	if !bytes.Contains(editModal, []byte(`id="edit-delete-product"`)) {
 		t.Fatalf("admin edit-product modal should expose the delete-product action")
 	}
+	if !bytes.Contains(editModal, []byte(`id="edit-quantity"`)) || !bytes.Contains(editModal, []byte(`name="cantidad"`)) {
+		t.Fatal("edit-product modal should expose the target available quantity")
+	}
 	if got := bytes.Count(adminRendered, []byte(`id="credit-edit-delete"`)); got != 1 {
 		t.Fatalf("admin inventory page should render exactly one delete-credit action, got %d", got)
 	}
@@ -1904,6 +1907,27 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	}
 	if !bytes.Contains(adminRendered, []byte(`class="button inventory-cart-bubble"`)) || !bytes.Contains(adminRendered, []byte(`data-cart-count`)) {
 		t.Fatal("inventory should render the floating cart bubble with its counter")
+	}
+	for _, removedAction := range []string{`data-menu-action="units"`, `data-menu-action="stock"`} {
+		if bytes.Contains(adminRendered, []byte(removedAction)) {
+			t.Fatalf("inventory quick-actions should not render %s", removedAction)
+		}
+	}
+	if !bytes.Contains(adminRendered, []byte(`data-cart-badge="${productId}"`)) || !bytes.Contains(adminRendered, []byte(`data-cart-error="${productId}"`)) {
+		t.Fatal("inventory should render a numeric cart badge and a separate cart error message")
+	}
+	if !bytes.Contains(adminRendered, []byte(`.product-cart-badge[hidden]`)) || !bytes.Contains(adminRendered, []byte(`aria-atomic="true" hidden></span>`)) {
+		t.Fatal("inventory cart badge should start empty and remain hidden before a product is added")
+	}
+	cartScript, err := os.ReadFile("static/sale_cart.js")
+	if err != nil {
+		t.Fatalf("read sale cart script: %v", err)
+	}
+	if !bytes.Contains(cartScript, []byte(`const visible = quantity > 0;`)) || !bytes.Contains(cartScript, []byte(`badge.hidden = !visible;`)) {
+		t.Fatal("cart badge should only become visible for a positive quantity")
+	}
+	if bytes.Contains(adminRendered, []byte(`<div class="flash" data-persistent>`)) {
+		t.Fatal("inventory flash messages should remain dismissible and timed")
 	}
 
 	if !bytes.Contains(employeeRendered, []byte("Manual del producto")) {
@@ -7654,6 +7678,59 @@ func TestAdjustInventoryProductUpdatesStockAndRetoma(t *testing.T) {
 	}
 	if inventoryAuditCount != 1 || productAuditCount != 1 {
 		t.Fatalf("unexpected audit counts inventory=%d product=%d", inventoryAuditCount, productAuditCount)
+	}
+}
+
+func TestAdjustInventoryTargetQuantityRollsBackWithProductEdit(t *testing.T) {
+	db := setupOperationsTestDB(t)
+	defer db.Close()
+
+	now := time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, id, nombre, precio_venta)
+		VALUES ('P-ROLLBACK', 'P-ROLLBACK', 'Producto original', 20000)
+	`); err != nil {
+		t.Fatalf("seed product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO unidades (id, producto_id, estado, creado_en)
+		VALUES ('U-ROLLBACK-1', 'P-ROLLBACK', 'Disponible', ?)
+	`, now); err != nil {
+		t.Fatalf("seed unit: %v", err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin transaction: %v", err)
+	}
+	target := 3
+	result, err := adjustInventoryTargetQuantity(tx, defaultTenantID, "P-ROLLBACK", "P-ROLLBACK", &target, "", &User{ID: 1, Username: "admin", Role: "admin", TenantID: defaultTenantID})
+	if err != nil {
+		t.Fatalf("adjustInventoryTargetQuantity: %v", err)
+	}
+	if result.PreviousQuantity != 1 || result.CurrentQuantity != 3 || result.Delta != 2 {
+		t.Fatalf("unexpected quantity adjustment: %+v", result)
+	}
+	if _, err := tx.Exec(`UPDATE productos SET nombre = 'Producto editado' WHERE sku = 'P-ROLLBACK'`); err != nil {
+		t.Fatalf("update product in transaction: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback transaction: %v", err)
+	}
+
+	var available int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unidades WHERE producto_id = 'P-ROLLBACK' AND estado = 'Disponible'`).Scan(&available); err != nil {
+		t.Fatalf("count available units after rollback: %v", err)
+	}
+	if available != 1 {
+		t.Fatalf("expected rolled back stock to remain 1, got %d", available)
+	}
+	var name string
+	if err := db.QueryRow(`SELECT nombre FROM productos WHERE sku = 'P-ROLLBACK'`).Scan(&name); err != nil {
+		t.Fatalf("query product after rollback: %v", err)
+	}
+	if name != "Producto original" {
+		t.Fatalf("expected product edit to roll back, got %q", name)
 	}
 }
 

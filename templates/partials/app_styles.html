@@ -2058,11 +2058,14 @@
                     if (el.isConnected) dismissMsg(el);
                 }, 6000);
             });
-        // Alert (info): close button only, no auto-dismiss
+        // Alerts use the same dismissible, time-bound behavior as flashes.
         document
             .querySelectorAll(".alert:not([data-persistent])")
             .forEach(function (el) {
                 addCloseBtn(el);
+                setTimeout(function () {
+                    if (el.isConnected) dismissMsg(el);
+                }, 6000);
             });
     });
 </script>

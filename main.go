@@ -7119,6 +7119,98 @@ type inventoryAdjustResult struct {
 	Message          string
 }
 
+func adjustInventoryTargetQuantity(tx *sql.Tx, tenantID int, productSKU, visibleID string, targetQuantity *int, notes string, currentUser *User) (inventoryAdjustResult, error) {
+	rows, err := tx.Query(`
+		SELECT id
+		FROM unidades
+		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
+		ORDER BY creado_en DESC, id DESC
+	`, tenantID, productSKU)
+	if err != nil {
+		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo consultar el stock actual."}
+	}
+
+	availableIDs := make([]string, 0, 64)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo leer el stock actual."}
+		}
+		availableIDs = append(availableIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo procesar el stock actual."}
+	}
+	rows.Close()
+
+	current := len(availableIDs)
+	target := current
+	if targetQuantity != nil {
+		target = *targetQuantity
+	}
+	delta := target - current
+	now := time.Now().Format(time.RFC3339)
+	if delta > 0 {
+		createdIDs := make([]string, 0, delta)
+		baseID := time.Now().UnixNano()
+		for i := 0; i < delta; i++ {
+			unitID := fmt.Sprintf("U-%s-AJ-%d-%d", productSKU, baseID, i)
+			if _, err := tx.Exec(
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
+				unitID, tenantID, productSKU, "Disponible", now, nil,
+			); err != nil {
+				return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo incrementar el stock."}
+			}
+			createdIDs = append(createdIDs, unitID)
+		}
+		logNote := notes
+		if logNote == "" {
+			logNote = fmt.Sprintf("Ajuste manual de stock: %d -> %d", current, target)
+		}
+		if err := logMovimientos(tx, productSKU, createdIDs, "ajuste_stock_entrada", logNote, currentUser, now); err != nil {
+			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el ajuste."}
+		}
+	} else if delta < 0 {
+		removeCount := -delta
+		removeIDs := availableIDs[:removeCount]
+		placeholders := make([]string, len(removeIDs))
+		args := make([]any, 0, len(removeIDs)+2)
+		for i, id := range removeIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		args = append([]any{tenantID}, args...)
+		args = append(args, productSKU)
+		query := fmt.Sprintf(
+			"DELETE FROM unidades WHERE tenant_id = ? AND id IN (%s) AND producto_id = ? AND estado IN ('Disponible', 'available')",
+			strings.Join(placeholders, ","),
+		)
+		res, err := tx.Exec(query, args...)
+		if err != nil {
+			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo reducir el stock."}
+		}
+		affected, err := res.RowsAffected()
+		if err != nil || int(affected) != removeCount {
+			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo confirmar el ajuste de stock."}
+		}
+		logNote := notes
+		if logNote == "" {
+			logNote = fmt.Sprintf("Ajuste manual de stock: %d -> %d", current, target)
+		}
+		if err := logMovimientos(tx, productSKU, removeIDs, "ajuste_stock_salida", logNote, currentUser, now); err != nil {
+			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el ajuste."}
+		}
+	}
+
+	return inventoryAdjustResult{
+		ProductID:        visibleID,
+		PreviousQuantity: current,
+		CurrentQuantity:  target,
+		Delta:            delta,
+	}, nil
+}
+
 type creditSaleCreateInput struct {
 	Kind              creditSaleKind
 	ProductID         string
@@ -7561,91 +7653,13 @@ func adjustInventoryProduct(db *sql.DB, currentUser *User, input inventoryAdjust
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.Query(`
-		SELECT id
-		FROM unidades
-		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
-		ORDER BY creado_en DESC, id DESC
-	`, tenantID, productSKU)
+	quantityResult, err := adjustInventoryTargetQuantity(tx, tenantID, productSKU, visibleID, input.TargetQuantity, input.Notes, currentUser)
 	if err != nil {
-		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo consultar el stock actual."}
+		return inventoryAdjustResult{}, err
 	}
-	availableIDs := make([]string, 0, 64)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo leer el stock actual."}
-		}
-		availableIDs = append(availableIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo procesar el stock actual."}
-	}
-	rows.Close()
-
-	current := len(availableIDs)
-	target := current
-	if input.TargetQuantity != nil {
-		target = *input.TargetQuantity
-	}
-	delta := target - current
-	now := time.Now().Format(time.RFC3339)
-	if delta > 0 {
-		createdIDs := make([]string, 0, delta)
-		baseID := time.Now().UnixNano()
-		for i := 0; i < delta; i++ {
-			unitID := fmt.Sprintf("U-%s-AJ-%d-%d", productSKU, baseID, i)
-			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, tenantID, productSKU, "Disponible", now, nil,
-			); err != nil {
-				return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo incrementar el stock."}
-			}
-			createdIDs = append(createdIDs, unitID)
-		}
-		logNote := input.Notes
-		if logNote == "" {
-			logNote = fmt.Sprintf("Ajuste manual de stock: %d -> %d", current, target)
-		}
-		if err := logMovimientos(tx, productSKU, createdIDs, "ajuste_stock_entrada", logNote, currentUser, now); err != nil {
-			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el ajuste."}
-		}
-	} else if delta < 0 {
-		removeCount := -delta
-		if removeCount > len(availableIDs) {
-			return inventoryAdjustResult{}, requestError{Status: http.StatusBadRequest, Message: "No hay stock suficiente para reducir a ese valor.", Fields: map[string]string{"target_quantity": "No hay stock suficiente para reducir a ese valor."}}
-		}
-		removeIDs := availableIDs[:removeCount]
-		placeholders := make([]string, len(removeIDs))
-		args := make([]any, 0, len(removeIDs)+1)
-		for i, id := range removeIDs {
-			placeholders[i] = "?"
-			args = append(args, id)
-		}
-		args = append(args, productSKU)
-		query := fmt.Sprintf(
-			"DELETE FROM unidades WHERE tenant_id = ? AND id IN (%s) AND producto_id = ? AND estado IN ('Disponible', 'available')",
-			strings.Join(placeholders, ","),
-		)
-		args = append([]any{tenantID}, args...)
-		res, err := tx.Exec(query, args...)
-		if err != nil {
-			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo reducir el stock."}
-		}
-		affected, err := res.RowsAffected()
-		if err != nil || int(affected) != removeCount {
-			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo confirmar el ajuste de stock."}
-		}
-		logNote := input.Notes
-		if logNote == "" {
-			logNote = fmt.Sprintf("Ajuste manual de stock: %d -> %d", current, target)
-		}
-		if err := logMovimientos(tx, productSKU, removeIDs, "ajuste_stock_salida", logNote, currentUser, now); err != nil {
-			return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el ajuste."}
-		}
-	}
+	current := quantityResult.PreviousQuantity
+	target := quantityResult.CurrentQuantity
+	delta := quantityResult.Delta
 
 	updatedFields := map[string]any{}
 	if input.SalePrice != nil {
@@ -21500,6 +21514,7 @@ func main() {
 		creditEnabledValue := r.FormValue("credit_enabled") != ""
 		retomaPriceValue := strings.TrimSpace(r.FormValue("retoma_price"))
 		notesValue := strings.TrimSpace(r.FormValue("notas"))
+		targetQuantityValue := strings.TrimSpace(r.FormValue("cantidad"))
 		debtorNameValue := strings.TrimSpace(r.FormValue("debtor_name"))
 		installmentsTotalValue := strings.TrimSpace(r.FormValue("installments_total"))
 		totalValueValue := strings.TrimSpace(r.FormValue("total_value"))
@@ -21508,6 +21523,15 @@ func main() {
 		if productID == "" {
 			writeJSONError(http.StatusBadRequest, "Producto inválido.")
 			return
+		}
+		var targetQuantity *int
+		if targetQuantityValue != "" {
+			parsedQuantity, err := strconv.Atoi(targetQuantityValue)
+			if err != nil || parsedQuantity < 0 {
+				writeJSONError(http.StatusBadRequest, "Cantidad objetivo inválida.")
+				return
+			}
+			targetQuantity = &parsedQuantity
 		}
 		allowed, err := productAccessibleByID(db, currentUser, productID)
 		if err != nil {
@@ -21691,6 +21715,33 @@ func main() {
 			`, float64(parsedPrice), boolToInt(retomaEnabled), newRetomaPrice, notesValue, finalLocation, tenantIDFromUser(currentUser), previous.SKU); err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el producto.")
 				return
+			}
+		}
+
+		if targetQuantity != nil {
+			quantityResult, err := adjustInventoryTargetQuantity(tx, tenantIDFromUser(currentUser), previous.SKU, newSKU, targetQuantity, notesValue, currentUser)
+			if err != nil {
+				var reqErr requestError
+				if errors.As(err, &reqErr) {
+					writeJSONError(reqErr.Status, reqErr.Message)
+					return
+				}
+				writeJSONError(http.StatusInternalServerError, "No se pudo ajustar el stock.")
+				return
+			}
+			if quantityResult.Delta != 0 {
+				if err := logAuditEvent(tx, currentUser, "inventory_adjusted", "product", previous.SKU, "web", map[string]any{
+					"product_id":        newSKU,
+					"product_sku":       previous.SKU,
+					"previous_quantity": quantityResult.PreviousQuantity,
+					"target_quantity":   quantityResult.CurrentQuantity,
+					"current_quantity":  quantityResult.CurrentQuantity,
+					"delta":             quantityResult.Delta,
+					"notes":             notesValue,
+				}); err != nil {
+					writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del ajuste de inventario.")
+					return
+				}
 			}
 		}
 
