@@ -1086,6 +1086,105 @@
                             {{end}}
                         </section>
 
+                        <section class="card line-card">
+                            <div class="settings-subsection-head">
+                                <h3>Ubicaciones</h3>
+                            </div>
+
+                            <form
+                                class="line-form"
+                                method="POST"
+                                action="/configuracion/ubicaciones/create"
+                            >
+                                <div class="line-form-grid">
+                                    <div>
+                                        <label for="new_location_name"
+                                            >Nueva ubicación</label
+                                        >
+                                        <input
+                                            id="new_location_name"
+                                            name="name"
+                                            type="text"
+                                            value="{{.NewLocationName}}"
+                                            placeholder="Ej. Estante A-03"
+                                        />
+                                    </div>
+                                    <div class="actions">
+                                        <button class="primary" type="submit">
+                                            Crear ubicación
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+
+                            {{if .Locations}}
+                            <div class="stack">
+                                {{range .Locations}}
+                                <form
+                                    class="line-row"
+                                    method="POST"
+                                    action="/configuracion/ubicaciones/update"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="id"
+                                        value="{{.ID}}"
+                                    />
+                                    <div class="line-meta">
+                                        <label for="location_{{.ID}}">Nombre</label>
+                                        <input
+                                            id="location_{{.ID}}"
+                                            name="name"
+                                            type="text"
+                                            value="{{.Name}}"
+                                        />
+                                        <p>
+                                            Creada: {{.CreatedAt}} ·
+                                            Actualizada: {{.UpdatedAt}}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <span
+                                            class="line-status {{if not .Active}}inactive{{end}}"
+                                        >
+                                            {{if
+                                            .Active}}Activa{{else}}Inactiva{{end}}
+                                        </span>
+                                    </div>
+                                    <div class="stack">
+                                        <label class="checkline">
+                                            <input
+                                                type="checkbox"
+                                                name="active"
+                                                {{if
+                                                .Active}}checked{{end}}
+                                            />
+                                            Activa para nuevos productos
+                                        </label>
+                                        <div class="actions">
+                                            <button
+                                                class="secondary"
+                                                type="submit"
+                                            >
+                                                Guardar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                                {{end}}
+                            </div>
+                            {{else}}
+                            <div class="empty-state settings-empty-state">
+                                <span class="settings-empty-icon" aria-hidden="true">⌖</span>
+                                <h3>Tu inventario aún no tiene ubicaciones</h3>
+                                <p>
+                                    Las ubicaciones ayudan a encontrar productos rápidamente y habilitan el selector correspondiente en inventario.
+                                </p>
+                                <a class="button primary" href="#new_location_name">Crear primera ubicación</a>
+                            </div>
+                            {{end}}
+                        </section>
+
                     </div>
                 </section>
 

@@ -4082,12 +4082,10 @@
                                 <summary>Opciones avanzadas</summary>
                             <div>
                                 <label for="edit-location">Locación</label>
-                                <input
+                                <select
                                     id="edit-location"
                                     name="location"
-                                    type="text"
-                                    placeholder="Ej: Estante A-03"
-                                />
+                                ></select>
                             </div>
 
                             <div class="modal-row">
@@ -4307,6 +4305,11 @@
             ];
             const editableLines = [
               {{- range .EditableLines }}
+              "{{js .}}",
+              {{- end }}
+            ];
+            const editableLocations = [
+              {{- range .EditableLocations }}
               "{{js .}}",
               {{- end }}
             ];
@@ -7115,7 +7118,30 @@
                     editLine.disabled = !isAdmin;
                 }
                 if (editLocation) {
-                    editLocation.value = product.location || "";
+                    editLocation.innerHTML = '<option value="">Sin ubicación</option>';
+                    editableLocations.forEach((location) => {
+                        const option = document.createElement("option");
+                        option.value = location;
+                        option.textContent = location;
+                        option.selected =
+                            location.toLowerCase() ===
+                            String(product.location || "").toLowerCase();
+                        editLocation.appendChild(option);
+                    });
+                    if (
+                        product.location &&
+                        !editableLocations.some(
+                            (location) =>
+                                location.toLowerCase() ===
+                                String(product.location).toLowerCase(),
+                        )
+                    ) {
+                        const option = document.createElement("option");
+                        option.value = product.location;
+                        option.textContent = `${product.location} (actual)`;
+                        option.selected = true;
+                        editLocation.appendChild(option);
+                    }
                 }
                 if (editTalla) {
                     editTalla.value = product.talla || "";

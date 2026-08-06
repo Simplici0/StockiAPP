@@ -483,8 +483,16 @@
           <div class="row">
             <div class="field">
               <label for="location">Locación <span aria-hidden="true">·</span> opcional</label>
-              <input id="location" name="location" type="text" placeholder="Ej: Estante A-03" value="{{.Location}}" />
-              <small class="help-text">Ej: Estante A-03.</small>
+              <select id="location" name="location">
+                <option value="">Sin ubicación</option>
+                {{range .Locations}}
+                  <option value="{{.}}" {{if eq $.Location .}}selected{{end}}>{{.}}</option>
+                {{end}}
+              </select>
+              {{if not .HasLocations}}
+                <div class="note compact-note">Puedes crear ubicaciones en <a href="/configuracion?tab=inventario">Configuración</a> para usarlas aquí.</div>
+              {{end}}
+              <small class="help-text">Selecciona una ubicación configurada para encontrar el producto rápidamente.</small>
             </div>
             <div class="field {{with .Errors}}{{if index . "owner_user_id"}}has-error{{end}}{{end}}">
               <label for="owner_user_id">Usuario asignado</label>

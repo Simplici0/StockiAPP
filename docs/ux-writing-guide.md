@@ -64,7 +64,7 @@
 | `templates/product_new.html` | “Número de unidades que ingresarán al inventario.” | “Ej: 10.” | El label y tipo numérico explican el campo; queda solo el ejemplo. |
 | `templates/product_new.html` | “Usa un nombre corto y fácil de encontrar en Inventario.” | Eliminado | Repite el propósito obvio del campo Nombre. |
 | `templates/product_new.html` | “Precio mostrado para la venta. Ej: 999.99.” | “Ej: 999.99.” | Se elimina la explicación redundante y se conserva el formato. |
-| `templates/product_new.html` | “Referencia física para encontrar el producto rápidamente.” | “Ej: Estante A-03.” | Se conserva el ejemplo y se reduce la explicación. |
+| `templates/product_new.html` | Campo libre de locación | Selector “Sin ubicación” + ubicaciones configuradas | Evita valores inconsistentes y conserva que la ubicación sea opcional. |
 | `templates/product_new.html` | “Valor que se reconocerá al recibir el producto de vuelta.” | “Valor reconocido al recibir el producto.” | Misma consecuencia, con menos palabras. |
 | `templates/product_new.html` | “Guardar producto” | “Crear producto” | La pantalla crea un registro nuevo; el verbo es más preciso. |
 | `templates/venta_new.html` | “Valor venta final (opcional)” | “Valor final de la venta (opcional)” | Etiqueta natural y sin omisión gramatical. |
@@ -85,7 +85,7 @@ Clasificación: **mantener** = aporta información no obvia; **simplificar** = c
 | `product_new.html`, Nombre | “Usa un nombre corto y fácil de encontrar en Inventario.” | Eliminar | El label, placeholder y contexto de la pantalla son suficientes. |
 | `product_new.html`, Talla | “Si escribes una talla, el sistema entiende que el producto la requiere. Déjala vacía si no aplica.” | Mantener | Regla de negocio no evidente; conservar en una frase. |
 | `product_new.html`, Precio de venta | “Precio mostrado para la venta. Ej: 999.99.” | Simplificar | Queda “Ej: 999.99.” |
-| `product_new.html`, Locación | “Referencia física para encontrar el producto rápidamente.” | Simplificar | Queda “Ej: Estante A-03.” |
+| `product_new.html`, Locación | Campo libre de locación | Mantener | Selector opcional alimentado desde Configuración > Inventario. |
 | `product_new.html`, Valor de retoma | “Valor que se reconocerá al recibir el producto de vuelta.” | Simplificar | Queda “Valor reconocido al recibir el producto.” |
 | `product_new.html`, Fecha de caducidad | “Usa la fecha de vencimiento indicada por el proveedor.” | Mantener | Consecuencia/formato operativo no obvio. |
 | `venta_new.html`, Valor final | “Si lo llenas, este valor reemplaza (Precio unitario x Cantidad).” | Simplificar | Recomendado: “Opcional. Reemplaza el total calculado.” |

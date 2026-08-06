@@ -730,6 +730,66 @@ func TestEnsureBusinessLinesForTenantCreatesMissingLinesPerTenant(t *testing.T) 
 	}
 }
 
+func TestBusinessLocationsAreTenantScopedAndBackfilledFromProducts(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "business-locations"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant Ubicaciones", "tenant-ubicaciones", "tenant.locations.admin", "TenantLocations123!")
+	if err != nil {
+		t.Fatalf("createTenantWithSeed: %v", err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, location, fecha_ingreso)
+		VALUES
+			('LOC-T1', ?, 'LOC-T1', 'Farmacia', 'Producto Tenant 1', 'Estante A-01', ?),
+			('LOC-T2', ?, 'LOC-T2', 'Farmacia', 'Producto Tenant 2', 'Estante B-02', ?)
+	`, defaultTenantID, now, provisioned.Tenant.ID, now); err != nil {
+		t.Fatalf("insert products with locations: %v", err)
+	}
+	if err := ensureBusinessLocationsFromProducts(db); err != nil {
+		t.Fatalf("ensureBusinessLocationsFromProducts: %v", err)
+	}
+
+	tenantOneLocations, err := loadBusinessLocationsForTenant(db, defaultTenantID, false)
+	if err != nil {
+		t.Fatalf("load tenant one locations: %v", err)
+	}
+	tenantTwoLocations, err := loadBusinessLocationsForTenant(db, provisioned.Tenant.ID, false)
+	if err != nil {
+		t.Fatalf("load tenant two locations: %v", err)
+	}
+	if len(tenantOneLocations) != 1 || tenantOneLocations[0].Name != "Estante A-01" {
+		t.Fatalf("unexpected tenant one locations: %+v", tenantOneLocations)
+	}
+	if len(tenantTwoLocations) != 1 || tenantTwoLocations[0].Name != "Estante B-02" {
+		t.Fatalf("unexpected tenant two locations: %+v", tenantTwoLocations)
+	}
+
+	if err := ensureBusinessLocationsForTenant(db, provisioned.Tenant.ID, nil, []string{"Estante B-02", " estante b-02 "}, now, "csv_import"); err != nil {
+		t.Fatalf("ensure duplicate locations: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM business_locations WHERE tenant_id = ?`, provisioned.Tenant.ID).Scan(&count); err != nil {
+		t.Fatalf("count tenant locations: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected duplicate location names to collapse per tenant, got %d", count)
+	}
+}
+
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := openIsolatedPostgresTestDB(t, "units-tests")
@@ -931,6 +991,7 @@ func newTenantWriteAPIHandler(db *sql.DB, usersCols map[string]bool) http.Handle
 	mux.HandleFunc("/api/users", handleAPIUsers(db, usersCols))
 	mux.HandleFunc("/api/users/", handleAPIUserRoutes(db, usersCols))
 	mux.HandleFunc("/api/products/", handleAPIProductRoutes(db))
+	mux.HandleFunc("/api/settings/locations", handleAPISettingsLocations(db))
 	mux.HandleFunc("/api/settings/owners", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
@@ -2565,6 +2626,7 @@ func TestInitDBBootstrapsDefaultTenant(t *testing.T) {
 		"audit_events",
 		"business_settings",
 		"business_lines",
+		"business_locations",
 		"payment_methods",
 		"movement_settings",
 	} {
@@ -2740,6 +2802,12 @@ func TestCreateTenantWithSeedCopiesOperationalCatalogs(t *testing.T) {
 	`, defaultTenantID, now, now); err != nil {
 		t.Fatalf("insert business line: %v", err)
 	}
+	if _, err := db.Exec(`
+		INSERT INTO business_locations (tenant_id, name, active, created_at, updated_at)
+		VALUES (?, 'Estante A-03', 1, ?, ?)
+	`, defaultTenantID, now, now); err != nil {
+		t.Fatalf("insert business location: %v", err)
+	}
 
 	adminUser := &User{ID: 1, Username: "admin", Role: rolePlatformAdmin, TenantID: defaultTenantID}
 	usersCols, err := tableColumns(db, "users")
@@ -2773,6 +2841,12 @@ func TestCreateTenantWithSeedCopiesOperationalCatalogs(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 business line, got %d", count)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM business_locations WHERE tenant_id = ? AND name = 'Estante A-03'`, tenant.ID).Scan(&count); err != nil {
+		t.Fatalf("count business locations: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected copied business location, got %d", count)
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM payment_methods WHERE tenant_id = ?`, tenant.ID).Scan(&count); err != nil {
 		t.Fatalf("count payment methods: %v", err)
@@ -3650,6 +3724,56 @@ func TestAPIKeyCanListUsersAndOwnersButNotUserDetailOrWrites(t *testing.T) {
 	}, "https://example.com")
 	if sessionResp.Code != http.StatusCreated {
 		t.Fatalf("expected session admin request to succeed, got %d body=%s", sessionResp.Code, sessionResp.Body.String())
+	}
+}
+
+func TestAPILocationsEndpointScopesTenantAndFiltersInactive(t *testing.T) {
+	db, handler, tenant, token := setupTenantWriteAPIHarness(t)
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO business_locations (tenant_id, name, active, created_at, updated_at)
+		VALUES
+			(?, 'Estante API Activa', 1, ?, ?),
+			(?, 'Estante API Inactiva', 0, ?, ?),
+			(1, 'Estante API Otro Tenant', 1, ?, ?)
+	`, tenant.ID, now, now, tenant.ID, now, now, now, now); err != nil {
+		t.Fatalf("insert API locations: %v", err)
+	}
+
+	activeResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/settings/locations", token, nil)
+	if activeResp.Code != http.StatusOK {
+		t.Fatalf("expected active locations request to succeed, got %d body=%s", activeResp.Code, activeResp.Body.String())
+	}
+	activeBody := decodeAPIResponse(t, activeResp)
+	activeItems, ok := activeBody["items"].([]any)
+	if !ok || len(activeItems) != 1 {
+		t.Fatalf("expected one active tenant location, got %+v", activeBody)
+	}
+	activeItem := activeItems[0].(map[string]any)
+	if activeItem["name"] != "Estante API Activa" {
+		t.Fatalf("unexpected active location: %+v", activeItem)
+	}
+
+	apiInactiveResp := performAPIJSONRequest(t, handler, http.MethodGet, "/api/settings/locations?include_inactive=true", token, nil)
+	if apiInactiveResp.Code != http.StatusOK {
+		t.Fatalf("expected API key locations request to succeed, got %d body=%s", apiInactiveResp.Code, apiInactiveResp.Body.String())
+	}
+	apiInactiveBody := decodeAPIResponse(t, apiInactiveResp)
+	if count, ok := apiInactiveBody["count"].(float64); !ok || int(count) != 1 {
+		t.Fatalf("API key must not expose inactive locations, got %+v", apiInactiveBody)
+	}
+
+	tenantAdmin := mustLoadTestUser(t, db, "tenant2.admin")
+	sessionToken := createTestSession(t, db, tenantAdmin)
+	sessionResp := performSessionAPIJSONRequest(t, handler, http.MethodGet, "/api/settings/locations?include_inactive=true", sessionToken, nil, "")
+	if sessionResp.Code != http.StatusOK {
+		t.Fatalf("expected admin session locations request to succeed, got %d body=%s", sessionResp.Code, sessionResp.Body.String())
+	}
+	sessionBody := decodeAPIResponse(t, sessionResp)
+	if count, ok := sessionBody["count"].(float64); !ok || int(count) != 2 {
+		t.Fatalf("tenant admin should see inactive locations when requested, got %+v", sessionBody)
 	}
 }
 

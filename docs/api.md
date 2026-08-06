@@ -263,6 +263,44 @@ Respuesta:
 }
 ```
 
+### `GET /api/settings/locations`
+
+Devuelve las ubicaciones físicas configuradas para el tenant autenticado.
+
+Por defecto devuelve solo las ubicaciones activas. Si la request viene de un
+admin por sesión web, puede incluir inactivas con `?include_inactive=true`.
+Las API keys operativas solo reciben ubicaciones activas.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" \
+  "https://login.stockiapp.co/api/settings/locations"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "count": 1,
+  "items": [
+    {
+      "id": 1,
+      "name": "Estante A-03",
+      "active": true,
+      "created_at": "2026-03-20",
+      "updated_at": "2026-03-20"
+    }
+  ]
+}
+```
+
+Las ubicaciones se gestionan desde `Configuración > Inventario`. El campo
+`location` de productos es opcional, pero cuando se envía en una escritura API
+debe coincidir, sin distinguir mayúsculas ni minúsculas, con una ubicación
+activa del tenant. No se envía `tenant_id` manual.
+
 ### `GET /api/settings/owners`
 
 Devuelve los usuarios asignables del tenant autenticado para `owner_user_id`.
@@ -395,6 +433,7 @@ Reglas:
 - `name` y `line` son obligatorios
 - `id` es opcional; si no lo envías, el backend genera un `id` visible tenant-scoped
 - `location` es opcional
+- si envías `location`, debe coincidir con una ubicación activa del tenant; usa `GET /api/settings/locations` para consultar el catálogo
 - `talla` es opcional; si contiene un valor, el backend entiende automáticamente que el producto requiere talla
 - `talla_requerida` se conserva como campo legado compatible: `true` sigue exigiendo una talla aunque `talla` esté vacía
 - si `talla` está vacía y no se envía `talla_requerida=true`, el producto queda sin requisito de talla
@@ -2357,6 +2396,7 @@ Eventos relevantes:
 5. Usa `GET /api/agent/customers/search` para reutilizar `customer_id` antes de crear créditos o préstamos.
 6. Usa `GET /api/agent/products/search` y `GET /api/agent/inventory` para evitar contratos pesados.
 7. Usa `GET /api/settings/lines` y `GET /api/settings/owners` antes de crear o asignar productos.
-8. No mandes `tenant_id` manual en payloads.
+8. Usa `GET /api/settings/locations` antes de asignar ubicaciones a productos.
+9. No mandes `tenant_id` manual en payloads.
 
 Si más adelante quieres, este documento también puede servir como base para una colección Postman o una especificación OpenAPI.

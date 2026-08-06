@@ -32,7 +32,7 @@ StockiAPP es la capa operativa que un negocio usa todos los días: rápida, tabl
 
 ## Capabilities (confirmadas)
 
-- Inventario, ventas, cambios, retomas, créditos de producto, préstamos de dinero, cuotas/abonos, comprobantes con snapshot inmutable, facturas, clientes con trazabilidad, préstamos físicos de producto, etiquetas, locación por producto, ticket térmico, auditoría operativa, exportación CSV, usuarios multi-tenant, reset de contraseña exclusivo de platform_admin.
+- Inventario, ventas, cambios, retomas, créditos de producto, préstamos de dinero, cuotas/abonos, comprobantes con snapshot inmutable, facturas, clientes con trazabilidad, préstamos físicos de producto, etiquetas, catálogo de ubicaciones y locación por producto, ticket térmico, auditoría operativa, exportación CSV, usuarios multi-tenant, reset de contraseña exclusivo de platform_admin.
 - SSR: dashboard, inventario, clientes, admin de usuarios, configuración, auditoría, créditos, préstamos, productos, CSV, facturas, comprobantes, tickets.
 
 ## Constraints (durables)

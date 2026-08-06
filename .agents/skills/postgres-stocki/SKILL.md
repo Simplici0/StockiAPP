@@ -224,6 +224,7 @@ Check which operational tables are tenant-scoped:
 - `api_keys`
 - `business_settings`
 - `business_lines`
+- `business_locations`
 - `payment_methods`
 - `movement_settings`
 - `audit_events`

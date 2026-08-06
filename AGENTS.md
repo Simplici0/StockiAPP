@@ -38,7 +38,7 @@ Dominios ya implementados:
 - reset de contraseña exclusivo de `platform_admin`, con temporal y cambio obligatorio
 - etiquetas de producto
 - ticket térmico de venta
-- locación por producto
+- catálogo de ubicaciones y locación por producto
 - auditoría operativa
 - exportaciones CSV operativas por tenant
 
@@ -201,6 +201,7 @@ Tablas operativas ya presentes que deben revisarse antes de crear nuevas:
 - `invoice_items`
 - `product_loans`
 - `product_loan_units`
+- `business_locations`
 - `audit_events`
 - `users`
 - `productos`
@@ -310,6 +311,7 @@ Helpers canónicos a reutilizar:
 - `tenantIDFromUser(...)`
 - `loadMovementSettingsForTenant(...)`
 - `movementEnabled(...)`
+- `loadBusinessLocationsForTenant(...)`
 - `logAuditEvent(...)`
 
 ### 14. Auth de integraciones
@@ -359,12 +361,13 @@ Endpoints generales ya disponibles:
 - `POST /api/invoices`
 - `GET /api/invoices/{id}`
 - `GET /api/settings/lines`
+- `GET /api/settings/locations`
 - `GET /api/settings/owners`
 
 Regla:
 - no duplicar endpoints ya existentes
 - si un contrato necesita ampliarse para n8n/agentes, ajustar el handler existente antes de crear otro
-- las API keys operativas pueden usar `GET /api/users`, `GET /api/settings/owners`, `PUT/PATCH /api/products/{id}` y `POST /api/inventory/adjust`; siguen cerradas las rutas de detalle/escritura sensible de usuarios y cualquier `/api/users/{id}` para API key
+- las API keys operativas pueden usar `GET /api/users`, `GET /api/settings/owners`, `GET /api/settings/locations`, `PUT/PATCH /api/products/{id}` y `POST /api/inventory/adjust`; siguen cerradas las rutas de detalle/escritura sensible de usuarios y cualquier `/api/users/{id}` para API key
 
 Endpoints agente ya disponibles:
 - `GET /api/agent/business`
@@ -392,6 +395,8 @@ Eventos que hoy ya forman parte del flujo operativo:
 - `customer_updated`
 - `product_loan_created`
 - `product_loan_closed`
+- `business_location_created`
+- `business_location_updated`
 - `credit_sale_updated`
 - `tenant_created`
 - `tenant_updated`

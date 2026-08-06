@@ -31,6 +31,7 @@ Leyenda: **M** manual visual/flujo, **T** teclado, **A** automatizada.
 | Inventario | 768 px | Tabla/tarjetas y unidades | Tabla usable; unidades sin ancho forzado | M |
 | Inventario | 1024 px | Tabla, filtros y acciones | Columnas legibles y controles sin solaparse | M |
 | Inventario | 1440 px | Jerarquía visual y densidad | Tabla completa, acciones agrupadas y estados claros | M |
+| Inventario | 375 px | Selector de ubicación en edición | Selector cabe en el modal; “Sin ubicación” permanece disponible | M/T |
 | Clientes | 320 px | Búsqueda y tarjetas | Campos ocupan el ancho; CTA accesible | M |
 | Clientes | 375 px | Lookup asíncrono | Muestra Cargando, Sin resultados o error con Reintentar | M/T |
 | Clientes | 768 px | Grid de clientes e importación | Tarjetas y panel de importación no desbordan | M |
@@ -69,6 +70,7 @@ Leyenda: **M** manual visual/flujo, **T** teclado, **A** automatizada.
 | Configuración | 320 px | Tabs/secciones | Navegación secundaria se adapta; sección activa identificable | M/T |
 | Configuración | 375 px | Acordeones y opciones avanzadas | Avanzadas cerradas inicialmente; no desborde | M/T |
 | Configuración | 768 px | Formularios de negocio/inventario | Secciones separadas y CTA visibles | M |
+| Configuración | 1024 px | Catálogo de ubicaciones | Crear, renombrar y activar/desactivar ubicación sin desborde | M/T |
 | Configuración | 1024 px | Métodos de pago/usuarios | Acceso directo por parámetro; estado vacío con CTA | M |
 | Configuración | 1440 px | Integraciones/avanzado | Opciones destructivas advertidas y protegidas | M/T |
 | Detalle de producto | 320 px | Panel/modal de detalle | Lectura vertical; cierre y foco operables | M/T |
