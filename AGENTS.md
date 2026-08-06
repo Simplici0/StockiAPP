@@ -395,8 +395,11 @@ Eventos que hoy ya forman parte del flujo operativo:
 - `customer_updated`
 - `product_loan_created`
 - `product_loan_closed`
+- `business_line_updated`
 - `business_location_created`
 - `business_location_updated`
+- `business_line_deleted`
+- `business_location_deleted`
 - `credit_sale_updated`
 - `tenant_created`
 - `tenant_updated`

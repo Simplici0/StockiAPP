@@ -1021,6 +1021,7 @@
                             {{if .Lines}}
                             <div class="stack">
                                 {{range .Lines}}
+                                <div class="stack">
                                 <form
                                     class="line-row"
                                     method="POST"
@@ -1041,7 +1042,8 @@
                                         />
                                         <p>
                                             Creada: {{.CreatedAt}} ·
-                                            Actualizada: {{.UpdatedAt}}
+                                            Actualizada: {{.UpdatedAt}} ·
+                                            Productos asociados: {{.ProductsCount}}
                                         </p>
                                     </div>
                                     <div>
@@ -1072,6 +1074,36 @@
                                         </div>
                                     </div>
                                 </form>
+                                {{if not .Active}}
+                                <form
+                                    class="line-reassignment-form"
+                                    method="POST"
+                                    action="/configuracion/lineas/delete"
+                                    onsubmit="return confirm('Se reasignarán los productos asociados al destino elegido y se eliminará esta línea. ¿Continuar?');"
+                                >
+                                    <input type="hidden" name="id" value="{{.ID}}" />
+                                    <div>
+                                        <label for="line_replacement_{{.ID}}">Reasignar productos a</label>
+                                        <select id="line_replacement_{{.ID}}" name="replacement_id" required {{if not $.ActiveLines}}disabled{{end}}>
+                                            <option value="">Selecciona una línea activa</option>
+                                            {{range $.ActiveLines}}
+                                            <option value="{{.ID}}">{{.Name}}</option>
+                                            {{end}}
+                                        </select>
+                                        {{if not $.ActiveLines}}
+                                        <p class="help-text">No hay otra línea activa disponible para reasignar los productos.</p>
+                                        {{end}}
+                                    </div>
+                                    <div class="actions">
+                                        <button class="danger" type="submit" {{if not $.ActiveLines}}disabled{{end}}>
+                                            Reasignar y eliminar
+                                        </button>
+                                    </div>
+                                </form>
+                                {{else}}
+                                <p class="help-text">Desactiva la línea para habilitar su eliminación.</p>
+                                {{end}}
+                                </div>
                                 {{end}}
                             </div>
                             {{else}}
@@ -1120,6 +1152,7 @@
                             {{if .Locations}}
                             <div class="stack">
                                 {{range .Locations}}
+                                <div class="stack">
                                 <form
                                     class="line-row"
                                     method="POST"
@@ -1140,7 +1173,8 @@
                                         />
                                         <p>
                                             Creada: {{.CreatedAt}} ·
-                                            Actualizada: {{.UpdatedAt}}
+                                            Actualizada: {{.UpdatedAt}} ·
+                                            Productos asociados: {{.ProductsCount}}
                                         </p>
                                     </div>
                                     <div>
@@ -1171,6 +1205,36 @@
                                         </div>
                                     </div>
                                 </form>
+                                {{if not .Active}}
+                                <form
+                                    class="line-reassignment-form"
+                                    method="POST"
+                                    action="/configuracion/ubicaciones/delete"
+                                    onsubmit="return confirm('Se reasignarán los productos asociados al destino elegido y se eliminará esta ubicación. ¿Continuar?');"
+                                >
+                                    <input type="hidden" name="id" value="{{.ID}}" />
+                                    <div>
+                                        <label for="location_replacement_{{.ID}}">Reasignar productos a</label>
+                                        <select id="location_replacement_{{.ID}}" name="replacement_id" required {{if not $.ActiveLocations}}disabled{{end}}>
+                                            <option value="">Selecciona una ubicación activa</option>
+                                            {{range $.ActiveLocations}}
+                                            <option value="{{.ID}}">{{.Name}}</option>
+                                            {{end}}
+                                        </select>
+                                        {{if not $.ActiveLocations}}
+                                        <p class="help-text">No hay otra ubicación activa disponible para reasignar los productos.</p>
+                                        {{end}}
+                                    </div>
+                                    <div class="actions">
+                                        <button class="danger" type="submit" {{if not $.ActiveLocations}}disabled{{end}}>
+                                            Reasignar y eliminar
+                                        </button>
+                                    </div>
+                                </form>
+                                {{else}}
+                                <p class="help-text">Desactiva la ubicación para habilitar su eliminación.</p>
+                                {{end}}
+                                </div>
                                 {{end}}
                             </div>
                             {{else}}

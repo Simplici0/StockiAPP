@@ -256,6 +256,7 @@ Respuesta:
       "id": 1,
       "name": "Farmacia",
       "active": true,
+      "products_count": 12,
       "created_at": "2026-03-20",
       "updated_at": "2026-03-20"
     }
@@ -289,6 +290,7 @@ Respuesta:
       "id": 1,
       "name": "Estante A-03",
       "active": true,
+      "products_count": 4,
       "created_at": "2026-03-20",
       "updated_at": "2026-03-20"
     }
@@ -2386,6 +2388,8 @@ Eventos relevantes:
 - `credit_sale_created`
 - `credit_installment_added`
 - `change_registered`
+- `business_line_deleted`
+- `business_location_deleted`
 
 ## Recomendaciones Para Integraciones
 

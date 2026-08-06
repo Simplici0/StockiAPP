@@ -760,19 +760,21 @@ type BusinessSettings struct {
 }
 
 type BusinessLine struct {
-	ID        int
-	Name      string
-	Active    bool
-	CreatedAt string
-	UpdatedAt string
+	ID            int
+	Name          string
+	Active        bool
+	ProductsCount int
+	CreatedAt     string
+	UpdatedAt     string
 }
 
 type BusinessLocation struct {
-	ID        int
-	Name      string
-	Active    bool
-	CreatedAt string
-	UpdatedAt string
+	ID            int
+	Name          string
+	Active        bool
+	ProductsCount int
+	CreatedAt     string
+	UpdatedAt     string
 }
 
 type PaymentMethod struct {
@@ -9513,15 +9515,18 @@ func loadBusinessLines(db *sql.DB, activeOnly bool) ([]BusinessLine, error) {
 
 func loadBusinessLinesForTenant(db *sql.DB, tenantID int, activeOnly bool) ([]BusinessLine, error) {
 	query := `
-		SELECT id, name, active, created_at, updated_at
-		FROM business_lines
+		SELECT bl.id, bl.name, bl.active, bl.created_at, bl.updated_at, COUNT(p.sku)
+		FROM business_lines bl
+		LEFT JOIN productos p
+			ON p.tenant_id = bl.tenant_id
+			AND LOWER(TRIM(p.linea)) = LOWER(TRIM(bl.name))
 	`
 	args := []any{normalizeTenantID(tenantID)}
-	query += ` WHERE tenant_id = ?`
+	query += ` WHERE bl.tenant_id = ?`
 	if activeOnly {
-		query += ` AND active = 1`
+		query += ` AND bl.active = 1`
 	}
-	query += ` ORDER BY LOWER(name), id`
+	query += ` GROUP BY bl.id, bl.name, bl.active, bl.created_at, bl.updated_at ORDER BY LOWER(bl.name), bl.id`
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -9532,7 +9537,7 @@ func loadBusinessLinesForTenant(db *sql.DB, tenantID int, activeOnly bool) ([]Bu
 	for rows.Next() {
 		var line BusinessLine
 		var active int
-		if err := rows.Scan(&line.ID, &line.Name, &active, &line.CreatedAt, &line.UpdatedAt); err != nil {
+		if err := rows.Scan(&line.ID, &line.Name, &active, &line.CreatedAt, &line.UpdatedAt, &line.ProductsCount); err != nil {
 			return nil, err
 		}
 		line.Active = active == 1
@@ -9556,6 +9561,19 @@ func businessLineNames(lines []BusinessLine) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+func businessLineNameForValue(lines []BusinessLine, value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", true
+	}
+	for _, line := range lines {
+		if strings.EqualFold(strings.TrimSpace(line.Name), value) {
+			return strings.TrimSpace(line.Name), true
+		}
+	}
+	return "", false
 }
 
 func ensureBusinessLineExists(exec sqlQueryExecer, tenantID int, currentUser *User, name, now, source string) error {
@@ -9621,15 +9639,18 @@ func loadBusinessLocations(db *sql.DB, activeOnly bool) ([]BusinessLocation, err
 
 func loadBusinessLocationsForTenant(db *sql.DB, tenantID int, activeOnly bool) ([]BusinessLocation, error) {
 	query := `
-		SELECT id, name, active, created_at, updated_at
-		FROM business_locations
-		WHERE tenant_id = ?
+		SELECT bl.id, bl.name, bl.active, bl.created_at, bl.updated_at, COUNT(p.sku)
+		FROM business_locations bl
+		LEFT JOIN productos p
+			ON p.tenant_id = bl.tenant_id
+			AND LOWER(TRIM(p.location)) = LOWER(TRIM(bl.name))
+		WHERE bl.tenant_id = ?
 	`
 	args := []any{normalizeTenantID(tenantID)}
 	if activeOnly {
-		query += ` AND active = 1`
+		query += ` AND bl.active = 1`
 	}
-	query += ` ORDER BY LOWER(name), id`
+	query += ` GROUP BY bl.id, bl.name, bl.active, bl.created_at, bl.updated_at ORDER BY LOWER(bl.name), bl.id`
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -9640,7 +9661,7 @@ func loadBusinessLocationsForTenant(db *sql.DB, tenantID int, activeOnly bool) (
 	for rows.Next() {
 		var location BusinessLocation
 		var active int
-		if err := rows.Scan(&location.ID, &location.Name, &active, &location.CreatedAt, &location.UpdatedAt); err != nil {
+		if err := rows.Scan(&location.ID, &location.Name, &active, &location.CreatedAt, &location.UpdatedAt, &location.ProductsCount); err != nil {
 			return nil, err
 		}
 		location.Active = active == 1
@@ -9735,6 +9756,320 @@ func ensureBusinessLocationsForTenant(exec sqlQueryExecer, tenantID int, current
 		}
 	}
 	return nil
+}
+
+func ensureBusinessLineImportValue(exec sqlQueryExecer, tenantID int, currentUser *User, name, now, source string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	var active int
+	err := exec.QueryRow(`
+		SELECT active
+		FROM business_lines
+		WHERE tenant_id = ? AND LOWER(name) = LOWER(?)
+		LIMIT 1
+	`, normalizeTenantID(tenantID), name).Scan(&active)
+	if err == nil {
+		if active != 1 {
+			return requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("La línea %q está inactiva. Actívala antes de importarla.", name)}
+		}
+		return nil
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
+	return ensureBusinessLineExists(exec, tenantID, currentUser, name, now, source)
+}
+
+func ensureBusinessLinesForImport(exec sqlQueryExecer, tenantID int, currentUser *User, names []string, now, source string) error {
+	seen := make(map[string]struct{}, len(names))
+	for _, rawName := range names {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := ensureBusinessLineImportValue(exec, tenantID, currentUser, name, now, source); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureBusinessLocationImportValue(exec sqlQueryExecer, tenantID int, currentUser *User, name, now, source string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	var active int
+	err := exec.QueryRow(`
+		SELECT active
+		FROM business_locations
+		WHERE tenant_id = ? AND LOWER(name) = LOWER(?)
+		LIMIT 1
+	`, normalizeTenantID(tenantID), name).Scan(&active)
+	if err == nil {
+		if active != 1 {
+			return requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("La ubicación %q está inactiva. Actívala antes de importarla.", name)}
+		}
+		return nil
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
+	return ensureBusinessLocationExists(exec, tenantID, currentUser, name, now, source)
+}
+
+func ensureBusinessLocationsForImport(exec sqlQueryExecer, tenantID int, currentUser *User, names []string, now, source string) error {
+	seen := make(map[string]struct{}, len(names))
+	for _, rawName := range names {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := ensureBusinessLocationImportValue(exec, tenantID, currentUser, name, now, source); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func importedBusinessLineName(exec sqlQueryExecer, tenantID int, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	var name string
+	var active int
+	err := exec.QueryRow(`
+		SELECT name, active
+		FROM business_lines
+		WHERE tenant_id = ? AND LOWER(name) = LOWER(?)
+		LIMIT 1
+	`, normalizeTenantID(tenantID), value).Scan(&name, &active)
+	if err == sql.ErrNoRows {
+		return "", requestError{Status: http.StatusBadRequest, Message: "Selecciona una línea activa válida."}
+	}
+	if err != nil {
+		return "", err
+	}
+	if active != 1 {
+		return "", requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("La línea %q está inactiva. Actívala antes de importarla.", value)}
+	}
+	return strings.TrimSpace(name), nil
+}
+
+func importedBusinessLocationName(exec sqlQueryExecer, tenantID int, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	var name string
+	var active int
+	err := exec.QueryRow(`
+		SELECT name, active
+		FROM business_locations
+		WHERE tenant_id = ? AND LOWER(name) = LOWER(?)
+		LIMIT 1
+	`, normalizeTenantID(tenantID), value).Scan(&name, &active)
+	if err == sql.ErrNoRows {
+		return "", requestError{Status: http.StatusBadRequest, Message: "Selecciona una ubicación activa válida."}
+	}
+	if err != nil {
+		return "", err
+	}
+	if active != 1 {
+		return "", requestError{Status: http.StatusBadRequest, Message: fmt.Sprintf("La ubicación %q está inactiva. Actívala antes de importarla.", value)}
+	}
+	return strings.TrimSpace(name), nil
+}
+
+func deleteBusinessLineWithReassignment(db *sql.DB, currentUser *User, lineID, replacementID int) (int64, error) {
+	tenantID, err := tenantIDFromUserStrict(currentUser)
+	if err != nil {
+		return 0, requestError{Status: http.StatusForbidden, Message: "No autorizado."}
+	}
+	if lineID <= 0 || replacementID <= 0 || lineID == replacementID {
+		return 0, requestError{Status: http.StatusBadRequest, Message: "Selecciona una línea de reemplazo válida y diferente."}
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var sourceName string
+	var sourceActive int
+	if err := tx.QueryRow(`
+		SELECT name, active
+		FROM business_lines
+		WHERE id = ? AND tenant_id = ?
+		FOR UPDATE
+	`, lineID, tenantID).Scan(&sourceName, &sourceActive); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, requestError{Status: http.StatusNotFound, Message: "Línea no encontrada."}
+		}
+		return 0, err
+	}
+	if sourceActive == 1 {
+		return 0, requestError{Status: http.StatusBadRequest, Message: "Desactiva la línea antes de eliminarla."}
+	}
+
+	var replacementName string
+	var replacementActive int
+	if err := tx.QueryRow(`
+		SELECT name, active
+		FROM business_lines
+		WHERE id = ? AND tenant_id = ?
+		FOR UPDATE
+	`, replacementID, tenantID).Scan(&replacementName, &replacementActive); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, requestError{Status: http.StatusBadRequest, Message: "La línea de reemplazo no existe en este tenant."}
+		}
+		return 0, err
+	}
+	if replacementActive != 1 {
+		return 0, requestError{Status: http.StatusBadRequest, Message: "La línea de reemplazo debe estar activa."}
+	}
+
+	result, err := tx.Exec(`
+		UPDATE productos
+		SET linea = ?
+		WHERE tenant_id = ? AND LOWER(TRIM(linea)) = LOWER(TRIM(?))
+	`, replacementName, tenantID, sourceName)
+	if err != nil {
+		return 0, err
+	}
+	productsUpdated, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	deleted, err := tx.Exec(`
+		DELETE FROM business_lines
+		WHERE id = ? AND tenant_id = ? AND active = 0
+	`, lineID, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	deletedCount, err := deleted.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if deletedCount != 1 {
+		return 0, requestError{Status: http.StatusConflict, Message: "La línea cambió mientras se eliminaba. Intenta de nuevo."}
+	}
+	if err := logAuditEvent(tx, currentUser, "business_line_deleted", "business_line", strconv.Itoa(lineID), "manual", map[string]any{
+		"deleted_name":        sourceName,
+		"replacement_id":      replacementID,
+		"replacement_name":    replacementName,
+		"products_reassigned": productsUpdated,
+	}); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return productsUpdated, nil
+}
+
+func deleteBusinessLocationWithReassignment(db *sql.DB, currentUser *User, locationID, replacementID int) (int64, error) {
+	tenantID, err := tenantIDFromUserStrict(currentUser)
+	if err != nil {
+		return 0, requestError{Status: http.StatusForbidden, Message: "No autorizado."}
+	}
+	if locationID <= 0 || replacementID <= 0 || locationID == replacementID {
+		return 0, requestError{Status: http.StatusBadRequest, Message: "Selecciona una ubicación de reemplazo válida y diferente."}
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var sourceName string
+	var sourceActive int
+	if err := tx.QueryRow(`
+		SELECT name, active
+		FROM business_locations
+		WHERE id = ? AND tenant_id = ?
+		FOR UPDATE
+	`, locationID, tenantID).Scan(&sourceName, &sourceActive); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, requestError{Status: http.StatusNotFound, Message: "Ubicación no encontrada."}
+		}
+		return 0, err
+	}
+	if sourceActive == 1 {
+		return 0, requestError{Status: http.StatusBadRequest, Message: "Desactiva la ubicación antes de eliminarla."}
+	}
+
+	var replacementName string
+	var replacementActive int
+	if err := tx.QueryRow(`
+		SELECT name, active
+		FROM business_locations
+		WHERE id = ? AND tenant_id = ?
+		FOR UPDATE
+	`, replacementID, tenantID).Scan(&replacementName, &replacementActive); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, requestError{Status: http.StatusBadRequest, Message: "La ubicación de reemplazo no existe en este tenant."}
+		}
+		return 0, err
+	}
+	if replacementActive != 1 {
+		return 0, requestError{Status: http.StatusBadRequest, Message: "La ubicación de reemplazo debe estar activa."}
+	}
+
+	result, err := tx.Exec(`
+		UPDATE productos
+		SET location = ?
+		WHERE tenant_id = ? AND LOWER(TRIM(location)) = LOWER(TRIM(?))
+	`, replacementName, tenantID, sourceName)
+	if err != nil {
+		return 0, err
+	}
+	productsUpdated, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	deleted, err := tx.Exec(`
+		DELETE FROM business_locations
+		WHERE id = ? AND tenant_id = ? AND active = 0
+	`, locationID, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	deletedCount, err := deleted.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if deletedCount != 1 {
+		return 0, requestError{Status: http.StatusConflict, Message: "La ubicación cambió mientras se eliminaba. Intenta de nuevo."}
+	}
+	if err := logAuditEvent(tx, currentUser, "business_location_deleted", "business_location", strconv.Itoa(locationID), "manual", map[string]any{
+		"deleted_name":        sourceName,
+		"replacement_id":      replacementID,
+		"replacement_name":    replacementName,
+		"products_reassigned": productsUpdated,
+	}); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return productsUpdated, nil
 }
 
 func ensureBusinessLocationsFromProducts(db *sql.DB) error {
@@ -13888,11 +14223,12 @@ func handleAPISettingsLocations(db *sql.DB) http.HandlerFunc {
 		items := make([]map[string]any, 0, len(locations))
 		for _, location := range locations {
 			items = append(items, map[string]any{
-				"id":         location.ID,
-				"name":       location.Name,
-				"active":     location.Active,
-				"created_at": location.CreatedAt,
-				"updated_at": location.UpdatedAt,
+				"id":             location.ID,
+				"name":           location.Name,
+				"active":         location.Active,
+				"products_count": location.ProductsCount,
+				"created_at":     location.CreatedAt,
+				"updated_at":     location.UpdatedAt,
 			})
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
@@ -18193,7 +18529,9 @@ func main() {
 		VersionLabel         string
 		Settings             BusinessSettings
 		Lines                []BusinessLine
+		ActiveLines          []BusinessLine
 		Locations            []BusinessLocation
+		ActiveLocations      []BusinessLocation
 		PaymentMethods       []PaymentMethod
 		APIKeys              []APIKey
 		NewAPIKeyName        string
@@ -19009,6 +19347,18 @@ func main() {
 			http.Error(w, "Error al cargar ubicaciones", http.StatusInternalServerError)
 			return
 		}
+		activeLines := make([]BusinessLine, 0, len(lines))
+		for _, line := range lines {
+			if line.Active {
+				activeLines = append(activeLines, line)
+			}
+		}
+		activeLocations := make([]BusinessLocation, 0, len(locations))
+		for _, location := range locations {
+			if location.Active {
+				activeLocations = append(activeLocations, location)
+			}
+		}
 		paymentMethodsCfg, err := loadPaymentMethodsForTenant(db, tenantID, false)
 		if err != nil {
 			http.Error(w, "Error al cargar canales de pago", http.StatusInternalServerError)
@@ -19056,7 +19406,9 @@ func main() {
 			VersionLabel:         "Versión 1.0.2",
 			Settings:             settings,
 			Lines:                lines,
+			ActiveLines:          activeLines,
 			Locations:            locations,
+			ActiveLocations:      activeLocations,
 			PaymentMethods:       paymentMethodsCfg,
 			APIKeys:              apiKeys,
 			NewAPIKeyName:        strings.TrimSpace(newAPIKeyName),
@@ -19629,7 +19981,42 @@ func main() {
 			active = 1
 		}
 		tenantID := tenantIDFromUser(userFromContext(r))
-		if _, err := db.Exec(`
+		tx, err := db.Begin()
+		if err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo iniciar la actualización de la línea.")
+			return
+		}
+		defer tx.Rollback()
+		var previousName string
+		if err := tx.QueryRow(`
+			SELECT name
+			FROM business_lines
+			WHERE id = ? AND tenant_id = ?
+			FOR UPDATE
+		`, lineID, tenantID).Scan(&previousName); err != nil {
+			if err == sql.ErrNoRows {
+				redirectWithMessage(w, r, "/configuracion", "", "Línea no encontrada.")
+			} else {
+				redirectWithMessage(w, r, "/configuracion", "", "No se pudo cargar la línea.")
+			}
+			return
+		}
+		var duplicateID int
+		duplicateErr := tx.QueryRow(`
+			SELECT id
+			FROM business_lines
+			WHERE tenant_id = ? AND id <> ? AND name = ?
+			LIMIT 1
+		`, tenantID, lineID, name).Scan(&duplicateID)
+		if duplicateErr == nil {
+			redirectWithMessage(w, r, "/configuracion", "", "Ya existe una línea con ese nombre.")
+			return
+		}
+		if duplicateErr != sql.ErrNoRows {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo validar la línea.")
+			return
+		}
+		if _, err := tx.Exec(`
 			UPDATE business_lines
 			SET name = ?, active = ?, updated_at = ?
 			WHERE id = ? AND tenant_id = ?
@@ -19641,13 +20028,64 @@ func main() {
 			redirectWithMessage(w, r, "/configuracion", "", "No se pudo actualizar la línea.")
 			return
 		}
-		if err := logAuditEvent(db, userFromContext(r), "business_line_updated", "business_line", strconv.Itoa(lineID), "manual", map[string]any{
-			"name":   name,
-			"active": active == 1,
+		productsUpdated := int64(0)
+		if previousName != name {
+			result, err := tx.Exec(`
+				UPDATE productos
+				SET linea = ?
+				WHERE tenant_id = ? AND LOWER(TRIM(linea)) = LOWER(TRIM(?))
+			`, name, tenantID, previousName)
+			if err != nil {
+				redirectWithMessage(w, r, "/configuracion", "", "No se pudieron actualizar los productos asociados.")
+				return
+			}
+			productsUpdated, err = result.RowsAffected()
+			if err != nil {
+				redirectWithMessage(w, r, "/configuracion", "", "No se pudo contar la actualización de productos.")
+				return
+			}
+		}
+		if err := logAuditEvent(tx, userFromContext(r), "business_line_updated", "business_line", strconv.Itoa(lineID), "manual", map[string]any{
+			"previous_name":    previousName,
+			"name":             name,
+			"active":           active == 1,
+			"products_updated": productsUpdated,
 		}); err != nil {
 			log.Printf("audit business line update: %v", err)
 		}
+		if err := tx.Commit(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo confirmar la actualización de la línea.")
+			return
+		}
 		redirectWithMessage(w, r, "/configuracion", "Línea actualizada.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/lineas/delete", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		lineID, lineErr := strconv.Atoi(strings.TrimSpace(r.FormValue("id")))
+		replacementID, replacementErr := strconv.Atoi(strings.TrimSpace(r.FormValue("replacement_id")))
+		if lineErr != nil || replacementErr != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "Selecciona una línea de reemplazo válida.")
+			return
+		}
+		productsUpdated, err := deleteBusinessLineWithReassignment(db, userFromContext(r), lineID, replacementID)
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				redirectWithMessage(w, r, "/configuracion", "", reqErr.Message)
+				return
+			}
+			log.Printf("delete business line: %v", err)
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo eliminar la línea.")
+			return
+		}
+		redirectWithMessage(w, r, "/configuracion", fmt.Sprintf("Línea eliminada. Productos reasignados: %d.", productsUpdated), "")
 	}))
 
 	mux.HandleFunc("/configuracion/ubicaciones/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -19795,6 +20233,34 @@ func main() {
 			return
 		}
 		redirectWithMessage(w, r, "/configuracion", "Ubicación actualizada.", "")
+	}))
+
+	mux.HandleFunc("/configuracion/ubicaciones/delete", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			redirectWithMessage(w, r, "/configuracion", "", "Método no permitido.")
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo leer el formulario.")
+			return
+		}
+		locationID, locationErr := strconv.Atoi(strings.TrimSpace(r.FormValue("id")))
+		replacementID, replacementErr := strconv.Atoi(strings.TrimSpace(r.FormValue("replacement_id")))
+		if locationErr != nil || replacementErr != nil {
+			redirectWithMessage(w, r, "/configuracion", "", "Selecciona una ubicación de reemplazo válida.")
+			return
+		}
+		productsUpdated, err := deleteBusinessLocationWithReassignment(db, userFromContext(r), locationID, replacementID)
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				redirectWithMessage(w, r, "/configuracion", "", reqErr.Message)
+				return
+			}
+			log.Printf("delete business location: %v", err)
+			redirectWithMessage(w, r, "/configuracion", "", "No se pudo eliminar la ubicación.")
+			return
+		}
+		redirectWithMessage(w, r, "/configuracion", fmt.Sprintf("Ubicación eliminada. Productos reasignados: %d.", productsUpdated), "")
 	}))
 
 	mux.HandleFunc("/configuracion/pagos/create", adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -20567,6 +21033,13 @@ func main() {
 				errors["linea"] = "Primero crea una línea de negocio en Configuración."
 			} else {
 				errors["linea"] = "Línea obligatoria."
+			}
+		} else {
+			canonicalLine, validLine := businessLineNameForValue(activeLines, linea)
+			if !validLine {
+				errors["linea"] = "Selecciona una línea activa válida."
+			} else {
+				linea = canonicalLine
 			}
 		}
 		canonicalLocation, validLocation := businessLocationNameForValue(activeLocations, location)
@@ -22056,20 +22529,17 @@ func main() {
 				writeJSONError(http.StatusBadRequest, "La línea es obligatoria.")
 				return
 			}
-			lines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), false)
+			lines, err := loadBusinessLinesForTenant(db, tenantIDFromRequest(r), true)
 			if err != nil {
 				writeJSONError(http.StatusInternalServerError, "No se pudieron cargar las líneas.")
 				return
 			}
-			validLine := false
-			for _, line := range lines {
-				if strings.EqualFold(strings.TrimSpace(line.Name), newLine) {
-					validLine = true
-					finalLine = line.Name
-					break
-				}
-			}
-			if !validLine {
+			canonicalLine, validLine := businessLineNameForValue(lines, newLine)
+			if validLine {
+				finalLine = canonicalLine
+			} else if strings.EqualFold(strings.TrimSpace(previous.Line), newLine) {
+				finalLine = previous.Line
+			} else {
 				writeJSONError(http.StatusBadRequest, "Selecciona una línea válida.")
 				return
 			}
@@ -23234,11 +23704,12 @@ func main() {
 		items := make([]map[string]any, 0, len(lines))
 		for _, line := range lines {
 			items = append(items, map[string]any{
-				"id":         line.ID,
-				"name":       line.Name,
-				"active":     line.Active,
-				"created_at": line.CreatedAt,
-				"updated_at": line.UpdatedAt,
+				"id":             line.ID,
+				"name":           line.Name,
+				"active":         line.Active,
+				"products_count": line.ProductsCount,
+				"created_at":     line.CreatedAt,
+				"updated_at":     line.UpdatedAt,
 			})
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
@@ -25389,14 +25860,22 @@ func main() {
 				locationNames = append(locationNames, location)
 			}
 		}
-		if err := ensureBusinessLinesForTenant(tx, tenantID, userFromContext(r), lineNames, now, "csv_import"); err != nil {
+		if err := ensureBusinessLinesForImport(tx, tenantID, userFromContext(r), lineNames, now, "csv_import"); err != nil {
 			_ = tx.Rollback()
-			writeJSONError(http.StatusInternalServerError, "No se pudieron registrar las líneas del CSV.")
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
+			} else {
+				writeJSONError(http.StatusInternalServerError, "No se pudieron registrar las líneas del CSV.")
+			}
 			return
 		}
-		if err := ensureBusinessLocationsForTenant(tx, tenantID, userFromContext(r), locationNames, now, "csv_import"); err != nil {
+		if err := ensureBusinessLocationsForImport(tx, tenantID, userFromContext(r), locationNames, now, "csv_import"); err != nil {
 			_ = tx.Rollback()
-			writeJSONError(http.StatusInternalServerError, "No se pudieron registrar las ubicaciones del CSV.")
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
+			} else {
+				writeJSONError(http.StatusInternalServerError, "No se pudieron registrar las ubicaciones del CSV.")
+			}
 			return
 		}
 		for i, row := range records[1:] {
@@ -25568,6 +26047,28 @@ func main() {
 
 			if _, err := tx.Exec("SAVEPOINT csv_row"); err != nil {
 				resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: "Error al preparar la fila."})
+				continue
+			}
+			linea, err = importedBusinessLineName(tx, tenantID, linea)
+			if err != nil {
+				_, _ = tx.Exec("ROLLBACK TO csv_row")
+				_, _ = tx.Exec("RELEASE csv_row")
+				if reqErr, ok := requestErrorDetails(err); ok {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: reqErr.Message})
+				} else {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: "No se pudo validar la línea."})
+				}
+				continue
+			}
+			location, err = importedBusinessLocationName(tx, tenantID, location)
+			if err != nil {
+				_, _ = tx.Exec("ROLLBACK TO csv_row")
+				_, _ = tx.Exec("RELEASE csv_row")
+				if reqErr, ok := requestErrorDetails(err); ok {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: reqErr.Message})
+				} else {
+					resp.FailedRows = append(resp.FailedRows, csvFailedRow{Row: rowIndex, ID: productID, Error: "No se pudo validar la ubicación."})
+				}
 				continue
 			}
 

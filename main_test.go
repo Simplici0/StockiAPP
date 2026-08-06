@@ -790,6 +790,164 @@ func TestBusinessLocationsAreTenantScopedAndBackfilledFromProducts(t *testing.T)
 	}
 }
 
+func TestDeleteBusinessCatalogsReassignsProductsAndScopesTenant(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "business-catalog-delete"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	admin := mustLoadTestUser(t, db, "admin")
+	if _, err := db.Exec(`
+		INSERT INTO business_lines (tenant_id, name, active, created_at, updated_at)
+		VALUES
+			(1, 'Línea origen', 0, ?, ?),
+			(1, 'Línea destino', 1, ?, ?),
+			(2, 'Línea otro tenant', 1, ?, ?)
+	`, now, now, now, now, now, now); err != nil {
+		t.Fatalf("insert business lines: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO business_locations (tenant_id, name, active, created_at, updated_at)
+		VALUES
+			(1, 'Ubicación origen', 0, ?, ?),
+			(1, 'Ubicación destino', 1, ?, ?),
+			(2, 'Ubicación otro tenant', 1, ?, ?)
+	`, now, now, now, now, now, now); err != nil {
+		t.Fatalf("insert business locations: %v", err)
+	}
+
+	var sourceLineID, targetLineID, otherTenantLineID int
+	if err := db.QueryRow(`SELECT id FROM business_lines WHERE tenant_id = 1 AND name = 'Línea origen'`).Scan(&sourceLineID); err != nil {
+		t.Fatalf("source line id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM business_lines WHERE tenant_id = 1 AND name = 'Línea destino'`).Scan(&targetLineID); err != nil {
+		t.Fatalf("target line id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM business_lines WHERE tenant_id = 2 AND name = 'Línea otro tenant'`).Scan(&otherTenantLineID); err != nil {
+		t.Fatalf("other tenant line id: %v", err)
+	}
+	var sourceLocationID, targetLocationID, otherTenantLocationID int
+	if err := db.QueryRow(`SELECT id FROM business_locations WHERE tenant_id = 1 AND name = 'Ubicación origen'`).Scan(&sourceLocationID); err != nil {
+		t.Fatalf("source location id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM business_locations WHERE tenant_id = 1 AND name = 'Ubicación destino'`).Scan(&targetLocationID); err != nil {
+		t.Fatalf("target location id: %v", err)
+	}
+	if err := db.QueryRow(`SELECT id FROM business_locations WHERE tenant_id = 2 AND name = 'Ubicación otro tenant'`).Scan(&otherTenantLocationID); err != nil {
+		t.Fatalf("other tenant location id: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, linea, nombre, location, fecha_ingreso)
+		VALUES ('CATALOG-DELETE-1', 1, 'CATALOG-DELETE-1', 'Línea origen', 'Producto catálogo', 'Ubicación origen', ?)
+	`, now); err != nil {
+		t.Fatalf("insert catalog product: %v", err)
+	}
+	var activeLineID, activeLocationID int
+	if err := db.QueryRow(`
+		INSERT INTO business_lines (tenant_id, name, active, created_at, updated_at)
+		VALUES (1, 'Línea activa protegida', 1, ?, ?)
+		RETURNING id
+	`, now, now).Scan(&activeLineID); err != nil {
+		t.Fatalf("insert active line: %v", err)
+	}
+	if err := db.QueryRow(`
+		INSERT INTO business_locations (tenant_id, name, active, created_at, updated_at)
+		VALUES (1, 'Ubicación activa protegida', 1, ?, ?)
+		RETURNING id
+	`, now, now).Scan(&activeLocationID); err != nil {
+		t.Fatalf("insert active location: %v", err)
+	}
+	if _, err := deleteBusinessLineWithReassignment(db, admin, activeLineID, targetLineID); err == nil {
+		t.Fatal("expected active line deletion to fail")
+	}
+	if _, err := deleteBusinessLocationWithReassignment(db, admin, activeLocationID, targetLocationID); err == nil {
+		t.Fatal("expected active location deletion to fail")
+	}
+
+	if _, err := deleteBusinessLineWithReassignment(db, admin, sourceLineID, otherTenantLineID); err == nil {
+		t.Fatal("expected cross-tenant line replacement to fail")
+	}
+	if _, err := deleteBusinessLocationWithReassignment(db, admin, sourceLocationID, otherTenantLocationID); err == nil {
+		t.Fatal("expected cross-tenant location replacement to fail")
+	}
+
+	lineProducts, err := deleteBusinessLineWithReassignment(db, admin, sourceLineID, targetLineID)
+	if err != nil {
+		t.Fatalf("delete business line: %v", err)
+	}
+	if lineProducts != 1 {
+		t.Fatalf("expected one line product reassignment, got %d", lineProducts)
+	}
+	locationProducts, err := deleteBusinessLocationWithReassignment(db, admin, sourceLocationID, targetLocationID)
+	if err != nil {
+		t.Fatalf("delete business location: %v", err)
+	}
+	if locationProducts != 1 {
+		t.Fatalf("expected one location product reassignment, got %d", locationProducts)
+	}
+
+	var lineName, locationName string
+	if err := db.QueryRow(`SELECT linea, location FROM productos WHERE tenant_id = 1 AND sku = 'CATALOG-DELETE-1'`).Scan(&lineName, &locationName); err != nil {
+		t.Fatalf("query reassigned product: %v", err)
+	}
+	if lineName != "Línea destino" || locationName != "Ubicación destino" {
+		t.Fatalf("unexpected reassigned product: line=%q location=%q", lineName, locationName)
+	}
+	if count := countRows(t, db, `SELECT COUNT(*) FROM business_lines WHERE id = ? AND tenant_id = 1`, sourceLineID); count != 0 {
+		t.Fatalf("expected source line deleted, got %d rows", count)
+	}
+	if count := countRows(t, db, `SELECT COUNT(*) FROM business_locations WHERE id = ? AND tenant_id = 1`, sourceLocationID); count != 0 {
+		t.Fatalf("expected source location deleted, got %d rows", count)
+	}
+	if count := countRows(t, db, `SELECT COUNT(*) FROM audit_events WHERE tenant_id = 1 AND event_type IN ('business_line_deleted', 'business_location_deleted')`); count != 2 {
+		t.Fatalf("expected two catalog deletion audit events, got %d", count)
+	}
+}
+
+func TestBusinessCatalogImportsRejectInactiveValues(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "business-catalog-import"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO business_lines (tenant_id, name, active, created_at, updated_at)
+		VALUES (1, 'Línea inactiva', 0, ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert inactive line: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO business_locations (tenant_id, name, active, created_at, updated_at)
+		VALUES (1, 'Ubicación inactiva', 0, ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert inactive location: %v", err)
+	}
+
+	if err := ensureBusinessLinesForImport(db, 1, nil, []string{"Línea inactiva"}, now, "csv_import"); err == nil {
+		t.Fatal("expected inactive line import to fail")
+	}
+	if err := ensureBusinessLocationsForImport(db, 1, nil, []string{"Ubicación inactiva"}, now, "csv_import"); err == nil {
+		t.Fatal("expected inactive location import to fail")
+	}
+	if err := ensureBusinessLinesForImport(db, 1, nil, []string{"Línea nueva"}, now, "csv_import"); err != nil {
+		t.Fatalf("create missing line during import: %v", err)
+	}
+	if err := ensureBusinessLocationsForImport(db, 1, nil, []string{"Ubicación nueva"}, now, "csv_import"); err != nil {
+		t.Fatalf("create missing location during import: %v", err)
+	}
+}
+
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := openIsolatedPostgresTestDB(t, "units-tests")

@@ -71,6 +71,7 @@ Leyenda: **M** manual visual/flujo, **T** teclado, **A** automatizada.
 | Configuración | 375 px | Acordeones y opciones avanzadas | Avanzadas cerradas inicialmente; no desborde | M/T |
 | Configuración | 768 px | Formularios de negocio/inventario | Secciones separadas y CTA visibles | M |
 | Configuración | 1024 px | Catálogo de ubicaciones | Crear, renombrar y activar/desactivar ubicación sin desborde | M/T |
+| Configuración | 1024 px | Eliminación de catálogos | Solo valores inactivos; reasignación activa y confirmación antes de eliminar | M/T |
 | Configuración | 1024 px | Métodos de pago/usuarios | Acceso directo por parámetro; estado vacío con CTA | M |
 | Configuración | 1440 px | Integraciones/avanzado | Opciones destructivas advertidas y protegidas | M/T |
 | Detalle de producto | 320 px | Panel/modal de detalle | Lectura vertical; cierre y foco operables | M/T |

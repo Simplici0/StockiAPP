@@ -5,9 +5,11 @@
 ### Ubicaciones de inventario
 - Se agregó el catálogo de ubicaciones por tenant en Configuración > Inventario.
 - Las ubicaciones activas se muestran como desplegable al crear y editar productos.
-- Los renombres actualizan los productos asociados dentro del mismo tenant y quedan auditados.
+- Los renombres de líneas y ubicaciones actualizan los productos asociados dentro del mismo tenant y quedan auditados.
 - El CSV crea ubicaciones faltantes; la API valida contra ubicaciones activas mediante `GET /api/settings/locations`.
 - Las ubicaciones existentes se incorporan automáticamente al catálogo durante el bootstrap de Postgres.
+- Las líneas y ubicaciones inactivas pueden eliminarse con reasignación obligatoria a un valor activo.
+- La reasignación y eliminación es transaccional, tenant-scoped y queda auditada.
 
 ## 2026-03-23
 
