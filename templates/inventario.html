@@ -4626,6 +4626,21 @@
               return updatedProduct;
             };
 
+            const addProductInMemory = (productUpdate, afterId = "") => {
+              if (!productUpdate?.id) return null;
+              const updatedProduct = {
+                ...productUpdate,
+              };
+              updatedProduct.searchText = buildProductSearchText(updatedProduct);
+              const sourceIndex = products.findIndex(
+                (product) => String(product.id) === String(afterId),
+              );
+              const insertAt = sourceIndex >= 0 ? sourceIndex + 1 : products.length;
+              products.splice(insertAt, 0, updatedProduct);
+              productsById.set(String(updatedProduct.id), updatedProduct);
+              return updatedProduct;
+            };
+
             const toggleUnitsRow = (productId, trigger = null) => {
               const panelRow = document.getElementById(`units-row-${productId}`);
               if (!panelRow) return;
@@ -4850,6 +4865,7 @@
                         <div class="menu-group-label">Administrar</div>
                         ${isCredit ? `{{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}<button type="button" data-menu-action="edit-credit" data-product="${productId}">Editar crédito</button>{{end}}` : ``}
                         ${!isCredit && !isPhysicalLoan ? `<button type="button" data-menu-action="edit" data-product="${productId}">Editar producto</button>
+                        {{if and .CurrentUser (or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin"))}}<button type="button" data-menu-action="duplicate" data-product="${productId}">Duplicar producto</button>{{end}}
                         <button type="button" data-menu-action="print-label" data-product="${productId}">Imprimir etiqueta</button>` : ``}
                       </div>
                     </div>
@@ -5366,6 +5382,7 @@
             const retomaError = document.getElementById("retoma-error");
             const retomaSubmit = document.getElementById("retoma-submit");
             const editModal = document.getElementById("edit-modal");
+            const editTitle = document.getElementById("edit-title");
             const editSubtitle = document.getElementById("edit-subtitle");
             const editForm = document.getElementById("edit-form");
             const editError = document.getElementById("edit-error");
@@ -7130,76 +7147,103 @@
             if (editRetomaEnabled)
                 editRetomaEnabled.addEventListener("change", syncEditRetoma);
 
-            const openEditModal = (product) => {
+            const openEditModal = (product, options = {}) => {
                 if (!product) return;
+                const duplicateMode = options.mode === "duplicate";
+                const formProduct = options.draft || product;
                 const isAdmin =
                     currentUserRole === "admin" ||
                     currentUserRole === "platform_admin";
-                editContext = { productId: product.id, isAdmin };
+                editContext = {
+                    productId: product.id,
+                    isAdmin,
+                    duplicate: duplicateMode,
+                    generatedID: options.generatedID || "",
+                };
                 setEditError("");
                 if (editSubmit) editSubmit.disabled = false;
                 if (editDeleteProduct) editDeleteProduct.disabled = false;
+                if (editDeleteProduct) editDeleteProduct.hidden = duplicateMode;
+                if (editTitle)
+                    editTitle.textContent = duplicateMode
+                        ? "Duplicar producto"
+                        : "Editar producto";
+                if (editSubmit)
+                    editSubmit.textContent = duplicateMode
+                        ? "Crear duplicado"
+                        : "Guardar";
+                if (options.loading && editSubmit) editSubmit.disabled = true;
 
-                if (editSKU) editSKU.value = product.id || "";
+                if (editSKU) editSKU.value = formProduct.id || "";
                 if (editQuantity)
                     editQuantity.value = String(
-                        Math.max(0, Number(product.available || 0)),
+                        duplicateMode
+                            ? 1
+                            : Math.max(0, Number(formProduct.available || 0)),
                     );
                 if (editPrice)
                     editPrice.value =
-                        Number(product.salePrice || 0) > 0
-                            ? formatCOP(product.salePrice)
+                        Number(formProduct.salePrice || 0) > 0
+                            ? formatCOP(formProduct.salePrice)
                             : "0";
                 if (editName) {
-                    editName.value = product.name || "";
+                    editName.value = formProduct.name || "";
                     editName.disabled = !isAdmin;
                 }
                 if (editLine) {
-                    editLine.innerHTML = "";
-                    editableLines.forEach((line) => {
+                    const lineOptions = options.lines || editableLines;
+                    editLine.innerHTML = duplicateMode
+                        ? '<option value="">Selecciona una línea activa</option>'
+                        : "";
+                    lineOptions.forEach((line) => {
                         const option = document.createElement("option");
                         option.value = line;
                         option.textContent = line;
-                        option.selected = line === product.line;
+                        option.selected = line === formProduct.line;
                         editLine.appendChild(option);
                     });
-                    if (!editableLines.includes(product.line || "")) {
+                    if (
+                        !duplicateMode &&
+                        !lineOptions.includes(formProduct.line || "")
+                    ) {
                         const option = document.createElement("option");
-                        option.value = product.line || "";
-                        option.textContent = product.line || "Sin línea";
+                        option.value = formProduct.line || "";
+                        option.textContent = formProduct.line || "Sin línea";
                         option.selected = true;
                         editLine.appendChild(option);
                     }
                     editLine.disabled = !isAdmin;
                 }
                 if (editLocation) {
+                    const locationOptions = options.locations || editableLocations;
                     editLocation.innerHTML = '<option value="">Sin ubicación</option>';
-                    editableLocations.forEach((location) => {
+                    locationOptions.forEach((location) => {
                         const option = document.createElement("option");
                         option.value = location;
                         option.textContent = location;
                         option.selected =
                             location.toLowerCase() ===
-                            String(product.location || "").toLowerCase();
+                            String(formProduct.location || "").toLowerCase();
                         editLocation.appendChild(option);
                     });
                     if (
-                        product.location &&
-                        !editableLocations.some(
+                        !duplicateMode &&
+                        formProduct.location &&
+                        !locationOptions.some(
                             (location) =>
                                 location.toLowerCase() ===
-                                String(product.location).toLowerCase(),
+                                String(formProduct.location).toLowerCase(),
                         )
                     ) {
                         const option = document.createElement("option");
-                        option.value = product.location;
-                        option.textContent = `${product.location} (actual)`;
+                        option.value = formProduct.location;
+                        option.textContent = `${formProduct.location} (actual)`;
                         option.selected = true;
                         editLocation.appendChild(option);
                     }
                 }
                 if (editTalla) {
-                    editTalla.value = product.talla || "";
+                    editTalla.value = formProduct.talla || "";
                     editTalla.disabled = !isAdmin;
                 }
                 if (editOwner) {
@@ -7210,26 +7254,68 @@
                         option.value = String(user.id);
                         option.textContent = user.username;
                         option.selected =
-                            !!product.hasOwner &&
-                            Number(product.ownerUserId || 0) ===
+                            !!formProduct.hasOwner &&
+                            Number(formProduct.ownerUserId || 0) ===
                                 Number(user.id);
                         editOwner.appendChild(option);
                     });
                     editOwner.disabled = !isAdmin;
                 }
                 if (editRetomaEnabled)
-                    editRetomaEnabled.checked = !!product.retomaEnabled;
+                    editRetomaEnabled.checked = !!formProduct.retomaEnabled;
                 if (editRetomaPrice)
                     editRetomaPrice.value =
-                        product.retomaEnabled &&
-                        Number(product.retomaPrice || 0) > 0
-                            ? formatCOP(product.retomaPrice)
+                        formProduct.retomaEnabled &&
+                        Number(formProduct.retomaPrice || 0) > 0
+                            ? formatCOP(formProduct.retomaPrice)
                             : "";
-                if (editNotes) editNotes.value = product.notes || "";
+                if (editNotes) editNotes.value = formProduct.notes || "";
                 if (editSubmit) editSubmit.disabled = false;
+                if (options.loading && editSubmit) editSubmit.disabled = true;
                 syncEditRetoma();
-                openModal(editModal, `${product.name} · ID ${product.id}`);
+                openModal(
+                    editModal,
+                    duplicateMode
+                        ? `${product.name} · nueva referencia`
+                        : `${product.name} · ID ${product.id}`,
+                );
                 if (editSKU) editSKU.focus();
+            };
+
+            const openDuplicateModal = async (product) => {
+                if (!product || product.entryType !== "product") return;
+                openEditModal(product, {
+                    mode: "duplicate",
+                    loading: true,
+                    draft: { ...product, id: "", available: 1 },
+                    lines: [],
+                    locations: [],
+                });
+                if (editSKU) editSKU.value = "Generando ID...";
+                try {
+                    const response = await fetch(
+                        `/inventario/producto/duplicar?producto_id=${encodeURIComponent(product.id)}`,
+                        { headers: { Accept: "application/json" } },
+                    );
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || !data.ok || !data.producto) {
+                        throw new Error(
+                            data.error || "No se pudo preparar el duplicado.",
+                        );
+                    }
+                    openEditModal(product, {
+                        mode: "duplicate",
+                        draft: data.producto,
+                        lines: data.lineas || [],
+                        locations: data.ubicaciones || [],
+                        generatedID: data.producto.id || "",
+                    });
+                } catch (error) {
+                    setEditError(
+                        error?.message || "No se pudo preparar el duplicado.",
+                    );
+                    if (editSubmit) editSubmit.disabled = true;
+                }
             };
 
             const openInstallmentModal = (product) => {
@@ -8603,6 +8689,7 @@
                     event.preventDefault();
                     if (!editContext) return;
 
+                    const duplicateMode = Boolean(editContext.duplicate);
                     const sku = String(editSKU?.value || "").trim();
                     const quantity = Number.parseInt(
                         String(editQuantity?.value || ""),
@@ -8625,8 +8712,12 @@
                         setEditError("Precio de venta inválido.");
                         return;
                     }
-                    if (!Number.isInteger(quantity) || quantity < 0) {
-                        setEditError("Cantidad disponible inválida.");
+                    if (!Number.isInteger(quantity) || (duplicateMode ? quantity < 1 : quantity < 0)) {
+                        setEditError(
+                            duplicateMode
+                                ? "La cantidad del duplicado debe ser mayor a 0."
+                                : "Cantidad disponible inválida.",
+                        );
                         return;
                     }
                     if (
@@ -8643,7 +8734,11 @@
                     try {
                         const body = new URLSearchParams({
                             producto_id: editContext.productId,
-                            sku,
+                            sku:
+                                duplicateMode &&
+                                editContext.generatedID === sku
+                                    ? ""
+                                    : sku,
                             cantidad: String(quantity),
                             precio_venta: String(parsedPrice),
                             location: String(editLocation?.value || "").trim(),
@@ -8673,7 +8768,9 @@
                         }
 
                         const resp = await fetch(
-                            "/inventario/producto/editar",
+                            duplicateMode
+                                ? "/inventario/producto/duplicar"
+                                : "/inventario/producto/editar",
                             {
                                 method: "POST",
                                 headers: {
@@ -8689,19 +8786,28 @@
                         if (!resp.ok || !data.ok) {
                             throw new Error(
                                 data.error ||
-                                    "No se pudo actualizar el producto.",
+                                    (duplicateMode
+                                        ? "No se pudo duplicar el producto."
+                                        : "No se pudo actualizar el producto."),
                             );
                         }
                         const previousProductId = String(editContext.productId);
                         const scrollPosition = window.scrollY;
-                        const updatedProduct = replaceProductInMemory(
-                            previousProductId,
-                            data.producto_actualizado,
-                            data.sku,
-                        );
+                        const updatedProduct = duplicateMode
+                            ? addProductInMemory(
+                                  data.producto_actualizado,
+                                  previousProductId,
+                              )
+                            : replaceProductInMemory(
+                                  previousProductId,
+                                  data.producto_actualizado,
+                                  data.sku,
+                              );
                         if (!updatedProduct) {
                             throw new Error(
-                                "El producto se actualizó, pero no se pudo refrescar su fila.",
+                                duplicateMode
+                                    ? "El duplicado se creó, pero no se pudo mostrar en Inventario."
+                                    : "El producto se actualizó, pero no se pudo refrescar su fila.",
                             );
                         }
                         closeModal(editModal);
@@ -8729,8 +8835,12 @@
                             window.showToast(
                                 productRemainsVisible
                                     ? data.mensaje ||
-                                      "Producto actualizado correctamente."
-                                    : "Producto actualizado. Ya no coincide con la búsqueda o los filtros actuales.",
+                                      (duplicateMode
+                                          ? "Producto duplicado correctamente."
+                                          : "Producto actualizado correctamente.")
+                                    : duplicateMode
+                                      ? "Producto duplicado correctamente, pero no coincide con la búsqueda o los filtros actuales."
+                                      : "Producto actualizado correctamente, pero ya no coincide con la búsqueda o los filtros actuales.",
                                 "success",
                             );
                         }
@@ -8974,6 +9084,10 @@
                     }
                     if (action === "edit") {
                         openEditModal(product);
+                        return;
+                    }
+                    if (action === "duplicate") {
+                        openDuplicateModal(product);
                         return;
                     }
                     if (action === "print-label") {

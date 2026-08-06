@@ -991,6 +991,127 @@ func TestLoadEditedProductInventoryStateReflectsCurrentUnits(t *testing.T) {
 	}
 }
 
+func TestDuplicateProductCreatesIndependentProductAndUnit(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "duplicate-product"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if err := ensureBusinessLineExists(db, 1, nil, "Línea duplicable", now, "test"); err != nil {
+		t.Fatalf("ensure line: %v", err)
+	}
+	if err := ensureBusinessLocationExists(db, 1, nil, "Ubicación duplicable", now, "test"); err != nil {
+		t.Fatalf("ensure location: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, location, precio_venta, retoma_enabled, retoma_price, anotaciones, fecha_ingreso)
+		VALUES ('DUP-SOURCE-SKU', 1, 'DUP-SOURCE', 'Camiseta base', 'Línea duplicable', 'Ubicación duplicable', 25000, 1, 9000, 'Nota original', ?)
+	`, now); err != nil {
+		t.Fatalf("insert source product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
+		VALUES
+			('DUP-SOURCE-U1', 1, 'DUP-SOURCE-SKU', 'Disponible', ?),
+			('DUP-SOURCE-U2', 1, 'DUP-SOURCE-SKU', 'Disponible', ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert source units: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO business_lines (tenant_id, name, active, created_at, updated_at)
+		VALUES (1, 'Línea duplicación inactiva', 0, ?, ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert inactive duplicate line: %v", err)
+	}
+
+	admin := mustLoadTestUser(t, db, "admin")
+	retomaPrice := 12000.0
+	_, err = duplicateProductForUser(db, admin, "DUP-SOURCE", duplicateProductInput{
+		Name:     "Copia inválida",
+		Line:     "Línea duplicación inactiva",
+		Quantity: 1,
+	})
+	if err == nil {
+		t.Fatal("expected duplicate with inactive line to fail")
+	}
+
+	result, err := duplicateProductForUser(db, admin, "DUP-SOURCE", duplicateProductInput{
+		Name:          "Camiseta talla M",
+		Line:          "Línea duplicable",
+		Location:      "Ubicación duplicable",
+		Talla:         "M",
+		SalePrice:     32000,
+		RetomaEnabled: true,
+		RetomaPrice:   &retomaPrice,
+		Notes:         "Nota del duplicado",
+		Quantity:      1,
+	})
+	if err != nil {
+		t.Fatalf("duplicateProductForUser: %v", err)
+	}
+
+	if result.Product.ID == "DUP-SOURCE" || result.Product.SKU == "DUP-SOURCE-SKU" {
+		t.Fatalf("duplicate should have independent identities: %+v", result.Product)
+	}
+	if result.Product.ID == "" || len(result.Product.Units) != 1 {
+		t.Fatalf("unexpected duplicate product result: %+v", result.Product)
+	}
+
+	var (
+		name, line, location, talla, notes          string
+		price, duplicateRetomaPrice                 float64
+		retomaEnabled, creditEnabled, tallaRequired int
+	)
+	if err := db.QueryRow(`
+		SELECT nombre, linea, location, talla, anotaciones, precio_venta, retoma_enabled, retoma_price, credit_enabled, talla_requerida
+		FROM productos
+		WHERE tenant_id = 1 AND sku = ?
+	`, result.Product.SKU).Scan(&name, &line, &location, &talla, &notes, &price, &retomaEnabled, &duplicateRetomaPrice, &creditEnabled, &tallaRequired); err != nil {
+		t.Fatalf("query duplicate product: %v", err)
+	}
+	if name != "Camiseta talla M" || line != "Línea duplicable" || location != "Ubicación duplicable" || talla != "M" || notes != "Nota del duplicado" {
+		t.Fatalf("unexpected duplicated fields: name=%q line=%q location=%q talla=%q notes=%q", name, line, location, talla, notes)
+	}
+	if price != 32000 || retomaEnabled != 1 || duplicateRetomaPrice != 12000 || creditEnabled != 0 || tallaRequired != 1 {
+		t.Fatalf("unexpected duplicated numeric fields: price=%.2f retoma=%d retoma_price=%.2f credit=%d talla_required=%d", price, retomaEnabled, duplicateRetomaPrice, creditEnabled, tallaRequired)
+	}
+	if count := countRows(t, db, `SELECT COUNT(*) FROM unidades WHERE tenant_id = 1 AND producto_id = ?`, result.Product.SKU); count != 1 {
+		t.Fatalf("expected one new unit, got %d", count)
+	}
+	if count := countRows(t, db, `SELECT COUNT(*) FROM unidades WHERE tenant_id = 1 AND producto_id = 'DUP-SOURCE-SKU'`); count != 2 {
+		t.Fatalf("source units should remain untouched, got %d", count)
+	}
+
+	var auditPayload string
+	if err := db.QueryRow(`
+		SELECT payload_json
+		FROM audit_events
+		WHERE tenant_id = 1 AND event_type = 'product_created' AND entity_id = ?
+		ORDER BY id DESC
+		LIMIT 1
+	`, result.Product.SKU).Scan(&auditPayload); err != nil {
+		t.Fatalf("query duplicate audit: %v", err)
+	}
+	if !strings.Contains(auditPayload, `"created_via":"duplicate"`) || !strings.Contains(auditPayload, `"source_product_id":"DUP-SOURCE"`) {
+		t.Fatalf("duplicate audit missing source metadata: %s", auditPayload)
+	}
+
+	_, err = duplicateProductForUser(db, admin, "DUP-SOURCE", duplicateProductInput{
+		VisibleID: "DUP-SOURCE",
+		Name:      "Copia con ID repetido",
+		Line:      "Línea duplicable",
+		Quantity:  1,
+	})
+	if err == nil {
+		t.Fatal("expected duplicate visible ID collision to fail")
+	}
+}
+
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := openIsolatedPostgresTestDB(t, "units-tests")
@@ -2059,6 +2180,9 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	if got := bytes.Count(adminRendered, []byte(`id="edit-delete-product"`)); got != 1 {
 		t.Fatalf("admin inventory page should render exactly one delete-product action, got %d", got)
 	}
+	if got := bytes.Count(adminRendered, []byte(`data-menu-action="duplicate"`)); got != 1 {
+		t.Fatalf("admin inventory page should render exactly one duplicate-product action, got %d", got)
+	}
 	editModalStart := bytes.Index(adminRendered, []byte(`id="edit-modal"`))
 	labelModalStart := bytes.Index(adminRendered, []byte(`id="label-modal"`))
 	if editModalStart < 0 || labelModalStart < 0 || labelModalStart <= editModalStart {
@@ -2086,6 +2210,9 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	employeeRendered := renderDeleteButton("empleado", true)
 	if bytes.Contains(employeeRendered, []byte(`id="edit-delete-product"`)) {
 		t.Fatalf("non-admin inventory modal should not expose the delete-product action")
+	}
+	if bytes.Contains(employeeRendered, []byte(`data-menu-action="duplicate"`)) {
+		t.Fatalf("non-admin inventory page should not expose the duplicate-product action")
 	}
 	if bytes.Contains(employeeRendered, []byte(`id="credit-edit-delete"`)) {
 		t.Fatalf("non-admin inventory modal should not expose the delete-credit action")

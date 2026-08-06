@@ -15,6 +15,11 @@
 - Editar un producto actualiza su fila sin recargar Inventario y conserva búsqueda, filtros y posición de scroll.
 - Si los cambios hacen que deje de coincidir con la búsqueda activa, la fila se oculta y se informa mediante una notificación.
 
+### Duplicación de productos
+- Los administradores pueden duplicar productos base desde Inventario con un nuevo ID visible y SKU interno.
+- El duplicado copia campos operativos seleccionados y crea unidades nuevas, sin copiar ventas, créditos, préstamos, movimientos ni historial.
+- La creación queda dentro de una transacción y auditada con `created_via = duplicate` y referencia al producto origen.
+
 ## 2026-03-23
 
 ### API e integraciones

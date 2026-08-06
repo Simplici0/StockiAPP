@@ -698,6 +698,25 @@ type productEditRecord struct {
 	OwnerUserID       sql.NullInt64
 }
 
+type duplicateProductInput struct {
+	VisibleID     string
+	Name          string
+	Line          string
+	Location      string
+	Talla         string
+	SalePrice     float64
+	RetomaEnabled bool
+	RetomaPrice   *float64
+	Notes         string
+	Quantity      int
+	OwnerUserID   *int
+}
+
+type duplicateProductResult struct {
+	Product productOption
+	Payload map[string]any
+}
+
 type productInventoryCounts struct {
 	Available int
 	Reserved  int
@@ -2317,6 +2336,250 @@ func loadProductEditRecord(db *sql.DB, tenantID int, productID string) (productE
 		&record.OwnerUserID,
 	)
 	return record, err
+}
+
+func duplicateProductForUser(db *sql.DB, currentUser *User, sourceID string, input duplicateProductInput) (duplicateProductResult, error) {
+	tenantID, err := tenantIDFromUserStrict(currentUser)
+	if err != nil || !isAdminRole(currentUser.Role) {
+		return duplicateProductResult{}, requestError{Status: http.StatusForbidden, Message: "Solo administradores pueden duplicar productos."}
+	}
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "Producto origen inválido."}
+	}
+	allowed, err := productAccessibleByID(db, currentUser, sourceID)
+	if err != nil {
+		return duplicateProductResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar acceso al producto origen."}
+	}
+	if !allowed {
+		return duplicateProductResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto."}
+	}
+	source, err := loadProductEditRecord(db, tenantID, sourceID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return duplicateProductResult{}, requestError{Status: http.StatusNotFound, Message: "Producto origen no encontrado."}
+		}
+		return duplicateProductResult{}, err
+	}
+
+	input.Name = strings.TrimSpace(input.Name)
+	input.Line = strings.TrimSpace(input.Line)
+	input.Location = strings.TrimSpace(input.Location)
+	input.Talla = strings.TrimSpace(input.Talla)
+	input.VisibleID = strings.TrimSpace(input.VisibleID)
+	input.Notes = strings.TrimSpace(input.Notes)
+	if input.Name == "" {
+		return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "El nombre del producto es obligatorio.", Fields: map[string]string{"nombre": "El nombre del producto es obligatorio."}}
+	}
+	if input.Quantity <= 0 {
+		return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "La cantidad debe ser mayor a 0.", Fields: map[string]string{"cantidad": "La cantidad debe ser mayor a 0."}}
+	}
+	if input.SalePrice < 0 {
+		return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "Precio de venta inválido.", Fields: map[string]string{"precio_venta": "Precio de venta inválido."}}
+	}
+
+	activeLines, err := loadBusinessLinesForTenant(db, tenantID, true)
+	if err != nil {
+		return duplicateProductResult{}, err
+	}
+	lineName, validLine := businessLineNameForValue(activeLines, input.Line)
+	if !validLine || lineName == "" {
+		return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "Selecciona una línea activa válida.", Fields: map[string]string{"linea": "Selecciona una línea activa válida."}}
+	}
+
+	locationName := ""
+	if input.Location != "" {
+		activeLocations, err := loadBusinessLocationsForTenant(db, tenantID, true)
+		if err != nil {
+			return duplicateProductResult{}, err
+		}
+		var validLocation bool
+		locationName, validLocation = businessLocationNameForValue(activeLocations, input.Location)
+		if !validLocation {
+			return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "Selecciona una ubicación activa válida.", Fields: map[string]string{"location": "Selecciona una ubicación activa válida."}}
+		}
+	}
+
+	tallaRequerida := productSizeRequired(false, input.Talla)
+	talla, err := normalizedProductSize(tallaRequerida, input.Talla)
+	if err != nil {
+		return duplicateProductResult{}, err
+	}
+	retomaPrice := sql.NullFloat64{}
+	if input.RetomaEnabled {
+		if input.RetomaPrice == nil || *input.RetomaPrice < 0 {
+			return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "Valor de retoma inválido.", Fields: map[string]string{"retoma_price": "Valor de retoma inválido."}}
+		}
+		if input.SalePrice > 0 && *input.RetomaPrice > input.SalePrice {
+			return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "El valor de retoma no debe superar el valor de venta.", Fields: map[string]string{"retoma_price": "El valor de retoma no debe superar el valor de venta."}}
+		}
+		retomaPrice = sql.NullFloat64{Float64: *input.RetomaPrice, Valid: true}
+	}
+
+	assignableUsers, err := loadAssignableUsersForTenant(db, tenantID)
+	if err != nil {
+		return duplicateProductResult{}, err
+	}
+	ownerUserID := sql.NullInt64{}
+	if input.OwnerUserID != nil {
+		validOwner := false
+		for _, user := range assignableUsers {
+			if user.ID == *input.OwnerUserID {
+				validOwner = true
+				break
+			}
+		}
+		if !validOwner {
+			return duplicateProductResult{}, requestError{Status: http.StatusBadRequest, Message: "Selecciona un usuario asignado válido.", Fields: map[string]string{"owner_user_id": "Selecciona un usuario asignado válido."}}
+		}
+		ownerUserID = sql.NullInt64{Int64: int64(*input.OwnerUserID), Valid: true}
+	}
+	if input.VisibleID != "" {
+		if err := ensureVisibleProductIDAvailable(db, tenantID, input.VisibleID, ""); err != nil {
+			return duplicateProductResult{}, err
+		}
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return duplicateProductResult{}, err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().Format(time.RFC3339)
+	internalSKU, visibleID, err := insertProductWithGeneratedIdentity(tx, tenantID, input.VisibleID, input.Name, lineName, now)
+	if err != nil {
+		return duplicateProductResult{}, err
+	}
+	if _, err := tx.Exec(`
+		UPDATE productos
+		SET precio_venta = ?, retoma_enabled = ?, retoma_price = ?, credit_enabled = 0,
+			debtor_name = '', installments_total = 0, installments_paid = 0,
+			total_value = 0, installment_value = 0, location = ?, talla_requerida = ?,
+			talla = ?, anotaciones = ?, owner_user_id = ?
+		WHERE tenant_id = ? AND sku = ?
+	`, input.SalePrice, boolToInt(input.RetomaEnabled), retomaPrice, locationName, boolToInt(tallaRequerida), talla, input.Notes, ownerUserID, tenantID, internalSKU); err != nil {
+		return duplicateProductResult{}, err
+	}
+
+	if err := logAuditEvent(tx, currentUser, "product_created", "product", internalSKU, "manual", map[string]any{
+		"sku":                internalSKU,
+		"id":                 visibleID,
+		"name":               input.Name,
+		"line":               lineName,
+		"location":           locationName,
+		"talla_requerida":    tallaRequerida,
+		"talla":              talla,
+		"sale_price":         input.SalePrice,
+		"retoma_enabled":     input.RetomaEnabled,
+		"retoma_price":       retomaPrice,
+		"owner_user_id":      ownerUserID,
+		"cantidad":           input.Quantity,
+		"created_via":        "duplicate",
+		"source_product_id":  source.ID,
+		"source_product_sku": source.SKU,
+	}); err != nil {
+		return duplicateProductResult{}, err
+	}
+	if ownerUserID.Valid {
+		if err := logAuditEvent(tx, currentUser, "product_assigned", "product", internalSKU, "manual", map[string]any{
+			"sku":               internalSKU,
+			"id":                visibleID,
+			"owner_user_id":     ownerUserID.Int64,
+			"created_via":       "duplicate",
+			"source_product_id": source.ID,
+		}); err != nil {
+			return duplicateProductResult{}, err
+		}
+	}
+
+	createdUnitIDs := make([]string, 0, input.Quantity)
+	baseID := time.Now().UnixNano()
+	for index := 0; index < input.Quantity; index++ {
+		unitID := fmt.Sprintf("U-%s-%d", internalSKU, baseID+int64(index))
+		if _, err := tx.Exec(`
+			INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad)
+			VALUES (?, ?, ?, 'Disponible', ?, NULL)
+		`, unitID, tenantID, internalSKU, now); err != nil {
+			return duplicateProductResult{}, err
+		}
+		createdUnitIDs = append(createdUnitIDs, unitID)
+	}
+
+	inventoryState, err := loadEditedProductInventoryState(tx, tenantID, internalSKU)
+	if err != nil {
+		return duplicateProductResult{}, err
+	}
+	ownerID := 0
+	if ownerUserID.Valid {
+		ownerID = int(ownerUserID.Int64)
+	}
+	retomaPriceValue := 0.0
+	if retomaPrice.Valid {
+		retomaPriceValue = retomaPrice.Float64
+	}
+	payload := map[string]any{
+		"entryType":         "product",
+		"baseProductId":     "",
+		"id":                visibleID,
+		"name":              input.Name,
+		"line":              lineName,
+		"location":          locationName,
+		"tallaRequerida":    tallaRequerida,
+		"talla":             talla,
+		"creditEnabled":     false,
+		"debtorName":        "",
+		"installmentsTotal": 0,
+		"installmentsPaid":  0,
+		"totalValue":        0,
+		"installmentValue":  0,
+		"notes":             input.Notes,
+		"ingreso":           formatDateWithSettings(now),
+		"ageMonths":         0,
+		"ageAlert":          false,
+		"salePrice":         input.SalePrice,
+		"retomaEnabled":     input.RetomaEnabled,
+		"retomaPrice":       retomaPriceValue,
+		"hasRetomaPrice":    retomaPrice.Valid,
+		"hasOwner":          ownerUserID.Valid,
+		"ownerUserId":       ownerID,
+		"creditSaleId":      0,
+		"productLoanId":     0,
+	}
+	for key, value := range inventoryState {
+		payload[key] = value
+	}
+	if err := tx.Commit(); err != nil {
+		return duplicateProductResult{}, err
+	}
+
+	return duplicateProductResult{
+		Product: productOption{
+			SKU:            internalSKU,
+			ID:             visibleID,
+			Name:           input.Name,
+			Line:           lineName,
+			Location:       locationName,
+			TallaRequerida: tallaRequerida,
+			Talla:          talla,
+			Notes:          input.Notes,
+			FechaIngreso:   now,
+			SalePrice:      input.SalePrice,
+			RetomaEnabled:  input.RetomaEnabled,
+			RetomaPrice:    retomaPriceValue,
+			HasRetomaPrice: retomaPrice.Valid,
+			OwnerUserID:    ownerID,
+			HasOwner:       ownerUserID.Valid,
+			Units: func() []unitOption {
+				units := make([]unitOption, 0, len(createdUnitIDs))
+				for _, unitID := range createdUnitIDs {
+					units = append(units, unitOption{ID: unitID})
+				}
+				return units
+			}(),
+		},
+		Payload: payload,
+	}, nil
 }
 
 func renameProductIdentifier(tx *sql.Tx, tenantID int, previousSKU, newSKU string) error {
@@ -22892,6 +23155,192 @@ func main() {
 			"mensaje":              "Producto actualizado correctamente.",
 		})
 	})
+
+	mux.HandleFunc("/inventario/producto/duplicar", adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError := func(status int, message string, fields map[string]string) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			response := map[string]any{"error": message}
+			if len(fields) > 0 {
+				response["fields"] = fields
+			}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+
+		currentUser := userFromContext(r)
+		tenantID := tenantIDFromUser(currentUser)
+		if r.Method == http.MethodGet {
+			sourceID := strings.TrimSpace(r.URL.Query().Get("producto_id"))
+			if sourceID == "" {
+				writeJSONError(http.StatusBadRequest, "Producto origen inválido.", nil)
+				return
+			}
+			allowed, err := productAccessibleByID(db, currentUser, sourceID)
+			if err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo validar acceso al producto origen.", nil)
+				return
+			}
+			if !allowed {
+				writeJSONError(http.StatusForbidden, "No tienes acceso a este producto.", nil)
+				return
+			}
+			source, err := loadProductEditRecord(db, tenantID, sourceID)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					writeJSONError(http.StatusNotFound, "Producto origen no encontrado.", nil)
+					return
+				}
+				writeJSONError(http.StatusInternalServerError, "No se pudo cargar el producto origen.", nil)
+				return
+			}
+			activeLines, err := loadBusinessLinesForTenant(db, tenantID, true)
+			if err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudieron cargar las líneas activas.", nil)
+				return
+			}
+			activeLocations, err := loadBusinessLocationsForTenant(db, tenantID, true)
+			if err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudieron cargar las ubicaciones activas.", nil)
+				return
+			}
+			assignableUsers, err := loadAssignableUsersForTenant(db, tenantID)
+			if err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudieron cargar los usuarios asignables.", nil)
+				return
+			}
+			nextID, err := generateNextTenantProductID(db, tenantID)
+			if err != nil {
+				writeJSONError(http.StatusInternalServerError, "No se pudo generar el ID del duplicado.", nil)
+				return
+			}
+			lineName, lineActive := businessLineNameForValue(activeLines, source.Line)
+			if !lineActive {
+				lineName = ""
+			}
+			locationName, locationActive := businessLocationNameForValue(activeLocations, source.Location)
+			if !locationActive {
+				locationName = ""
+			}
+			ownerID := 0
+			for _, user := range assignableUsers {
+				if source.OwnerUserID.Valid && int(source.OwnerUserID.Int64) == user.ID {
+					ownerID = user.ID
+					break
+				}
+			}
+			retomaPrice := 0.0
+			if source.RetomaPrice.Valid {
+				retomaPrice = source.RetomaPrice.Float64
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{
+				"ok": true,
+				"producto": map[string]any{
+					"id":             nextID,
+					"name":           source.Name,
+					"line":           lineName,
+					"location":       locationName,
+					"tallaRequerida": source.TallaRequerida == 1,
+					"talla":          source.Talla,
+					"salePrice":      source.SalePrice,
+					"retomaEnabled":  source.RetomaEnabled == 1,
+					"retomaPrice":    retomaPrice,
+					"hasRetomaPrice": source.RetomaPrice.Valid,
+					"notes":          source.Notes,
+					"hasOwner":       ownerID > 0,
+					"ownerUserId":    ownerID,
+					"available":      1,
+				},
+				"lineas":      businessLineNames(activeLines),
+				"ubicaciones": businessLocationNames(activeLocations),
+			})
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			writeJSONError(http.StatusBadRequest, "No se pudo leer el formulario.", nil)
+			return
+		}
+		sourceID := strings.TrimSpace(r.FormValue("producto_id"))
+		visibleID, err := requestedVisibleProductID(strings.TrimSpace(r.FormValue("id")), strings.TrimSpace(r.FormValue("sku")))
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			writeJSONError(http.StatusBadRequest, "ID del duplicado inválido.", nil)
+			return
+		}
+		quantity, err := strconv.Atoi(strings.TrimSpace(r.FormValue("cantidad")))
+		if err != nil {
+			quantity = 0
+		}
+		priceValue := strings.TrimSpace(r.FormValue("precio_venta"))
+		price := 0
+		if priceValue != "" {
+			price, err = parseCOPInteger(priceValue)
+			if err != nil {
+				writeJSONError(http.StatusBadRequest, "Precio de venta inválido.", map[string]string{"precio_venta": "Precio de venta inválido."})
+				return
+			}
+		}
+		retomaEnabled := r.FormValue("retoma_enabled") != ""
+		var retomaPrice *float64
+		if retomaEnabled {
+			retomaPriceValue := strings.TrimSpace(r.FormValue("retoma_price"))
+			parsedRetomaPrice, parseErr := parseCOPInteger(retomaPriceValue)
+			if parseErr != nil {
+				writeJSONError(http.StatusBadRequest, "Valor de retoma inválido.", map[string]string{"retoma_price": "Valor de retoma inválido."})
+				return
+			}
+			retomaPriceFloat := float64(parsedRetomaPrice)
+			retomaPrice = &retomaPriceFloat
+		}
+		var ownerUserID *int
+		ownerRaw := strings.TrimSpace(r.FormValue("owner_user_id"))
+		if ownerRaw != "" {
+			parsedOwnerID, parseErr := strconv.Atoi(ownerRaw)
+			if parseErr != nil || parsedOwnerID <= 0 {
+				writeJSONError(http.StatusBadRequest, "Usuario asignado inválido.", map[string]string{"owner_user_id": "Selecciona un usuario asignado válido."})
+				return
+			}
+			ownerUserID = &parsedOwnerID
+		}
+		result, err := duplicateProductForUser(db, currentUser, sourceID, duplicateProductInput{
+			VisibleID:     visibleID,
+			Name:          r.FormValue("nombre"),
+			Line:          r.FormValue("linea"),
+			Location:      r.FormValue("location"),
+			Talla:         r.FormValue("talla"),
+			SalePrice:     float64(price),
+			RetomaEnabled: retomaEnabled,
+			RetomaPrice:   retomaPrice,
+			Notes:         r.FormValue("notas"),
+			Quantity:      quantity,
+			OwnerUserID:   ownerUserID,
+		})
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			log.Printf("duplicate product source=%q tenant=%d: %v", sourceID, tenantID, err)
+			writeJSONError(http.StatusInternalServerError, "No se pudo duplicar el producto.", nil)
+			return
+		}
+		productsMu.Lock()
+		products = append(products, result.Product)
+		productsMu.Unlock()
+		writeAPIJSON(w, http.StatusCreated, map[string]any{
+			"ok":                   true,
+			"producto":             result.Product.ID,
+			"sku":                  result.Product.SKU,
+			"producto_actualizado": result.Payload,
+			"mensaje":              "Producto duplicado correctamente.",
+		})
+	}))
 
 	mux.HandleFunc("/inventario/cuota", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONError := func(status int, message string) {
