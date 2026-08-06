@@ -32,6 +32,7 @@ Leyenda: **M** manual visual/flujo, **T** teclado, **A** automatizada.
 | Inventario | 1024 px | Tabla, filtros y acciones | Columnas legibles y controles sin solaparse | M |
 | Inventario | 1440 px | Jerarquía visual y densidad | Tabla completa, acciones agrupadas y estados claros | M |
 | Inventario | 375 px | Selector de ubicación en edición | Selector cabe en el modal; “Sin ubicación” permanece disponible | M/T |
+| Inventario | 768 px | Guardar edición desde una búsqueda | La fila se actualiza sin recargar; búsqueda, filtros y scroll se conservan | M/T |
 | Clientes | 320 px | Búsqueda y tarjetas | Campos ocupan el ancho; CTA accesible | M |
 | Clientes | 375 px | Lookup asíncrono | Muestra Cargando, Sin resultados o error con Reintentar | M/T |
 | Clientes | 768 px | Grid de clientes e importación | Tarjetas y panel de importación no desbordan | M |

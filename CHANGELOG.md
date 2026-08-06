@@ -11,6 +11,10 @@
 - Las líneas y ubicaciones inactivas pueden eliminarse con reasignación obligatoria a un valor activo.
 - La reasignación y eliminación es transaccional, tenant-scoped y queda auditada.
 
+### Edición de inventario
+- Editar un producto actualiza su fila sin recargar Inventario y conserva búsqueda, filtros y posición de scroll.
+- Si los cambios hacen que deje de coincidir con la búsqueda activa, la fila se oculta y se informa mediante una notificación.
+
 ## 2026-03-23
 
 ### API e integraciones

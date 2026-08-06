@@ -948,6 +948,49 @@ func TestBusinessCatalogImportsRejectInactiveValues(t *testing.T) {
 	}
 }
 
+func TestLoadEditedProductInventoryStateReflectsCurrentUnits(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "edited-product-state"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, fecha_ingreso)
+		VALUES ('EDIT-STATE-1', 1, 'EDIT-STATE-1', 'Producto editado', 'Línea', ?)
+	`, now); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
+		VALUES
+			('EDIT-STATE-U1', 1, 'EDIT-STATE-1', 'Disponible', ?),
+			('EDIT-STATE-U2', 1, 'EDIT-STATE-1', 'Disponible', ?),
+			('EDIT-STATE-U3', 1, 'EDIT-STATE-1', 'Dañada', ?)
+	`, now, now, now); err != nil {
+		t.Fatalf("insert units: %v", err)
+	}
+
+	state, err := loadEditedProductInventoryState(db, 1, "EDIT-STATE-1")
+	if err != nil {
+		t.Fatalf("loadEditedProductInventoryState: %v", err)
+	}
+	if state["available"] != 2 {
+		t.Fatalf("expected two available units, got %#v", state["available"])
+	}
+	if state["statusClass"] != "available" || state["statusLabel"] != "Disponible" {
+		t.Fatalf("unexpected product status: class=%v label=%v", state["statusClass"], state["statusLabel"])
+	}
+	units, ok := state["units"].([]map[string]any)
+	if !ok || len(units) != 3 {
+		t.Fatalf("expected three serialized units, got %#v", state["units"])
+	}
+}
+
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := openIsolatedPostgresTestDB(t, "units-tests")
@@ -2154,6 +2197,25 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	}
 	if bytes.Contains(employeeRendered, []byte(`aria-label="Nuevo producto"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Nuevo Préstamo"`)) || bytes.Contains(employeeRendered, []byte(`aria-label="Configuración"`)) {
 		t.Fatal("employee sidebar should not expose admin-only promoted actions")
+	}
+}
+
+func TestInventoryEditSynchronizesLinkedRowsWithoutReload(t *testing.T) {
+	content, err := os.ReadFile("templates/inventario.html")
+	if err != nil {
+		t.Fatalf("read inventory template: %v", err)
+	}
+
+	for _, required := range []string{
+		`data.producto_actualizado`,
+		`const linkedBaseIds = new Set`,
+		`product.baseProductId`,
+		`product.salePrice = Number(updatedProduct.salePrice || 0);`,
+		`product.searchText = buildProductSearchText(product);`,
+	} {
+		if !bytes.Contains(content, []byte(required)) {
+			t.Fatalf("inventory edit should contain linked-row synchronization marker %q", required)
+		}
 	}
 }
 

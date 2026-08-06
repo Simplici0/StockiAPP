@@ -4381,7 +4381,13 @@
                 option.textContent = line;
                 lineFilter.appendChild(option);
               });
-              lineFilter.value = lines.includes(currentValue) ? currentValue : "all";
+              if (currentValue !== "all" && !lines.includes(currentValue)) {
+                const preservedOption = document.createElement("option");
+                preservedOption.value = currentValue;
+                preservedOption.textContent = currentValue;
+                lineFilter.appendChild(preservedOption);
+              }
+              lineFilter.value = currentValue;
             };
 
             const bogotaDateOptions = { timeZone: "America/Bogota" };
@@ -4543,10 +4549,10 @@
               });
             };
 
-            const applyFilters = () => {
+            const getFilteredProducts = () => {
               if (!statusFilter || !lineFilter || !searchFilter || !expiryToggle) {
                 console.warn("Filtros no disponibles: faltan controles de filtro en el DOM.");
-                return;
+                return products;
               }
               const statusValue = statusFilter.value;
               const lineValue = lineFilter.value;
@@ -4569,8 +4575,55 @@
                 return matchesStatus && matchesLine && matchesSearch && matchesExpiry;
               });
 
+              return filtered;
+            };
+
+            const applyFilters = () => {
+              const filtered = getFilteredProducts();
               renderTable(filtered);
               updateSummary(filtered);
+              return filtered;
+            };
+
+            const replaceProductInMemory = (previousId, productUpdate, linkedBaseId) => {
+              const index = products.findIndex(
+                (product) => String(product.id) === String(previousId),
+              );
+              if (index < 0 || !productUpdate?.id) return null;
+
+              const previousProduct = products[index];
+              const updatedProduct = {
+                ...previousProduct,
+                ...productUpdate,
+              };
+              updatedProduct.searchText = buildProductSearchText(updatedProduct);
+              products[index] = updatedProduct;
+              productsById.delete(String(previousId));
+              productsById.set(String(updatedProduct.id), updatedProduct);
+
+              const linkedBaseIds = new Set(
+                [previousProduct.id, linkedBaseId]
+                  .filter(Boolean)
+                  .map((value) => String(value)),
+              );
+              products.forEach((product) => {
+                if (
+                  product === updatedProduct ||
+                  product.entryType === "product" ||
+                  !linkedBaseIds.has(String(product.baseProductId || ""))
+                ) {
+                  return;
+                }
+                const linkedName = String(product.name || "");
+                const previousName = String(previousProduct.name || "");
+                const suffix = previousName && linkedName.startsWith(previousName)
+                  ? linkedName.slice(previousName.length)
+                  : "";
+                product.name = `${updatedProduct.name || ""}${suffix}`;
+                product.salePrice = Number(updatedProduct.salePrice || 0);
+                product.searchText = buildProductSearchText(product);
+              });
+              return updatedProduct;
             };
 
             const toggleUnitsRow = (productId, trigger = null) => {
@@ -7084,6 +7137,8 @@
                     currentUserRole === "platform_admin";
                 editContext = { productId: product.id, isAdmin };
                 setEditError("");
+                if (editSubmit) editSubmit.disabled = false;
+                if (editDeleteProduct) editDeleteProduct.disabled = false;
 
                 if (editSKU) editSKU.value = product.id || "";
                 if (editQuantity)
@@ -8637,8 +8692,48 @@
                                     "No se pudo actualizar el producto.",
                             );
                         }
+                        const previousProductId = String(editContext.productId);
+                        const scrollPosition = window.scrollY;
+                        const updatedProduct = replaceProductInMemory(
+                            previousProductId,
+                            data.producto_actualizado,
+                            data.sku,
+                        );
+                        if (!updatedProduct) {
+                            throw new Error(
+                                "El producto se actualizó, pero no se pudo refrescar su fila.",
+                            );
+                        }
                         closeModal(editModal);
-                        window.location.href = `/inventario?mensaje=${encodeURIComponent(data.mensaje || "Producto actualizado correctamente.")}`;
+                        populateLineFilter();
+                        const visibleProducts = applyFilters();
+                        const productRemainsVisible = visibleProducts.some(
+                            (product) =>
+                                String(product.id) ===
+                                String(updatedProduct.id),
+                        );
+                        window.requestAnimationFrame(() => {
+                            window.scrollTo(0, scrollPosition);
+                            if (productRemainsVisible) {
+                                const focusTarget = Array.from(
+                                    document.querySelectorAll("button[data-menu]"),
+                                ).find(
+                                    (button) =>
+                                        String(button.dataset.menu) ===
+                                        String(updatedProduct.id),
+                                );
+                                focusTarget?.focus();
+                            }
+                        });
+                        if (typeof window.showToast === "function") {
+                            window.showToast(
+                                productRemainsVisible
+                                    ? data.mensaje ||
+                                      "Producto actualizado correctamente."
+                                    : "Producto actualizado. Ya no coincide con la búsqueda o los filtros actuales.",
+                                "success",
+                            );
+                        }
                     } catch (err) {
                         setEditError(
                             err?.message ||

@@ -3588,7 +3588,7 @@ type inventoryProductUnitStats struct {
 	FirstCreatedAt string
 }
 
-func loadInventoryUnitsByProductIDs(db *sql.DB, tenantID int, productIDs []string) (map[string][]inventoryUnit, map[string]inventoryProductUnitStats, error) {
+func loadInventoryUnitsByProductIDs(db sqlQueryRunner, tenantID int, productIDs []string) (map[string][]inventoryUnit, map[string]inventoryProductUnitStats, error) {
 	unitsByProduct := make(map[string][]inventoryUnit, len(productIDs))
 	statsByProduct := make(map[string]inventoryProductUnitStats, len(productIDs))
 	if len(productIDs) == 0 {
@@ -3670,6 +3670,54 @@ func loadInventoryUnitsByProductIDs(db *sql.DB, tenantID int, productIDs []strin
 	}
 
 	return unitsByProduct, statsByProduct, nil
+}
+
+func inventoryStatusForStats(stats inventoryProductUnitStats) (string, string) {
+	if stats.AvailableCount > 0 {
+		return "Disponible", "available"
+	}
+	if stats.LoanedCount > 0 {
+		return "Prestado", "loaned"
+	}
+	if stats.ReservedCount > 0 {
+		return "Reservado", "reserved"
+	}
+	if stats.ChangeCount > 0 {
+		return "Cambio", "swapped"
+	}
+	if stats.DamagedCount > 0 {
+		return "Dañado", "damaged"
+	}
+	return "Vendido", "sold"
+}
+
+func loadEditedProductInventoryState(exec sqlQueryRunner, tenantID int, productSKU string) (map[string]any, error) {
+	productSKU = strings.TrimSpace(productSKU)
+	unitsByProduct, statsByProduct, err := loadInventoryUnitsByProductIDs(exec, tenantID, []string{productSKU})
+	if err != nil {
+		return nil, err
+	}
+
+	stats := statsByProduct[productSKU]
+	statusLabel, statusClass := inventoryStatusForStats(stats)
+	units := make([]map[string]any, 0, len(unitsByProduct[productSKU]))
+	for _, unit := range unitsByProduct[productSKU] {
+		units = append(units, map[string]any{
+			"id":          unit.ID,
+			"created":     unit.CreadoEn,
+			"expires":     unit.Caducidad,
+			"statusClass": unit.EstadoClass,
+			"statusLabel": unit.Estado,
+			"fifo":        unit.FIFO,
+		})
+	}
+
+	return map[string]any{
+		"available":   stats.AvailableCount,
+		"statusClass": statusClass,
+		"statusLabel": statusLabel,
+		"units":       units,
+	}, nil
 }
 
 func parseCashLoanReportFilters(r *http.Request, defaultLimit int) (cashLoanReportFilters, string) {
@@ -21830,30 +21878,7 @@ func main() {
 			units := unitsByProduct[product.refID()]
 			stats := unitStatsByProduct[product.refID()]
 			availableCount := stats.AvailableCount
-			loanedCount := stats.LoanedCount
-			changeCount := stats.ChangeCount
-			reservedCount := stats.ReservedCount
-			damagedCount := stats.DamagedCount
-			estadoLabel := "Disponible"
-			estadoClass := "available"
-			if availableCount == 0 {
-				if loanedCount > 0 {
-					estadoLabel = "Prestado"
-					estadoClass = "loaned"
-				} else if reservedCount > 0 {
-					estadoLabel = "Reservado"
-					estadoClass = "reserved"
-				} else if changeCount > 0 {
-					estadoLabel = "Cambio"
-					estadoClass = "swapped"
-				} else if damagedCount > 0 {
-					estadoLabel = "Dañado"
-					estadoClass = "damaged"
-				} else {
-					estadoLabel = "Vendido"
-					estadoClass = "sold"
-				}
-			}
+			estadoLabel, estadoClass := inventoryStatusForStats(stats)
 
 			// Permanence alert: if the product has been in stock for >= 6 months since fecha_ingreso,
 			// flag it for UI and "Accion Caducidad 45 dias" filter.
@@ -22778,6 +22803,42 @@ func main() {
 				return
 			}
 		}
+		updatedInventoryState, err := loadEditedProductInventoryState(tx, tenantIDFromUser(currentUser), previous.SKU)
+		if err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo cargar el estado actualizado del producto.")
+			return
+		}
+		ownerUserID := 0
+		if finalOwner.Valid {
+			ownerUserID = int(finalOwner.Int64)
+		}
+		updatedProduct := map[string]any{
+			"id":                newSKU,
+			"name":              finalName,
+			"line":              finalLine,
+			"location":          finalLocation,
+			"tallaRequerida":    finalTallaRequerida,
+			"talla":             finalTalla,
+			"creditEnabled":     finalCreditEnabled,
+			"debtorName":        finalDebtorName,
+			"installmentsTotal": finalInstallmentsTotal,
+			"installmentsPaid":  finalInstallmentsPaid,
+			"totalValue":        finalTotalValue,
+			"installmentValue":  finalInstallmentValue,
+			"notes":             notesValue,
+			"salePrice":         float64(parsedPrice),
+			"retomaEnabled":     retomaEnabled,
+			"retomaPrice":       0,
+			"hasRetomaPrice":    newRetomaPrice.Valid,
+			"hasOwner":          finalOwner.Valid,
+			"ownerUserId":       ownerUserID,
+		}
+		if newRetomaPrice.Valid {
+			updatedProduct["retomaPrice"] = newRetomaPrice.Float64
+		}
+		for key, value := range updatedInventoryState {
+			updatedProduct[key] = value
+		}
 
 		if err := tx.Commit(); err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo confirmar la edición del producto.")
@@ -22824,10 +22885,11 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":       true,
-			"producto": newSKU,
-			"sku":      previous.SKU,
-			"mensaje":  "Producto actualizado correctamente.",
+			"ok":                   true,
+			"producto":             newSKU,
+			"producto_actualizado": updatedProduct,
+			"sku":                  previous.SKU,
+			"mensaje":              "Producto actualizado correctamente.",
 		})
 	})
 
