@@ -19887,7 +19887,7 @@ func main() {
 			Section:              section,
 			Flash:                flash,
 			Error:                errText,
-			VersionLabel:         "Versión 1.0.2",
+			VersionLabel:         "Versión 2.0.0",
 			Settings:             settings,
 			Lines:                lines,
 			ActiveLines:          activeLines,
