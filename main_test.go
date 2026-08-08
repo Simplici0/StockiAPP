@@ -1981,6 +1981,8 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	templates, err := template.New("").Funcs(template.FuncMap{
 		"businessName":                      func(any) string { return "Negocio prueba" },
 		"businessLogoPath":                  func(any) string { return "" },
+		"businessHasOwnLogo":                func(any) bool { return false },
+		"businessInitials":                  func(any) string { return "NP" },
 		"businessPrimaryColor":              func(any) string { return "#172554" },
 		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
 		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
@@ -2058,6 +2060,8 @@ func TestSaleFlowTemplatesParse(t *testing.T) {
 	_, err := template.New("").Funcs(template.FuncMap{
 		"businessName":                      func(any) string { return "Negocio prueba" },
 		"businessLogoPath":                  func(any) string { return "" },
+		"businessHasOwnLogo":                func(any) bool { return false },
+		"businessInitials":                  func(any) string { return "NP" },
 		"businessPrimaryColor":              func(any) string { return "#172554" },
 		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
 		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
@@ -2088,6 +2092,8 @@ func TestBusinessSettingsTemplateParsesLabelProfiles(t *testing.T) {
 	_, err := template.New("").Funcs(template.FuncMap{
 		"businessName":                      func(any) string { return "Negocio prueba" },
 		"businessLogoPath":                  func(any) string { return "" },
+		"businessHasOwnLogo":                func(any) bool { return false },
+		"businessInitials":                  func(any) string { return "NP" },
 		"businessPrimaryColor":              func(any) string { return "#172554" },
 		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
 		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
@@ -2186,6 +2192,8 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	templates, err := template.New("").Funcs(template.FuncMap{
 		"businessName":                      func(any) string { return "Negocio prueba" },
 		"businessLogoPath":                  func(any) string { return "" },
+		"businessHasOwnLogo":                func(any) bool { return false },
+		"businessInitials":                  func(any) string { return "NP" },
 		"businessPrimaryColor":              func(any) string { return "#172554" },
 		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
 		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
@@ -2301,15 +2309,18 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	if bytes.Contains(adminRendered, []byte(`class="sidebar-menu-group"`)) || bytes.Contains(adminRendered, []byte(`class="sidebar-menu-heading"`)) || bytes.Contains(adminRendered, []byte("border-left: 1px solid")) {
 		t.Fatal("sidebar submenus should not render grouped labels or a vertical guide")
 	}
-	if !bytes.Contains(adminRendered, []byte(`class="sidebar-fixed-brand"`)) {
+	if !bytes.Contains(adminRendered, []byte(`class="sidebar-fixed-brand `)) {
 		t.Fatal("sidebar should render a fixed brand")
+	}
+	if !bytes.Contains(adminRendered, []byte(`class="topbar-name">Negocio prueba</span>`)) || bytes.Contains(adminRendered, []byte(`class="topbar-logo"`)) {
+		t.Fatal("sidebar should show the business name when no own logo exists")
 	}
 	for _, label := range []string{`aria-label="Inventario"`, `aria-label="Dashboard"`, `aria-label="Clientes"`, `aria-label="Productos"`, `aria-label="Gestión"`} {
 		if !bytes.Contains(adminRendered, []byte(label)) {
 			t.Fatalf("collapsed sidebar control should expose accessible label %s", label)
 		}
 	}
-	brandStart := bytes.Index(adminRendered, []byte(`class="sidebar-fixed-brand"`))
+	brandStart := bytes.Index(adminRendered, []byte(`class="sidebar-fixed-brand `))
 	panelStart := bytes.Index(adminRendered, []byte(`id="sidebar-panel"`))
 	if brandStart < 0 || panelStart < 0 || brandStart >= panelStart {
 		t.Fatal("fixed brand should render outside the sidebar panel")
@@ -4371,6 +4382,37 @@ func TestLoginRateLimitBlocksAfterRepeatedFailures(t *testing.T) {
 func TestSaveBusinessLogoRejectsSVG(t *testing.T) {
 	if _, err := saveBusinessLogo(strings.NewReader(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`), "logo.svg"); err == nil {
 		t.Fatalf("expected SVG upload to be rejected")
+	}
+}
+
+func TestBusinessBrandingHelpersDistinguishOwnLogoAndInitials(t *testing.T) {
+	logoCases := []struct {
+		path string
+		want bool
+	}{
+		{path: defaultBusinessSettings().LogoPath, want: false},
+		{path: "/static/uploads/branding/logo-123.png", want: true},
+		{path: "/static/uploads/branding/logo-123.webp", want: true},
+		{path: "/static/uploads/branding/logo-legacy.svg", want: false},
+		{path: "/static/img/logo-custom.png", want: false},
+	}
+	for _, test := range logoCases {
+		if got := hasOwnBusinessLogo(BusinessSettings{LogoPath: test.path}); got != test.want {
+			t.Fatalf("hasOwnBusinessLogo(%q) = %v, want %v", test.path, got, test.want)
+		}
+	}
+
+	initialsCases := map[string]string{
+		"Stocki App":     "SA",
+		"Mi Tienda":      "MT",
+		"Élite":          "ÉL",
+		"  Café & Más  ": "CM",
+		"":               "S",
+	}
+	for name, want := range initialsCases {
+		if got := businessNameInitials(name); got != want {
+			t.Fatalf("businessNameInitials(%q) = %q, want %q", name, got, want)
+		}
 	}
 }
 

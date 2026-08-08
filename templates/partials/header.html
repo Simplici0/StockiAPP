@@ -84,6 +84,22 @@
         white-space: nowrap;
     }
 
+    .topbar-initials {
+        display: none;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        background: var(--primary-soft);
+        color: var(--primary-strong);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+    }
+
     .topbar-mobile-toggle {
         display: inline-flex;
         flex: 0 0 auto;
@@ -282,6 +298,7 @@
     .sidebar-shell.sidebar-collapsed .topbar-name,
     .sidebar-shell.sidebar-collapsed .sidebar-label,
     .sidebar-shell.sidebar-collapsed .topbar-menu-caret { display: none; }
+    .sidebar-shell.sidebar-collapsed .topbar-initials { display: inline-flex; }
     .sidebar-shell.sidebar-collapsed .topbar-link,
     .sidebar-shell.sidebar-collapsed .topbar-menu summary { justify-content: center; padding: 0; }
     .sidebar-shell.sidebar-collapsed .topbar-link.active,
@@ -552,8 +569,9 @@
             padding: calc(16px + env(safe-area-inset-top)) 16px 16px;
         }
         .sidebar-shell.sidebar-collapsed .topbar-name,
-        .sidebar-shell.sidebar-collapsed .sidebar-label,
+        .sidebar-shell.sidebar-collapsed .sidebar-label { display: inline; }
         .sidebar-shell.sidebar-collapsed .topbar-menu-caret { display: inline-flex; }
+        .sidebar-shell.sidebar-collapsed .topbar-initials { display: none; }
         .sidebar-shell.sidebar-collapsed .topbar-link,
         .sidebar-shell.sidebar-collapsed .topbar-menu summary { justify-content: flex-start; padding: 0 12px; }
         .sidebar-shell.sidebar-collapsed .topbar-menu-panel { padding-left: 42px; }
@@ -588,6 +606,8 @@
 
     /* ── Shell integrado ── */
     @media (min-width: 768px) {
+        .sidebar-fixed-brand.has-logo { justify-content: center; }
+
         .topbar::before {
             content: "";
             position: fixed;
@@ -880,9 +900,13 @@
 </style>
 
 <header class="topbar sidebar-shell" data-sidebar-shell>
-    <a class="sidebar-fixed-brand" href="/inventario" aria-label="Inicio Stocki App">
-        <span class="topbar-logo"><img src="{{businessLogoPath .}}" alt="Logo" /></span>
+    <a class="sidebar-fixed-brand {{if businessHasOwnLogo .}}has-logo{{else}}has-name{{end}}" href="/inventario" aria-label="Inicio {{businessName .}}">
+        {{if businessHasOwnLogo .}}
+        <span class="topbar-logo"><img src="{{businessLogoPath .}}" alt="{{businessName .}}" /></span>
+        {{else}}
         <span class="topbar-name">{{businessName .}}</span>
+        <span class="topbar-initials" aria-hidden="true">{{businessInitials .}}</span>
+        {{end}}
     </a>
 
     <div class="sidebar-mobile-bar">
@@ -897,9 +921,12 @@
                 <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
         </button>
-        <a class="sidebar-mobile-brand" href="/inventario" aria-label="Inicio Stocki App">
-            <span class="topbar-logo"><img src="{{businessLogoPath .}}" alt="Logo" /></span>
+        <a class="sidebar-mobile-brand {{if businessHasOwnLogo .}}has-logo{{else}}has-name{{end}}" href="/inventario" aria-label="Inicio {{businessName .}}">
+            {{if businessHasOwnLogo .}}
+            <span class="topbar-logo"><img src="{{businessLogoPath .}}" alt="{{businessName .}}" /></span>
+            {{else}}
             <span class="topbar-name">{{businessName .}}</span>
+            {{end}}
         </a>
     </div>
 

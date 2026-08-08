@@ -9511,6 +9511,49 @@ func normalizeBusinessSettings(settings BusinessSettings) BusinessSettings {
 	return settings
 }
 
+func hasOwnBusinessLogo(settings BusinessSettings) bool {
+	logoPath := strings.TrimSpace(strings.ToLower(settings.LogoPath))
+	defaultLogoPath := strings.TrimSpace(strings.ToLower(defaultBusinessSettings().LogoPath))
+	if logoPath == "" || logoPath == defaultLogoPath || !strings.HasPrefix(logoPath, "/static/uploads/branding/") {
+		return false
+	}
+	return strings.HasSuffix(logoPath, ".png") ||
+		strings.HasSuffix(logoPath, ".jpg") ||
+		strings.HasSuffix(logoPath, ".jpeg") ||
+		strings.HasSuffix(logoPath, ".webp")
+}
+
+func businessNameInitials(name string) string {
+	fields := strings.Fields(strings.TrimSpace(name))
+	initials := make([]rune, 0, 2)
+	if len(fields) == 1 {
+		for _, r := range fields[0] {
+			if unicode.IsLetter(r) {
+				initials = append(initials, r)
+				if len(initials) == 2 {
+					break
+				}
+			}
+		}
+	} else {
+		for _, field := range fields {
+			for _, r := range field {
+				if unicode.IsLetter(r) {
+					initials = append(initials, r)
+					break
+				}
+			}
+			if len(initials) == 2 {
+				break
+			}
+		}
+	}
+	if len(initials) == 0 {
+		return "S"
+	}
+	return strings.ToUpper(string(initials))
+}
+
 func effectiveBusinessLogoPath(settings BusinessSettings, data any) string {
 	defaultLogoPath := strings.TrimSpace(defaultBusinessSettings().LogoPath)
 	globalLogoPath := strings.TrimSpace(currentBusinessSettings().LogoPath)
@@ -18682,6 +18725,12 @@ func main() {
 		},
 		"businessLogoPath": func(data any) string {
 			return effectiveBusinessLogoPath(resolveTemplateSettings(data), data)
+		},
+		"businessHasOwnLogo": func(data any) bool {
+			return hasOwnBusinessLogo(resolveTemplateSettings(data))
+		},
+		"businessInitials": func(data any) string {
+			return businessNameInitials(resolveTemplateSettings(data).BusinessName)
 		},
 		"businessPrimaryColor": func(data any) string {
 			return resolveTemplateSettings(data).PrimaryColor
