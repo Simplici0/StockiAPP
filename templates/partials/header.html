@@ -210,23 +210,30 @@
     .topbar-menu summary::-webkit-details-marker { display: none; }
 
     .topbar-menu-caret {
-        width: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
         margin-left: auto;
         color: var(--text-soft);
-        font-size: 11px;
-        text-align: center;
         transition: transform 160ms ease;
     }
 
     .topbar-menu[open] .topbar-menu-caret { transform: rotate(180deg); }
 
+    .topbar-menu-caret svg {
+        display: block;
+        width: 14px;
+        height: 14px;
+    }
+
     .topbar-menu-panel {
         display: none;
-        gap: 0;
+        gap: 4px;
         min-width: 0;
-        margin: 2px 0 0 44px;
-        padding: 4px 0 4px 12px;
-        border-left: 1px solid var(--border-strong);
+        margin: 4px 0;
+        padding: 0 0 0 42px;
         background: transparent;
     }
 
@@ -238,11 +245,11 @@
         align-items: center;
         width: 100%;
         min-height: 44px;
-        padding: 0 10px;
+        padding: 0 8px;
         border: 0;
-        border-radius: 10px;
+        border-radius: var(--control-radius);
         background: transparent;
-        color: var(--text);
+        color: var(--text-muted);
         font-size: 12.5px;
         font-weight: 650;
         text-align: left;
@@ -260,32 +267,6 @@
         outline: none;
     }
 
-    .topbar-menu-panel small { color: var(--text-soft); font-size: 11px; }
-    .topbar-menu-panel .menu-sep { height: 1px; margin: 4px 0; background: var(--border); }
-
-    .sidebar-menu-group {
-        display: grid;
-        gap: 2px;
-        padding: 6px 0;
-    }
-
-    .sidebar-menu-group + .sidebar-menu-group {
-        border-top: 1px solid var(--border);
-    }
-
-    .sidebar-menu-heading {
-        display: flex;
-        align-items: center;
-        min-height: 24px;
-        padding: 0 10px;
-        color: var(--text-soft);
-        font-size: 10.5px;
-        font-weight: 800;
-        letter-spacing: 0.09em;
-        line-height: 1.2;
-        text-transform: uppercase;
-    }
-
     .sidebar-shell.sidebar-collapsed .sidebar-fixed-brand {
         width: var(--sidebar-width-collapsed);
         justify-content: center;
@@ -300,8 +281,7 @@
     .sidebar-shell.sidebar-collapsed .topbar-brand { flex: 0 0 auto; }
     .sidebar-shell.sidebar-collapsed .topbar-name,
     .sidebar-shell.sidebar-collapsed .sidebar-label,
-    .sidebar-shell.sidebar-collapsed .topbar-menu-caret,
-    .sidebar-shell.sidebar-collapsed .topbar-username { display: none; }
+    .sidebar-shell.sidebar-collapsed .topbar-menu-caret { display: none; }
     .sidebar-shell.sidebar-collapsed .topbar-link,
     .sidebar-shell.sidebar-collapsed .topbar-menu summary { justify-content: center; padding: 0; }
     .sidebar-shell.sidebar-collapsed .topbar-link.active,
@@ -328,10 +308,10 @@
     .sidebar-utility-link {
         display: flex;
         align-items: center;
+        justify-content: center;
         min-width: 0;
         min-height: 44px;
-        gap: 8px;
-        padding: 0 10px;
+        padding: 0;
         border: 1px solid transparent;
         border-radius: 12px;
         color: var(--text-muted);
@@ -351,16 +331,18 @@
     }
 
     .sidebar-utility-link .sidebar-icon {
-        width: 28px;
-        height: 28px;
+        width: 36px;
+        height: 36px;
         border-radius: 8px;
     }
 
+    .sidebar-utility-link .sidebar-icon svg {
+        width: 22px;
+        height: 22px;
+    }
+
     .sidebar-utility-label {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        display: none;
     }
 
     .sidebar-shortcut-hint {
@@ -395,45 +377,49 @@
         gap: 10px;
     }
 
-    .topbar-username {
-        display: flex;
+    .topbar-user-icon {
+        display: inline-flex;
         align-items: center;
-        justify-content: flex-start;
-        width: 100%;
-        min-width: 0;
-        min-height: 44px;
-        padding: 0;
-        overflow: hidden;
-        border: 0;
-        background: transparent;
-        box-shadow: none;
-        color: var(--text);
-        font-size: 12px;
-        font-weight: 700;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        text-align: left;
-        cursor: pointer;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        background: var(--primary-soft);
+        color: var(--primary-strong);
     }
 
-    .topbar-username:hover,
-    .topbar-username:focus-visible {
-        color: var(--primary-strong);
-        outline: none;
+    .topbar-user-icon svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .topbar-role-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: var(--primary);
+        color: var(--primary-contrast);
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: 0;
+        text-transform: none;
     }
 
     .topbar-theme-toggle {
         position: relative;
         display: inline-flex;
         align-items: center;
-        justify-content: flex-start;
-        width: 52px;
-        min-width: 52px;
+        justify-content: center;
+        width: 44px;
+        min-width: 44px;
         height: 44px;
         min-height: 44px;
-        padding: 2px;
+        padding: 0;
         border: 1px solid var(--border-strong);
-        border-radius: 999px;
+        border-radius: 50%;
         background: var(--bg-card-muted);
         cursor: pointer;
         transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
@@ -446,31 +432,25 @@
         outline: none;
     }
 
-    .topbar-theme-thumb {
+    .topbar-theme-icon {
         display: inline-flex;
-        width: 24px;
-        height: 24px;
+        flex: 0 0 auto;
         align-items: center;
         justify-content: center;
-        border: 1px solid var(--border-strong);
-        border-radius: 999px;
-        background: radial-gradient(circle at 34% 34%, var(--toggle-thumb-start) 0%, var(--toggle-thumb-end) 100%);
-        box-shadow: var(--shadow-xs);
-        transform: translateX(0);
-        transition: transform 180ms ease, background 180ms ease;
+        width: 20px;
+        height: 20px;
+        color: var(--text-muted);
     }
 
-    .topbar-theme-thumb::before {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: var(--toggle-icon-sun);
-        box-shadow: 0 0 0 4px var(--toggle-ring);
-        content: "";
+    .topbar-theme-icon svg {
+        display: block;
+        width: 20px;
+        height: 20px;
     }
 
-    :root[data-theme="dark"] .topbar-theme-thumb { transform: translateX(20px); }
-    :root[data-theme="dark"] .topbar-theme-thumb::before { background: var(--toggle-icon-moon); }
+    .topbar-theme-icon .theme-icon-sun { display: none; }
+    :root[data-theme="dark"] .topbar-theme-icon .theme-icon-moon { display: none; }
+    :root[data-theme="dark"] .topbar-theme-icon .theme-icon-sun { display: block; }
 
     .sidebar-logout-modal {
         position: fixed;
@@ -573,22 +553,17 @@
         }
         .sidebar-shell.sidebar-collapsed .topbar-name,
         .sidebar-shell.sidebar-collapsed .sidebar-label,
-        .sidebar-shell.sidebar-collapsed .topbar-username,
-        .sidebar-shell.sidebar-collapsed .topbar-menu-caret { display: inline; }
+        .sidebar-shell.sidebar-collapsed .topbar-menu-caret { display: inline-flex; }
         .sidebar-shell.sidebar-collapsed .topbar-link,
         .sidebar-shell.sidebar-collapsed .topbar-menu summary { justify-content: flex-start; padding: 0 12px; }
-        .sidebar-shell.sidebar-collapsed .topbar-menu-panel { margin-left: 12px; }
+        .sidebar-shell.sidebar-collapsed .topbar-menu-panel { padding-left: 42px; }
         .sidebar-shell.sidebar-collapsed .sidebar-utilities {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .sidebar-shell.sidebar-collapsed .sidebar-utility-link {
-            justify-content: flex-start;
-            padding: 0 10px;
-        }
-
-        .sidebar-shell.sidebar-collapsed .sidebar-utility-label {
-            display: inline;
+            justify-content: center;
+            padding: 0;
         }
         .sidebar-shell.sidebar-collapsed .topbar-user { grid-template-columns: minmax(0, 1fr) auto; }
         .sidebar-shell.sidebar-collapsed .sidebar-user { justify-content: initial; }
@@ -600,7 +575,7 @@
         .topbar-link,
         .topbar-menu summary,
         .topbar-menu-caret,
-        .topbar-theme-thumb,
+        .topbar-theme-icon,
         .topbar-mobile-toggle,
         .sidebar-utility-link { transition: none !important; }
     }
@@ -609,6 +584,298 @@
         .topbar,
         .sidebar-backdrop,
         .sidebar-mobile-bar { display: none !important; }
+    }
+
+    /* ── Shell integrado ── */
+    @media (min-width: 768px) {
+        .topbar::before {
+            content: "";
+            position: fixed;
+            inset: 0 0 auto var(--sidebar-width);
+            z-index: 999;
+            height: 64px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-nav);
+        }
+
+        .sidebar-fixed-brand {
+            inset: 0 auto auto 0;
+            width: var(--sidebar-width-expanded);
+            height: 64px;
+            min-height: 64px;
+            padding: 0 22px;
+            border-right: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-nav);
+        }
+
+        .sidebar-panel {
+            inset: 64px auto 0 0;
+            width: var(--sidebar-width-expanded);
+            gap: 12px;
+            padding: 16px 12px;
+            overflow: hidden;
+            border: 0;
+            border-right: 1px solid var(--border);
+            border-radius: 0;
+            background: var(--bg-nav);
+            box-shadow: none;
+        }
+
+        .sidebar-scroll {
+            gap: 12px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-strong) transparent;
+        }
+
+        .topbar-link,
+        .topbar-menu summary {
+            min-height: 44px;
+            gap: 10px;
+            padding: 0 12px;
+            border-radius: var(--control-radius);
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .topbar-link:hover,
+        .topbar-link:focus-visible,
+        .topbar-menu summary:hover,
+        .topbar-menu summary:focus-visible,
+        .topbar-menu[open] summary {
+            border-color: transparent;
+            background: var(--bg-nav-soft);
+            color: var(--text);
+        }
+
+        .topbar-link.active,
+        .topbar-menu.active summary {
+            border-color: transparent;
+            background: var(--primary-soft);
+            color: var(--primary-strong);
+            box-shadow: inset 2px 0 0 var(--primary);
+        }
+
+        .sidebar-icon {
+            width: 30px;
+            height: 30px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: currentColor;
+        }
+
+        .sidebar-icon svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .topbar-admin-nav {
+            padding-top: 12px;
+            border-top-color: var(--border);
+        }
+
+        .topbar-menu-panel {
+            margin: 4px 0;
+            padding-left: 42px;
+        }
+
+        .topbar-menu-panel a,
+        .topbar-menu-panel button.menu-item {
+            min-height: 44px;
+            border-radius: var(--control-radius);
+            color: var(--text-muted);
+        }
+
+        .topbar-menu-panel a:hover,
+        .topbar-menu-panel a:focus-visible,
+        .topbar-menu-panel a.active,
+        .topbar-menu-panel button.menu-item:hover,
+        .topbar-menu-panel button.menu-item:focus-visible {
+            background: var(--bg-nav-soft);
+            color: var(--primary-strong);
+        }
+
+        .sidebar-utilities {
+            gap: 4px;
+            padding-top: 12px;
+            border-top-color: var(--border);
+        }
+
+        .sidebar-utility-link {
+            min-height: 44px;
+            border-radius: var(--control-radius);
+            color: var(--text-muted);
+        }
+
+        .sidebar-utility-link:hover,
+        .sidebar-utility-link:focus-visible,
+        .sidebar-utility-link.active {
+            border-color: transparent;
+            background: var(--bg-nav-soft);
+            color: var(--text);
+        }
+
+        .sidebar-utility-link .sidebar-icon {
+            width: 36px;
+            height: 36px;
+        }
+
+        .sidebar-utility-link .sidebar-icon svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .sidebar-user {
+            position: fixed;
+            top: 0;
+            right: 24px;
+            z-index: 1004;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            height: 64px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+        }
+
+        .topbar-identity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .topbar-theme-toggle {
+            width: 44px;
+            min-width: 44px;
+            height: 44px;
+            min-height: 44px;
+            border-color: var(--border);
+            border-radius: 50%;
+            background: transparent;
+            box-shadow: none;
+        }
+
+        .topbar-theme-toggle:hover,
+        .topbar-theme-toggle:focus-visible {
+            border-color: var(--border-strong);
+            background: var(--bg-nav-soft);
+            box-shadow: none;
+        }
+
+        .topbar-logout-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 40px;
+            padding: 0 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--control-radius);
+            background: transparent;
+            color: var(--text);
+            font-size: 12.5px;
+            font-weight: 650;
+            white-space: nowrap;
+        }
+
+        .topbar-logout-button:hover,
+        .topbar-logout-button:focus-visible {
+            border-color: var(--border-strong);
+            background: var(--bg-nav-soft);
+            outline: none;
+        }
+
+        .topbar-logout-button svg {
+            width: 17px;
+            height: 17px;
+            color: var(--text-muted);
+        }
+
+        body.sidebar-layout .page-content {
+            padding-top: 88px;
+        }
+
+        .sidebar-shell.sidebar-collapsed .sidebar-fixed-brand {
+            width: var(--sidebar-width-collapsed);
+            padding-inline: 0;
+            justify-content: center;
+        }
+
+        .sidebar-shell.sidebar-collapsed .sidebar-panel {
+            width: var(--sidebar-width-collapsed);
+            padding-inline: 10px;
+        }
+    }
+
+    @media (max-width: 767px) {
+        .sidebar-mobile-bar {
+            height: calc(60px + env(safe-area-inset-top));
+            border-bottom-color: var(--border);
+            background: var(--bg-nav);
+            box-shadow: none;
+        }
+
+        .sidebar-mobile-brand .topbar-logo {
+            width: 40px;
+            height: 40px;
+        }
+
+        .sidebar-mobile-brand .topbar-logo img {
+            max-width: 34px;
+            height: 28px;
+        }
+
+        .sidebar-panel,
+        .sidebar-shell.sidebar-collapsed .sidebar-panel {
+            width: min(304px, calc(100vw - 40px));
+            padding: calc(16px + env(safe-area-inset-top)) 14px 16px;
+            border: 0;
+            border-right: 1px solid var(--border);
+            border-radius: 0 var(--radius-md) var(--radius-md) 0;
+            background: var(--bg-nav);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .sidebar-user {
+            position: static;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            height: auto;
+            gap: 10px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+            background: transparent;
+        }
+
+        .topbar-identity {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .topbar-role-pill {
+            width: fit-content;
+            min-height: 24px;
+            padding: 0 9px;
+            font-size: 10px;
+        }
+
+        .topbar-theme-toggle {
+            align-self: center;
+        }
+
+        .topbar-logout-button {
+            grid-column: 1 / -1;
+            justify-content: center;
+            width: 100%;
+        }
+
+        body.sidebar-layout .page-content {
+            padding-top: 16px;
+        }
     }
 </style>
 
@@ -675,47 +942,29 @@
                     <summary id="products-menu-summary" aria-label="Productos">
                         <span class="sidebar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4 7.5 8 4.5 8-4.5" /></svg></span>
                         <span class="sidebar-label">Productos</span>
-                        <span class="topbar-menu-caret" aria-hidden="true">▾</span>
+                        <span class="topbar-menu-caret" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg></span>
                     </summary>
                     <div class="topbar-menu-panel">
                         {{if pageCanLoan .}}
-                        <div class="sidebar-menu-group">
-                            <span class="sidebar-menu-heading">Operar</span>
-                            <a href="/prestamos/producto"><span>Ver préstamos</span></a>
-                        </div>
+                        <a href="/prestamos/producto"><span>Ver préstamos</span></a>
                         {{end}}
                         {{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin")}}
-                        <div class="sidebar-menu-group">
-                            <span class="sidebar-menu-heading">Datos</span>
-                            <a href="/csv/template" target="_blank" rel="noreferrer"><span>Importar</span></a>
-                        </div>
+                        <a href="/csv/template" target="_blank" rel="noreferrer"><span>Importar</span></a>
                         {{end}}
-                        <div class="sidebar-menu-group">
-                            <span class="sidebar-menu-heading">Herramientas</span>
-                            <a href="/productos/etiquetas/masivas"><span>Etiquetas</span></a>
-                        </div>
+                        <a href="/productos/etiquetas/masivas"><span>Etiquetas</span></a>
                     </div>
                 </details>
                 {{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin")}}
                 <details class="topbar-menu">
                     <summary aria-label="Gestión">
-                        <span class="sidebar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a2 2 0 0 1 2 2v1.1a7.5 7.5 0 0 1 2 1.2l.95-.55a2 2 0 1 1 2 3.46l-.95.55c.1.4.15.82.15 1.24s-.05.84-.15 1.24l.95.55a2 2 0 1 1-2 3.46l-.95-.55a7.5 7.5 0 0 1-2 1.2V19a2 2 0 1 1-4 0v-1.1a7.5 7.5 0 0 1-2-1.2l-.95.55a2 2 0 1 1-2-3.46l.95-.55A5 5 0 0 1 6 12c0-.42.05-.84.15-1.24l-.95-.55a2 2 0 1 1 2-3.46l.95.55a7.5 7.5 0 0 1 2-1.2V5a2 2 0 0 1 2-2Z" /><circle cx="12" cy="12" r="2.5" /></svg></span>
+                        <span class="sidebar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.9 8.1 7 10 4.1-1.9 7-5.3 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></svg></span>
                         <span class="sidebar-label">Gestión</span>
-                        <span class="topbar-menu-caret" aria-hidden="true">▾</span>
+                        <span class="topbar-menu-caret" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg></span>
                     </summary>
                     <div class="topbar-menu-panel">
-                        <div class="sidebar-menu-group">
-                            <span class="sidebar-menu-heading">Administrar</span>
-                            <a href="/admin/users"><span>Usuarios</span></a>
-                        </div>
-                        <div class="sidebar-menu-group">
-                            <span class="sidebar-menu-heading">Control</span>
-                            <a href="/auditoria"><span>Auditoría</span></a>
-                        </div>
-                        <div class="sidebar-menu-group">
-                            <span class="sidebar-menu-heading">Datos</span>
-                            <a href="/csv/export" target="_blank" rel="noreferrer"><span>Exportar</span></a>
-                        </div>
+                        <a href="/admin/users"><span>Usuarios</span></a>
+                        <a href="/auditoria"><span>Auditoría</span></a>
+                        <a href="/csv/export" target="_blank" rel="noreferrer"><span>Exportar</span></a>
                     </div>
                 </details>
                 {{end}}
@@ -726,12 +975,12 @@
 
         {{if .CurrentUser}}
         <nav class="sidebar-utilities" aria-label="Ayuda y configuración">
-            <a href="/manual" class="sidebar-utility-link" aria-label="Manual del producto">
+            <a href="/manual" class="sidebar-utility-link" aria-label="Manual del producto" title="Manual del producto">
                 <span class="sidebar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M9.8 9.5a2.3 2.3 0 1 1 3.5 2c-.9.5-1.3.9-1.3 2" /><path d="M12 16.5h.01" /></svg></span>
                 <span class="sidebar-utility-label">Manual del producto</span>
             </a>
             {{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin")}}
-            <a href="/configuracion" class="sidebar-utility-link" aria-label="Configuración">
+            <a href="/configuracion" class="sidebar-utility-link" aria-label="Configuración" title="Configuración">
                 <span class="sidebar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a2 2 0 0 1 2 2v1.1a7.5 7.5 0 0 1 2 1.2l.95-.55a2 2 0 1 1 2 3.46l-.95.55c.1.4.15.82.15 1.24s-.05.84-.15 1.24l.95.55a2 2 0 1 1-2 3.46l-.95-.55a7.5 7.5 0 0 1-2 1.2V19a2 2 0 1 1-4 0v-1.1a7.5 7.5 0 0 1-2-1.2l-.95.55a2 2 0 1 1-2-3.46l.95-.55A5 5 0 0 1 6 12c0-.42.05-.84.15-1.24l-.95-.55a2 2 0 1 1 2-3.46l.95.55a7.5 7.5 0 0 1 2-1.2V5a2 2 0 0 1 2-2Z" /><circle cx="12" cy="12" r="2.5" /></svg></span>
                 <span class="sidebar-utility-label">Configuración</span>
             </a>
@@ -741,11 +990,31 @@
 
         {{if .CurrentUser}}
         <div class="topbar-user sidebar-user">
-            <button class="topbar-username" type="button" id="logout-trigger" aria-haspopup="dialog" aria-controls="logout-modal">
-                {{.CurrentUser.Username}}
-            </button>
+            <div class="topbar-identity">
+                <span class="topbar-user-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="8" r="3.2" />
+                        <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+                    </svg>
+                </span>
+                <span class="topbar-role-pill">{{if or (eq .CurrentUser.Role "platform_admin") (eq .CurrentUser.Role "admin")}}Administrador{{else}}Empleado{{end}}</span>
+            </div>
             <button class="topbar-theme-toggle" type="button" id="theme-toggle" aria-label="Cambiar tema" title="Cambiar tema" aria-pressed="false">
-                <span class="topbar-theme-thumb" aria-hidden="true"></span>
+                <span class="topbar-theme-icon" aria-hidden="true">
+                    <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20.5 14.8A8.5 8.5 0 0 1 9.2 3.5 8.5 8.5 0 1 0 20.5 14.8Z" />
+                    </svg>
+                    <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3.5" />
+                        <path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" />
+                    </svg>
+                </span>
+            </button>
+            <button class="topbar-logout-button" type="button" id="logout-trigger" aria-haspopup="dialog" aria-controls="logout-modal">
+                <span>Cerrar sesión</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                    <path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" />
+                </svg>
             </button>
         </div>
         {{end}}
@@ -887,7 +1156,7 @@
         panel?.addEventListener("click", (event) => {
             if (isMobile() || !(event.target instanceof Element)) return;
             const target = event.target;
-            if (!panel.contains(target) || target.closest("a, button, summary, form, input, select, textarea, .topbar-menu-panel, .sidebar-user, .sidebar-utilities, .sidebar-menu-heading")) return;
+            if (!panel.contains(target) || target.closest("a, button, summary, form, input, select, textarea, .topbar-menu-panel, .sidebar-user, .sidebar-utilities")) return;
             toggleCollapsed();
         });
 

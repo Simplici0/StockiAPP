@@ -237,8 +237,9 @@
     .product-form .essential-section,
     .product-form .advanced-section {
       border: 1px solid var(--border);
-      border-radius: 14px;
-      background: var(--card);
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      box-shadow: none;
     }
 
     .product-form .essential-section {
@@ -253,6 +254,7 @@
       min-height: 48px;
       padding: 14px 16px;
       color: var(--text);
+      border-radius: var(--radius-md);
       cursor: pointer;
       font-size: 15px;
       font-weight: 750;
@@ -267,6 +269,7 @@
       display: grid;
       gap: 16px;
       padding: 0 20px 20px;
+      border-top: 1px solid var(--border);
     }
 
     .product-form .help-text {
@@ -404,6 +407,12 @@
   {{template "header" .}}
 
   <main class="page-content">
+    <header class="page-heading">
+      <div class="page-heading-copy">
+        <h1>Nuevo producto</h1>
+        <p>Registra un producto y sus unidades iniciales en el inventario.</p>
+      </div>
+    </header>
     <div class="card product-create-card">
       {{if .Flash}}
       <div class="flash">{{.Flash}}</div>

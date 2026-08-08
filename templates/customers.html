@@ -15,10 +15,10 @@
                 display: grid;
                 gap: 14px;
                 padding: 16px;
-                border-radius: 20px;
+                border-radius: var(--radius-md);
                 border: 1px solid var(--border);
                 background: var(--bg-card);
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
             }
 
             .customers-search-row {
@@ -39,7 +39,7 @@
                 align-items: center;
                 justify-content: center;
                 padding: 0 18px;
-                border-radius: 16px;
+                border-radius: var(--control-radius);
                 font-weight: 700;
                 text-decoration: none;
                 white-space: nowrap;
@@ -65,10 +65,10 @@
             .customer-import {
                 display: grid;
                 gap: 0;
-                border-radius: 20px;
+                border-radius: var(--radius-md);
                 border: 1px solid var(--border);
                 background: var(--bg-card);
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
             }
 
             .customer-import-toggle {
@@ -195,10 +195,10 @@
                 display: grid;
                 gap: 14px;
                 padding: 18px;
-                border-radius: 18px;
+                border-radius: var(--radius-md);
                 border: 1px solid var(--border);
                 background: var(--bg-card);
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
             }
 
             .customer-card-head {
@@ -235,7 +235,7 @@
 
             .metric-tile {
                 padding: 12px 13px;
-                border-radius: 14px;
+                border-radius: var(--radius-sm);
                 background: var(--bg-card-muted);
                 border: 1px solid var(--border);
                 display: grid;
@@ -280,7 +280,7 @@
                 color: var(--secondary);
                 font-size: 12px;
                 font-weight: 700;
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
                 white-space: nowrap;
             }
 
@@ -293,7 +293,7 @@
 
             .empty-state {
                 padding: 22px;
-                border-radius: 20px;
+                border-radius: var(--radius-md);
                 border: 1px dashed var(--border-strong);
                 background: var(--bg-card);
                 color: var(--text-muted);
@@ -305,7 +305,7 @@
             [data-theme="dark"] .empty-state {
                 border-color: var(--border);
                 background: var(--bg-card);
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
             }
 
             [data-theme="dark"] .customer-doc,
@@ -365,6 +365,16 @@
             {{end}} {{if .Error}}
             <div class="flash error">{{.Error}}</div>
             {{end}}
+
+            <header class="page-heading">
+                <div class="page-heading-copy">
+                    <h1>Clientes</h1>
+                    <p>Consulta fichas, movimientos y saldos de tus clientes.</p>
+                </div>
+                <div class="page-heading-actions">
+                    <a class="button primary" href="#customer-import-toggle">Importar clientes</a>
+                </div>
+            </header>
 
             <form class="customers-search" method="GET" action="/clientes">
                 <div class="customers-search-row">
@@ -610,6 +620,16 @@
                     setImportExpanded(
                         importToggle.getAttribute("aria-expanded") !== "true",
                     );
+                });
+
+                const importShortcut = document.querySelector(
+                    '.page-heading-actions [href="#customer-import-toggle"]',
+                );
+                importShortcut?.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    setImportExpanded(true);
+                    importToggle.scrollIntoView({ behavior: "smooth", block: "center" });
+                    importToggle.focus();
                 });
 
                 const escapeCSV = (value) => {

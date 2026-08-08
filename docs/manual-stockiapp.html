@@ -5,8 +5,9 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Manual de Uso — StockiAPP</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
-            href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700&family=Roboto+Mono:wght@400;500&display=swap"
             rel="stylesheet"
         />
         <style>
@@ -467,7 +468,7 @@
             .cmd {
                 background: rgba(14, 165, 233, 0.055);
                 border: 1px solid rgba(14, 165, 233, 0.13);
-                border-left: 3px solid var(--blue);
+                border-left: 1px solid var(--border);
                 border-radius: 0 8px 8px 0;
                 padding: 9px 13px;
                 font-family: "Courier New", monospace;
@@ -833,9 +834,965 @@
                     transition-duration: 0.01ms !important;
                 }
             }
+
+            /* ── StockiAPP design system ──
+             * The legacy manual keeps its markup and interactions, but this
+             * layer brings its visual language in line with the app shell.
+             */
+            :root {
+                color-scheme: light;
+                --font-sans: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
+                --font-heading: "Montserrat", "Inter", "Segoe UI", sans-serif;
+                --font-mono: "Roboto Mono", "SFMono-Regular", Consolas, monospace;
+                --page-bg: #ffffff;
+                --page-accent: #f5f7fa;
+                --page-glow: rgba(91, 91, 214, 0.08);
+                --surface-1: #ffffff;
+                --surface-2: #f5f7fa;
+                --surface-3: #eceff3;
+                --surface-overlay: rgba(255, 255, 255, 0.97);
+                --text: #212121;
+                --text-muted: #6b7280;
+                --text-soft: #6b7280;
+                --text-inverse: #ffffff;
+                --primary: #5b5bd6;
+                --primary-strong: #4545b0;
+                --primary-soft: rgba(91, 91, 214, 0.1);
+                --primary-contrast: #ffffff;
+                --primary-strong-contrast: #ffffff;
+                --primary-shadow: rgba(91, 91, 214, 0.24);
+                --secondary: #212121;
+                --secondary-soft: #f5f7fa;
+                --focus-ring: rgba(91, 91, 214, 0.22);
+                --success: #16a34a;
+                --success-soft: rgba(22, 163, 74, 0.12);
+                --warning: #f59e0b;
+                --warning-soft: rgba(245, 158, 11, 0.14);
+                --danger: #dc2626;
+                --danger-soft: rgba(220, 38, 38, 0.12);
+                --info-soft: rgba(91, 91, 214, 0.1);
+                --info-ink: #4545b0;
+                --info-border: rgba(91, 91, 214, 0.24);
+                --success-ink: #16803c;
+                --warning-ink: #9a5e00;
+                --danger-ink: #b91c1c;
+                --border: #d6d9de;
+                --border-strong: #d6d9de;
+                --shadow-xs: 0 1px 2px rgba(33, 33, 33, 0.05), 0 12px 24px rgba(33, 33, 33, 0.05);
+                --shadow-sm: 0 2px 8px rgba(33, 33, 33, 0.06), 0 16px 32px rgba(33, 33, 33, 0.06);
+                --radius-sm: 10px;
+                --radius-md: 16px;
+                --radius-lg: 22px;
+                --control-radius: 12px;
+                --chip-radius: 999px;
+                --sidebar: 256px;
+                --topbar: 64px;
+                --space-1: 8px;
+                --space-2: 12px;
+                --space-3: 16px;
+                --space-4: 20px;
+                --space-5: 24px;
+                --space-6: 32px;
+
+                /* Legacy aliases used by the original standalone styles. */
+                --navy: var(--page-bg);
+                --slate: var(--surface-2);
+                --slate2: var(--border);
+                --blue: var(--primary);
+                --blue-dk: var(--primary-strong);
+                --sky: var(--primary-strong);
+                --white: var(--text);
+                --off: var(--surface-2);
+                --muted: var(--text-muted);
+                --gray: var(--text-muted);
+                --green: var(--success);
+                --orange: var(--warning);
+                --purple: var(--primary-strong);
+                --border-legacy: var(--border);
+            }
+
+            :root[data-theme="dark"] {
+                color-scheme: dark;
+                --page-bg: #121212;
+                --page-accent: #121212;
+                --page-glow: rgba(209, 213, 219, 0.1);
+                --surface-1: #1f1f1f;
+                --surface-2: #2d2d2d;
+                --surface-3: #353535;
+                --surface-overlay: rgba(45, 45, 45, 0.96);
+                --text: #e5e5e5;
+                --text-muted: #9ca3af;
+                --text-soft: #9ca3af;
+                --text-inverse: #121212;
+                --primary: #d1d5db;
+                --primary-strong: #b6bcc4;
+                --primary-soft: rgba(209, 213, 219, 0.16);
+                --primary-contrast: #121212;
+                --primary-strong-contrast: #121212;
+                --primary-shadow: rgba(209, 213, 219, 0.28);
+                --secondary: #e5e5e5;
+                --secondary-soft: rgba(229, 229, 229, 0.1);
+                --focus-ring: rgba(209, 213, 219, 0.3);
+                --success: #00bf6b;
+                --success-soft: rgba(0, 191, 107, 0.16);
+                --warning: #fca327;
+                --warning-soft: rgba(252, 163, 39, 0.16);
+                --danger: #ef4444;
+                --danger-soft: rgba(239, 68, 68, 0.16);
+                --info-soft: rgba(209, 213, 219, 0.16);
+                --info-ink: #d1d5db;
+                --info-border: rgba(209, 213, 219, 0.3);
+                --success-ink: #00bf6b;
+                --warning-ink: #fca327;
+                --danger-ink: #ef4444;
+                --border: #37474f;
+                --border-strong: #37474f;
+                --shadow-xs: 0 8px 18px rgba(0, 0, 0, 0.28), 0 1px 0 rgba(255, 255, 255, 0.02);
+                --shadow-sm: 0 18px 36px rgba(0, 0, 0, 0.34), 0 1px 0 rgba(255, 255, 255, 0.02);
+            }
+
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+            }
+
+            html {
+                min-width: 0;
+                scroll-behavior: smooth;
+                background: var(--page-bg);
+            }
+
+            body {
+                min-width: 0;
+                overflow-x: hidden;
+                color: var(--text);
+                background:
+                    radial-gradient(circle at top left, var(--page-glow) 0, transparent 28rem),
+                    linear-gradient(180deg, var(--page-accent) 0%, var(--page-bg) 26%, var(--page-bg) 100%);
+                font-family: var(--font-sans);
+                font-size: 15px;
+                line-height: 1.6;
+                transition: background 0.22s ease, color 0.22s ease;
+            }
+
+            h1,
+            h2,
+            h3,
+            h4,
+            h5,
+            h6,
+            .logo,
+            .section-title,
+            .hero-title,
+            .card-title,
+            .mod-name,
+            .role-hd,
+            .step-n,
+            .trouble-q {
+                font-family: var(--font-heading);
+            }
+
+            code,
+            pre,
+            .cmd {
+                font-family: var(--font-mono);
+            }
+
+            a {
+                color: inherit;
+            }
+
+            .topbar {
+                height: var(--topbar);
+                padding: 0 20px;
+                gap: 12px;
+                background: var(--surface-overlay);
+                border-bottom: 1px solid var(--border-strong);
+                box-shadow: var(--shadow-xs);
+                color: var(--text);
+                backdrop-filter: none;
+            }
+
+            .logo {
+                color: var(--secondary);
+                font-size: 17px;
+                font-weight: 700;
+                letter-spacing: -0.03em;
+            }
+
+            .logo span {
+                color: var(--primary-strong);
+            }
+
+            .logo-tag {
+                padding: 4px 10px;
+                border-radius: var(--chip-radius);
+                border: 1px solid var(--info-border);
+                background: var(--info-soft);
+                color: var(--info-ink);
+                font-size: 11px;
+                font-weight: 700;
+            }
+
+            .search-wrap {
+                max-width: 360px;
+            }
+
+            .search-wrap input {
+                min-height: 42px;
+                padding: 9px 13px 9px 36px;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--control-radius);
+                background: var(--surface-1);
+                color: var(--text);
+                box-shadow: var(--shadow-xs);
+                font-family: var(--font-sans);
+            }
+
+            .search-wrap input::placeholder {
+                color: var(--text-soft);
+            }
+
+            .search-wrap input:focus {
+                border-color: var(--primary);
+                box-shadow: 0 0 0 3px var(--focus-ring);
+            }
+
+            .search-icon {
+                color: var(--text-muted);
+                opacity: 1;
+            }
+
+            .menu-btn {
+                min-width: 44px;
+                min-height: 44px;
+                padding: 0;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--control-radius);
+                background: var(--surface-1);
+                color: var(--secondary);
+                font-size: 21px;
+            }
+
+            .layout {
+                padding-top: var(--topbar);
+            }
+
+            .sidebar {
+                top: var(--topbar);
+                width: var(--sidebar);
+                padding: 20px 0 40px;
+                background: var(--surface-overlay);
+                border-right: 1px solid var(--border-strong);
+                scrollbar-color: var(--border) transparent;
+            }
+
+            .sidebar::-webkit-scrollbar-thumb {
+                background: var(--border);
+            }
+
+            .nav-group {
+                margin-bottom: 22px;
+            }
+
+            .nav-label {
+                padding: 0 18px 8px;
+                color: var(--text-muted);
+                font-family: var(--font-sans);
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.09em;
+            }
+
+            .nav-item {
+                min-height: 44px;
+                padding: 8px 18px;
+                border-left: 3px solid transparent;
+                border-radius: 0 var(--control-radius) var(--control-radius) 0;
+                color: var(--text-muted);
+                font-size: 13px;
+                font-weight: 600;
+            }
+
+            .nav-item:hover {
+                background: var(--secondary-soft);
+                color: var(--secondary);
+            }
+
+            .nav-item.active {
+                border-left-color: var(--primary);
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+                font-weight: 700;
+            }
+
+            .nav-icon {
+                width: 20px;
+                color: inherit;
+                font-size: 14px;
+            }
+
+            .content {
+                margin-left: var(--sidebar);
+                max-width: calc(100% - var(--sidebar));
+                padding: 40px 36px 80px;
+            }
+
+            .section {
+                max-width: 920px;
+                margin-bottom: 58px;
+                scroll-margin-top: calc(var(--topbar) + 20px);
+            }
+
+            .section-hd {
+                gap: 14px;
+                margin-bottom: 22px;
+                padding-bottom: 14px;
+                border-bottom: 1px solid var(--border-strong);
+            }
+
+            .section-ico {
+                width: 44px;
+                height: 44px;
+                border-radius: var(--radius-md);
+                border: 1px solid var(--info-border);
+                background: var(--info-soft);
+                color: var(--info-ink);
+                font-size: 18px;
+            }
+
+            .section-title {
+                color: var(--secondary);
+                font-size: 1.08rem;
+                font-weight: 700;
+                letter-spacing: -0.025em;
+            }
+
+            .section-sub {
+                margin-top: 3px;
+                color: var(--text-muted);
+                font-size: 12.5px;
+                line-height: 1.45;
+            }
+
+            h3 {
+                margin: 26px 0 11px;
+                color: var(--text-muted);
+                font-size: 0.73rem;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            p {
+                max-width: 75ch;
+                margin-bottom: 13px;
+                color: var(--text-muted);
+                line-height: 1.62;
+            }
+
+            strong {
+                color: var(--secondary);
+            }
+
+            .hero {
+                max-width: 920px;
+                margin-bottom: 48px;
+                padding: 34px 34px 30px;
+                border: 1px solid var(--info-border);
+                border-radius: var(--radius-lg);
+                background:
+                    radial-gradient(circle at 92% 8%, var(--primary-soft), transparent 14rem),
+                    linear-gradient(180deg, var(--surface-1), var(--surface-2));
+                box-shadow: var(--shadow-sm);
+            }
+
+            .hero::after {
+                display: none;
+            }
+
+            .hero-title {
+                color: var(--secondary);
+                font-size: clamp(27px, 4vw, 38px);
+                font-weight: 700;
+                letter-spacing: -0.055em;
+            }
+
+            .hero-title span {
+                color: var(--primary-strong);
+            }
+
+            .hero-sub {
+                max-width: 62ch;
+                margin-bottom: 22px;
+                color: var(--text-muted);
+                font-size: 15px;
+            }
+
+            .chips {
+                gap: 8px;
+            }
+
+            .chip,
+            .ba,
+            .bb {
+                border-radius: var(--chip-radius);
+                border: 1px solid var(--border-strong);
+                background: var(--surface-2);
+                color: var(--text-muted);
+                font-family: var(--font-sans);
+                font-size: 11.5px;
+                font-weight: 700;
+            }
+
+            .chip {
+                padding: 5px 11px;
+            }
+
+            .chip:nth-child(1),
+            .chip:nth-child(4),
+            .chip:nth-child(8) {
+                border-color: var(--info-border);
+                background: var(--info-soft);
+                color: var(--info-ink);
+            }
+
+            .iface-tabs {
+                display: flex;
+                width: fit-content;
+                max-width: 100%;
+                gap: 4px;
+                margin: 18px 0 4px;
+                padding: 3px;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--chip-radius);
+                background: var(--surface-overlay);
+                box-shadow: var(--shadow-xs);
+            }
+
+            .iface-tab {
+                min-height: 38px;
+                padding: 0 14px;
+                border: 1px solid transparent;
+                border-radius: var(--chip-radius);
+                color: var(--text-muted);
+                background: transparent;
+                font-size: 12.5px;
+                font-weight: 700;
+            }
+
+            .iface-tab.web.active,
+            .iface-tab.bot.active {
+                border-color: var(--border-strong);
+                background: var(--surface-1);
+                color: var(--secondary);
+                box-shadow: var(--shadow-xs);
+            }
+
+            .iface-tab.web.active .dot {
+                background: var(--primary);
+            }
+
+            .iface-tab.bot.active .dot {
+                background: var(--success);
+            }
+
+            .iface-tab:hover:not(.active) {
+                background: var(--secondary-soft);
+                color: var(--secondary);
+            }
+
+            .dot {
+                width: 7px;
+                height: 7px;
+            }
+
+            .card,
+            .mod-card,
+            .role-card,
+            .chat-demo {
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-md);
+                background: linear-gradient(180deg, var(--surface-1), var(--surface-2));
+                box-shadow: var(--shadow-xs);
+            }
+
+            .card {
+                margin-bottom: 12px;
+                padding: 18px 20px;
+            }
+
+            .card-title,
+            .mod-name,
+            .trouble-q {
+                color: var(--secondary);
+            }
+
+            .card-title {
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            .card p,
+            .mod-desc,
+            .trouble-a {
+                color: var(--text-muted);
+            }
+
+            .steps {
+                gap: 0;
+            }
+
+            .step {
+                gap: 14px;
+                padding: 16px 0;
+                border-bottom: 1px dashed var(--border-strong);
+            }
+
+            .step-n {
+                width: 30px;
+                height: 30px;
+                margin-top: 0;
+                border: 1px solid var(--primary-strong);
+                background: var(--primary);
+                color: var(--primary-contrast);
+                font-size: 11px;
+                font-weight: 800;
+            }
+
+            .step-body strong {
+                margin-bottom: 4px;
+                color: var(--secondary);
+                font-size: 13.5px;
+            }
+
+            .step-body span {
+                color: var(--text-muted);
+                font-size: 13px;
+            }
+
+            .cmd-list {
+                gap: 8px;
+                margin: 12px 0;
+            }
+
+            .cmd-label {
+                margin-top: 9px;
+                color: var(--text-muted);
+                font-family: var(--font-sans);
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: 0.08em;
+            }
+
+            .cmd {
+                padding: 10px 13px;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--control-radius);
+                background: var(--surface-2);
+                color: var(--secondary);
+                font-size: 12.5px;
+                line-height: 1.5;
+                overflow-wrap: anywhere;
+            }
+
+            .note,
+            .tip,
+            .warn {
+                align-items: flex-start;
+                gap: 10px;
+                margin: 16px 0;
+                padding: 12px 15px;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-sm);
+                font-size: 13px;
+            }
+
+            .note {
+                background: var(--info-soft);
+                border-color: var(--info-border);
+                color: var(--info-ink);
+            }
+
+            .tip {
+                background: var(--success-soft);
+                border-color: rgba(22, 163, 74, 0.26);
+                color: var(--success-ink);
+            }
+
+            .warn {
+                background: var(--warning-soft);
+                border-color: rgba(245, 158, 11, 0.3);
+                color: var(--warning-ink);
+            }
+
+            .note strong,
+            .tip strong,
+            .warn strong {
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+
+            .grid2,
+            .grid3,
+            .role-grid {
+                gap: 12px;
+                margin: 16px 0;
+            }
+
+            .mod-card {
+                padding: 17px;
+                transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .mod-card:hover {
+                border-color: var(--primary);
+                box-shadow: var(--shadow-sm);
+                transform: translateY(-1px);
+            }
+
+            .mod-icon {
+                margin-bottom: 8px;
+                font-size: 18px;
+            }
+
+            .mod-name {
+                margin-bottom: 4px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            .mod-desc {
+                font-size: 12.5px;
+                line-height: 1.5;
+            }
+
+            .role-card {
+                overflow: hidden;
+            }
+
+            .role-hd {
+                padding: 12px 15px;
+                border-bottom: 1px solid var(--border-strong);
+                font-size: 13.5px;
+                font-weight: 700;
+            }
+
+            .role-hd.v {
+                background: var(--info-soft);
+                color: var(--info-ink);
+            }
+
+            .role-hd.a {
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+            }
+
+            .role-list {
+                padding: 8px 15px 13px;
+            }
+
+            .role-list li,
+            .chk li {
+                border-bottom-color: var(--border-strong);
+                color: var(--text-muted);
+            }
+
+            .role-list li {
+                padding: 7px 0;
+                font-size: 13px;
+            }
+
+            .ck,
+            .chk li::before {
+                color: var(--success-ink);
+            }
+
+            .chk {
+                margin: 10px 0;
+            }
+
+            .chk li {
+                padding: 7px 0;
+                font-size: 13.5px;
+                line-height: 1.5;
+            }
+
+            table {
+                margin: 16px 0;
+                overflow: hidden;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-md);
+                background: var(--surface-1);
+                box-shadow: var(--shadow-xs);
+            }
+
+            th {
+                padding: 11px 13px;
+                background: var(--surface-2);
+                border-bottom: 1px solid var(--border-strong);
+                color: var(--secondary);
+                font-family: var(--font-sans);
+                font-size: 10.5px;
+                font-weight: 800;
+            }
+
+            td {
+                padding: 11px 13px;
+                border-bottom: 1px solid var(--border-strong);
+                color: var(--text-muted);
+            }
+
+            tr:hover td {
+                background: var(--secondary-soft);
+            }
+
+            .ba,
+            .bb {
+                display: inline-flex;
+                padding: 4px 9px;
+                color: var(--info-ink);
+            }
+
+            .ba {
+                border-color: var(--primary-soft);
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+            }
+
+            .bb {
+                border-color: var(--success-soft);
+                background: var(--success-soft);
+                color: var(--success-ink);
+            }
+
+            .trouble {
+                padding: 16px 0;
+                border-bottom-color: var(--border-strong);
+            }
+
+            .trouble-q {
+                margin-bottom: 5px;
+                font-size: 13.5px;
+                font-weight: 700;
+            }
+
+            .trouble-q::before {
+                color: var(--primary-strong);
+            }
+
+            .trouble-a {
+                padding-left: 20px;
+                font-size: 13px;
+            }
+
+            .chat-demo {
+                padding: 18px;
+            }
+
+            .bubble.in {
+                border: 1px solid var(--border-strong);
+                background: var(--surface-2);
+                color: var(--text);
+            }
+
+            .bubble.out {
+                background: var(--primary);
+                color: var(--primary-contrast);
+                box-shadow: var(--shadow-xs);
+            }
+
+            .bubble .voice-tag {
+                color: currentColor;
+                opacity: 0.7;
+            }
+
+            .wave span {
+                background: currentColor;
+            }
+
+            mark {
+                border-radius: 4px;
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+            }
+
+            .hidden {
+                display: none !important;
+            }
+
+            @media (max-width: 900px) {
+                .sidebar {
+                    box-shadow: var(--shadow-sm);
+                }
+
+                .content {
+                    margin-left: 0;
+                    max-width: 100%;
+                    padding: 28px 18px 60px;
+                }
+
+                .hero,
+                .section {
+                    max-width: 100%;
+                }
+
+                .grid2,
+                .role-grid {
+                    grid-template-columns: 1fr;
+                }
+
+                .grid3 {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+
+            @media (max-width: 600px) {
+                .topbar {
+                    padding: 0 12px;
+                }
+
+                .logo-tag {
+                    display: none;
+                }
+
+                .search-wrap {
+                    max-width: none;
+                }
+
+                .hero {
+                    padding: 24px 20px;
+                }
+
+                .hero-title {
+                    font-size: 29px;
+                }
+
+                .section-hd {
+                    align-items: flex-start;
+                }
+
+                .grid3 {
+                    grid-template-columns: 1fr;
+                }
+
+                .iface-tabs {
+                    width: 100%;
+                }
+
+                .iface-tab {
+                    flex: 1;
+                    justify-content: center;
+                }
+
+                table {
+                    display: block;
+                    overflow-x: auto;
+                    white-space: normal;
+                }
+            }
+
+            @media print {
+                .topbar,
+                .sidebar,
+                .iface-tabs,
+                .search-wrap {
+                    display: none !important;
+                }
+
+                .layout {
+                    padding-top: 0;
+                }
+
+                .content {
+                    max-width: none;
+                    margin: 0;
+                    padding: 0;
+                }
+
+                .section,
+                .hero {
+                    max-width: none;
+                    box-shadow: none;
+                }
+            }
         </style>
+        <script>
+            (function () {
+                var root = document.documentElement;
+                var fallback = {
+                    "--primary": "#5b5bd6",
+                    "--primary-strong": "#4545b0",
+                    "--primary-soft": "rgba(91, 91, 214, 0.1)",
+                    "--primary-contrast": "#ffffff",
+                    "--primary-strong-contrast": "#ffffff",
+                    "--primary-shadow": "rgba(91, 91, 214, 0.24)",
+                    "--info-ink": "#4545b0",
+                    "--info-soft": "rgba(91, 91, 214, 0.1)",
+                    "--info-border": "rgba(91, 91, 214, 0.24)",
+                };
+
+                function readParentValue(name) {
+                    try {
+                        var owner = window.parent || window;
+                        var source = owner.getComputedStyle(
+                            owner.document.documentElement,
+                        );
+                        return source.getPropertyValue(name).trim();
+                    } catch (_) {
+                        return "";
+                    }
+                }
+
+                function applyParentTheme() {
+                    var theme = "light";
+                    try {
+                        var parentRoot = window.parent.document.documentElement;
+                        var parentTheme = parentRoot.getAttribute("data-theme");
+                        var savedTheme = window.localStorage.getItem("stocki.theme");
+                        if (parentTheme === "dark" || parentTheme === "light") {
+                            theme = parentTheme;
+                        } else if (savedTheme === "dark") {
+                            theme = "dark";
+                        }
+                    } catch (_) {}
+                    root.setAttribute("data-theme", theme);
+                    root.style.colorScheme = theme;
+
+                    Object.keys(fallback).forEach(function (name) {
+                        root.style.setProperty(
+                            name,
+                            readParentValue(name) || fallback[name],
+                        );
+                    });
+                }
+
+                applyParentTheme();
+                window.addEventListener("storage", function (event) {
+                    if (event.key === "stocki.theme") applyParentTheme();
+                });
+
+                try {
+                    if (window.parent !== window && window.MutationObserver) {
+                        new MutationObserver(applyParentTheme).observe(
+                            window.parent.document.documentElement,
+                            { attributes: true, attributeFilter: ["data-theme", "style"] },
+                        );
+                    }
+                } catch (_) {}
+            })();
+        </script>
     </head>
     <body>
+        <!--
+            THESIS: Un manual operativo que se lee como parte de StockiAPP, no como un documento separado.
+            OWN-WORLD: Superficies claras, contraste sobrio, primario del negocio, controles redondeados y ritmo tablet-first.
+            STORY: El usuario entiende dónde está, qué puede hacer y cuál es el siguiente paso sin perder contexto.
+            FIRST VIEWPORT: Barra de búsqueda, navegación lateral y una portada breve que presenta el mapa del sistema.
+            FORM: Guía de lectura con sidebar, secciones escaneables, tabs web/bot y bloques de operación reutilizables.
+            FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+        -->
         <!-- TOPBAR -->
         <header class="topbar">
             <button
@@ -896,6 +1853,9 @@
                     >
                     <a class="nav-item" href="#inventario"
                         ><span class="nav-icon">📦</span> Inventario</a
+                    >
+                    <a class="nav-item" href="#prestamos"
+                        ><span class="nav-icon">🤝</span> Préstamos físicos</a
                     >
                     <a class="nav-item" href="#clientes"
                         ><span class="nav-icon">👤</span> Clientes</a
@@ -970,10 +1930,11 @@
                         <span class="chip">Etiquetas</span
                         ><span class="chip">Facturas operativas</span>
                         <span class="chip">Retomas y cambios</span
+                        ><span class="chip">Préstamos físicos</span
+                        ><span class="chip">Ubicaciones</span
+                        ><span class="chip">Duplicación segura</span
                         ><span class="chip">Bot Telegram 24/7</span
                         ><span class="chip">Reportes automáticos</span
-                        ><span class="chip"
-                            >Gestión → Manual de usuario</span
                         >
                     </div>
                 </div>
@@ -1060,7 +2021,16 @@
                             <div class="mod-icon">📦</div>
                             <div class="mod-name">Inventario</div>
                             <div class="mod-desc">
-                                Consulta, filtros, acciones rápidas y etiquetas.
+                                Consulta, filtros, edición, duplicación, acciones
+                                rápidas y etiquetas.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-icon">🤝</div>
+                            <div class="mod-name">Préstamos físicos</div>
+                            <div class="mod-desc">
+                                Entrega temporal de unidades, cliente, fecha de
+                                retorno y cierre trazable.
                             </div>
                         </div>
                         <div class="mod-card">
@@ -1093,6 +2063,14 @@
                                 completa.
                             </div>
                         </div>
+                        <div class="mod-card">
+                            <div class="mod-icon">⚙️</div>
+                            <div class="mod-name">Configuración</div>
+                            <div class="mod-desc">
+                                Líneas, ubicaciones, owners, métodos de pago y
+                                formatos de impresión.
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -1108,9 +2086,12 @@
                         </div>
                     </div>
                     <p>
-                        Existen dos tipos de usuario. El rol aplica en ambos
-                        accesos: lo que puede hacer un vendedor en la web es
-                        exactamente lo mismo que puede hacer en el bot.
+                        En la operación diaria hay dos roles principales:
+                        vendedor y administrador. El rol aplica en ambos accesos:
+                        lo que puede hacer un vendedor en la web es exactamente
+                        lo mismo que puede hacer en el bot. La plataforma también
+                        cuenta con un rol técnico de administración de empresas,
+                        usuarios y claves.
                     </p>
                     <div class="role-grid">
                         <div class="role-card">
@@ -1136,6 +2117,10 @@
                                 <li>
                                     <span class="ck">✓</span> Consultar créditos
                                     activos
+                                </li>
+                                <li>
+                                    <span class="ck">✓</span> Consultar préstamos
+                                    físicos cuando el negocio los habilita
                                 </li>
                                 <li>
                                     <span class="ck">✓</span> Reportes
@@ -1165,6 +2150,14 @@
                                 <li>
                                     <span class="ck">✓</span> Ajustar stock y
                                     precios
+                                </li>
+                                <li>
+                                    <span class="ck">✓</span> Editar y duplicar
+                                    productos base
+                                </li>
+                                <li>
+                                    <span class="ck">✓</span> Administrar
+                                    préstamos físicos y catálogos
                                 </li>
                                 <li>
                                     <span class="ck">✓</span> Cambios modo new
@@ -1404,18 +2397,51 @@
                                 Buscar por producto, filtrar por línea o estado
                             </li>
                             <li>
-                                Reutilizar el mismo cliente cuando la operación
-                                ya existe
+                                Editar un producto y ver el cambio en la misma
+                                tabla, sin recargar la pantalla
                             </li>
                             <li>
-                                Abrir acciones rápidas desde cada fila: imprimir
-                                etiqueta, prestar producto, editar crédito o
-                                abrir comprobante
+                                Duplicar un producto base con nuevo ID, SKU
+                                interno y unidades nuevas <span class="ba">Solo admin</span>
                             </li>
                             <li>
-                                Iniciar venta, cambio, retoma o ajuste de stock
+                                Abrir acciones rápidas: imprimir etiqueta,
+                                reservar, registrar daño, prestar producto,
+                                preparar retoma o ver historial
+                            </li>
+                            <li>
+                                Iniciar ventas, cambios, retomas, créditos o
+                                ajustes de inventario desde el contexto correcto
                             </li>
                         </ul>
+                        <h3>Editar y duplicar productos</h3>
+                        <div class="grid2">
+                            <div class="mod-card">
+                                <div class="mod-name">Editar producto</div>
+                                <div class="mod-desc">
+                                    Abre <strong>Más acciones → Editar producto</strong>.
+                                    Guarda nombre, línea, ubicación, precio, talla,
+                                    retoma, owner y notas. La fila se actualiza sin
+                                    perder filtros, búsqueda ni posición.
+                                </div>
+                            </div>
+                            <div class="mod-card">
+                                <div class="mod-name">
+                                    Duplicar producto <span class="ba">Solo admin</span>
+                                </div>
+                                <div class="mod-desc">
+                                    Abre <strong>Más acciones → Duplicar producto</strong>.
+                                    Revisa el nuevo ID generado, ajusta los datos y
+                                    confirma. El duplicado crea SKU y unidades nuevas;
+                                    nunca copia ventas, créditos, préstamos ni historial.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="note">
+                            <span class="ci">💡</span> El ID visible identifica el
+                            producto para la operación. El SKU interno se genera de
+                            forma independiente para mantener la trazabilidad.
+                        </div>
                         <h3>Cómo leer la tabla sin perder tiempo</h3>
                         <p>
                             Prioriza:
@@ -1464,7 +2490,7 @@
                         </div>
                         <h3>
                             Gestión de inventario
-                            <span class="ba">Solo admin</span>
+                            <span class="ba">Según permisos</span>
                         </h3>
                         <div class="cmd-list">
                             <div class="cmd-label">Agregar producto</div>
@@ -1482,11 +2508,98 @@
                             </div>
                         </div>
                         <p>
-                            El bot consultará las líneas disponibles y
-                            solicitará: nombre, línea, cantidad, precio de
-                            venta, configuración de retoma y caducidad si
-                            aplica.
+                            La gestión por bot depende de los permisos y funciones
+                            habilitadas para tu negocio. Para crear o duplicar un
+                            producto con control completo, usa la plataforma web.
                         </p>
+                    </div>
+                </section>
+
+                <!-- ═══ PRÉSTAMOS FÍSICOS ═══ -->
+                <section class="section" id="prestamos">
+                    <div class="section-hd">
+                        <div class="section-ico">🤝</div>
+                        <div>
+                            <div class="section-title">Préstamos físicos</div>
+                            <div class="section-sub">
+                                Entrega temporal de productos con retorno y
+                                trazabilidad
+                            </div>
+                        </div>
+                    </div>
+                    <p>
+                        Usa este módulo cuando una unidad sale temporalmente del
+                        inventario y debe regresar. No registres un préstamo como
+                        venta: el préstamo conserva el vínculo con el producto,
+                        las unidades, el cliente y la fecha de retorno.
+                    </p>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Inicia el préstamo</strong>
+                                <span>
+                                    Usa <strong>Nuevo Préstamo</strong> o abre
+                                    <strong>Más acciones → Prestar producto</strong>
+                                    desde Inventario.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Selecciona producto y cliente</strong>
+                                <span>
+                                    Elige las unidades disponibles, reutiliza el
+                                    cliente existente y registra vencimiento,
+                                    contacto y notas necesarias.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Confirma la salida</strong>
+                                <span>
+                                    El sistema cambia el estado de las unidades y
+                                    deja el préstamo visible en el listado.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">4</div>
+                            <div class="step-body">
+                                <strong>Cierra cuando regresen las unidades</strong>
+                                <span>
+                                    Abre el detalle en <strong>Préstamos de producto</strong>,
+                                    revisa el retorno y confirma el cierre para
+                                    devolver las unidades a la operación.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Antes de confirmar</div>
+                            <div class="mod-desc">
+                                Revisa producto, cantidad, cliente, fecha de
+                                retorno y observaciones. La operación queda
+                                auditada con el usuario que la ejecuta.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Si una unidad no regresa</div>
+                            <div class="mod-desc">
+                                No la marques como disponible manualmente. Revisa
+                                el detalle del préstamo y registra el estado real
+                                para conservar la trazabilidad.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="note">
+                        <span class="ci">🤝</span> El acceso a préstamos puede
+                        estar habilitado por configuración del negocio. Si no ves
+                        la acción, consulta al administrador.
                     </div>
                 </section>
 
@@ -1572,19 +2685,20 @@
                     <div class="iface-panel active" id="ventas-web">
                         <p>
                             La venta normal debe sentirse corta, clara y cerrada
-                            en un solo flujo.
+                            en un solo flujo. Desde Inventario agrega uno o varios
+                            productos al carrito y conserva el contexto hasta el
+                            checkout.
                         </p>
                         <div class="steps">
                             <div class="step">
                                 <div class="step-n">1</div>
                                 <div class="step-body">
                                     <strong
-                                        >Abre la venta desde el producto
-                                        correcto</strong
+                                        >Agrega el producto al carrito</strong
                                     ><span
-                                        >Confirma que el item seleccionado
-                                        coincide con lo que vas a vender y que
-                                        el stock disponible es suficiente.</span
+                                        >Desde la fila correcta elige la cantidad
+                                        y pulsa Agregar al carrito. El sistema
+                                        valida las unidades disponibles.</span
                                     >
                                 </div>
                             </div>
@@ -1592,10 +2706,11 @@
                                 <div class="step-n">2</div>
                                 <div class="step-body">
                                     <strong
-                                        >Completa la información mínima</strong
+                                        >Revisa el carrito</strong
                                     ><span
-                                        >Cantidad, método de pago y precio o
-                                        valor final de la venta.</span
+                                        >Confirma productos, cantidades y precios.
+                                        Si corresponde, identifica al cliente antes
+                                        de continuar.</span
                                     >
                                 </div>
                             </div>
@@ -1604,10 +2719,19 @@
                                 <div class="step-body">
                                     <strong>Revisa e imprime</strong
                                     ><span
-                                        >Después del registro, el mismo popup
-                                        deja el comprobante listo y solo
-                                        necesitas pulsar Imprimir para sacar el
-                                        ticket térmico.</span
+                                        >Elige método de pago o crédito, revisa el
+                                        resumen final y confirma el checkout.</span
+                                    >
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-n">4</div>
+                                <div class="step-body">
+                                    <strong>Genera comprobante o ticket</strong
+                                    ><span
+                                        >Después del registro puedes abrir el
+                                        comprobante y enviarlo a impresión térmica
+                                        sin perder la venta.</span
                                     >
                                 </div>
                             </div>
@@ -1757,12 +2881,12 @@
                                 <div class="mod-name">Tipos de crédito</div>
                                 <ul class="chk" style="margin-top: 10px">
                                     <li>
-                                        <strong>product_credit</strong>: venta a
-                                        crédito con producto y stock
+                                        <strong>Crédito de producto</strong>:
+                                        venta a crédito con producto y stock
                                     </li>
                                     <li>
-                                        <strong>cash_loan</strong>: préstamo de
-                                        dinero sin afectar inventario
+                                        <strong>Préstamo de dinero</strong>:
+                                        préstamo sin afectar inventario
                                     </li>
                                     <li>
                                         Cuotas, valor, notas y estado quedan
@@ -1788,6 +2912,13 @@
                             verifica que el número de cuota y el histórico
                             queden coherentes.
                         </p>
+                        <h3>Comprobante de pago</h3>
+                        <p>
+                            Después de registrar una cuota o abono puedes abrir
+                            su comprobante y ticket de pago. El documento conserva
+                            una copia de los datos del crédito y del cliente tal
+                            como estaban al momento del pago.
+                        </p>
                         <div class="warn">
                             <span class="ci">⚠️</span> Evita crear créditos con
                             datos incompletos del deudor. Un crédito sin
@@ -1806,6 +2937,11 @@
                             <div class="cmd">
                                 Quiero registrar una venta a crédito de un
                                 iPhone 13 para Juan Pérez
+                            </div>
+                            <div class="cmd-label">Préstamo de dinero</div>
+                            <div class="cmd">
+                                Quiero registrar un préstamo de dinero de
+                                $500.000 para Juan Pérez
                             </div>
                         </div>
                         <p>
@@ -2162,6 +3298,62 @@
                         operación diaria. Configurar bien evita fricción después
                         y deja listos los formatos térmicos del negocio.
                     </p>
+                    <h3>Catálogos de inventario</h3>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Líneas de negocio</div>
+                            <div class="mod-desc">
+                                Crea, renombra y activa o desactiva las líneas que
+                                aparecen al crear, editar, importar o duplicar
+                                productos. Un renombrado actualiza los productos
+                                asociados dentro del mismo negocio.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Ubicaciones</div>
+                            <div class="mod-desc">
+                                Define las ubicaciones físicas disponibles. Una
+                                ubicación activa aparece como selector en productos
+                                y puede dejarse vacía cuando no aplica.
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Eliminar una línea o ubicación</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Desactiva el valor</strong>
+                                <span>
+                                    Solo los valores inactivos pueden eliminarse.
+                                    Las líneas y ubicaciones activas quedan
+                                    protegidas para no romper productos existentes.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Elige Eliminar y reasigna</strong>
+                                <span>
+                                    Si hay productos asociados, selecciona una línea
+                                    o ubicación activa de reemplazo. La reasignación
+                                    es obligatoria antes de confirmar.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Confirma y revisa</strong>
+                                <span>
+                                    El cambio se ejecuta en una transacción y deja
+                                    auditoría. Después revisa Inventario para
+                                    comprobar los valores actualizados.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
                     <h3>Impresión</h3>
                     <p>
                         Define una sola vez el ancho térmico por defecto de
@@ -2195,10 +3387,6 @@
                             Si usas automatizaciones o carga masiva, valida
                             primero líneas, ubicaciones y owners disponibles
                         </li>
-                        <li>
-                            Para eliminar una línea o ubicación, desactívala
-                            primero y reasigna sus productos a un valor activo
-                        </li>
                     </ul>
                     <div class="note">
                         <span class="ci">⚙️</span> Si vas a usar
@@ -2226,6 +3414,24 @@
                         de cualquier operación: evento, usuario, fecha y detalle
                         operativo.
                     </p>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Inventario</div>
+                            <div class="mod-desc">
+                                Puedes identificar ajustes, ventas, retomas,
+                                préstamos, cambios, ediciones y duplicaciones de
+                                productos, incluido el producto origen.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Catálogos</div>
+                            <div class="mod-desc">
+                                Las reasignaciones y eliminaciones de líneas o
+                                ubicaciones quedan registradas junto con el
+                                usuario que las confirmó.
+                            </div>
+                        </div>
+                    </div>
                     <h3>Cuándo entrar a auditoría</h3>
                     <ul class="chk">
                         <li>Cuando un número no cuadra</li>
@@ -2268,6 +3474,7 @@
                         <li>Ventas recientes o completas</li>
                         <li>Créditos y abonos</li>
                         <li>Líneas, ubicaciones y owners para validar carga de productos</li>
+                        <li>Clientes, facturas y préstamos según permiso</li>
                     </ul>
                     <h3>Qué conviene evitar</h3>
                     <div class="warn">
@@ -2281,6 +3488,12 @@
                         crear o actualizar datos, primero valida el contexto
                         operativo: producto correcto, línea correcta, ubicación
                         activa, owner correcto y operación habilitada.
+                    </div>
+                    <div class="note">
+                        <span class="ci">🔐</span> Las API keys pertenecen a un
+                        tenant. No envíes <strong>tenant_id</strong> manualmente:
+                        el contexto se resuelve por la credencial autenticada.
+                        Consulta los contratos vigentes en <strong>docs/api.md</strong>.
                     </div>
                 </section>
 
@@ -2492,6 +3705,14 @@
                                 pequeños antes de que se vuelvan históricos.
                             </div>
                         </div>
+                        <div class="mod-card">
+                            <div class="mod-icon">🧬</div>
+                            <div class="mod-name">Duplica con intención</div>
+                            <div class="mod-desc">
+                                Usa Duplicar producto para una nueva referencia;
+                                no para continuar el historial del producto origen.
+                            </div>
+                        </div>
                     </div>
                     <h3>Específicas para el bot</h3>
                     <ul class="chk">
@@ -2514,6 +3735,13 @@
                         <li>
                             Puedes interrumpir cualquier proceso iniciando una
                             nueva consulta
+                        </li>
+                    </ul>
+                    <h3>Para todo el equipo</h3>
+                    <ul class="chk">
+                        <li>
+                            Mantén líneas y ubicaciones activas solo cuando estén
+                            disponibles para la operación
                         </li>
                     </ul>
                     <div class="tip">
@@ -2595,6 +3823,46 @@
                             Ve al módulo correspondiente y revisa la fuente del
                             dato. Si persiste, entra a Auditoría para
                             reconstruir la secuencia.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            No aparece "Duplicar producto"
+                        </div>
+                        <div class="trouble-a">
+                            La acción solo está disponible para administradores y
+                            productos base. Los créditos y préstamos tienen sus
+                            propios flujos y no se duplican desde Inventario.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            La fila desapareció después de editar
+                        </div>
+                        <div class="trouble-a">
+                            La edición conserva la búsqueda y filtros activos. Si
+                            el nuevo valor ya no coincide, la fila se oculta; limpia
+                            o ajusta los filtros para encontrarla.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            No puedo eliminar una línea o ubicación
+                        </div>
+                        <div class="trouble-a">
+                            Debe estar inactiva y, si tiene productos asociados,
+                            necesitas escoger un valor activo de reemplazo. Las
+                            reasignaciones no pueden apuntar a otro tenant.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            No puedo cerrar un préstamo físico
+                        </div>
+                        <div class="trouble-a">
+                            Abre el detalle del préstamo desde el listado, verifica
+                            el cliente y las unidades, y registra el estado real de
+                            retorno. No cambies el stock por fuera del flujo.
                         </div>
                     </div>
 

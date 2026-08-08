@@ -1979,15 +1979,20 @@ func TestLabelProfilesAreTenantScopedAndDrivePhysicalLayout(t *testing.T) {
 
 func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	templates, err := template.New("").Funcs(template.FuncMap{
-		"businessName":                  func(any) string { return "Negocio prueba" },
-		"businessLogoPath":              func(any) string { return "" },
-		"businessPrimaryColor":          func(any) string { return "#172554" },
-		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
-		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
-		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
-		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
-		"pageCanLoan":                   func(any) bool { return false },
-		"pageCanCredit":                 func(any) bool { return true },
+		"businessName":                      func(any) string { return "Negocio prueba" },
+		"businessLogoPath":                  func(any) string { return "" },
+		"businessPrimaryColor":              func(any) string { return "#172554" },
+		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
+		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":           func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast":     func(any) string { return "#ffffff" },
+		"businessPrimaryDarkColor":          func(any) string { return "#5bc89a" },
+		"businessPrimaryDarkStrong":         func(any) string { return "#7ddcb2" },
+		"businessPrimaryDarkSoft":           func(any) string { return "#233733" },
+		"businessPrimaryDarkContrast":       func(any) string { return "#0f1713" },
+		"businessPrimaryDarkStrongContrast": func(any) string { return "#0f1713" },
+		"pageCanLoan":                       func(any) bool { return false },
+		"pageCanCredit":                     func(any) bool { return true },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -2051,16 +2056,21 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 
 func TestSaleFlowTemplatesParse(t *testing.T) {
 	_, err := template.New("").Funcs(template.FuncMap{
-		"businessName":                  func(any) string { return "Negocio prueba" },
-		"businessLogoPath":              func(any) string { return "" },
-		"businessPrimaryColor":          func(any) string { return "#172554" },
-		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
-		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
-		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
-		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
-		"pageCanLoan":                   func(any) bool { return false },
-		"pageCanCredit":                 func(any) bool { return true },
-		"money":                         func(value float64) string { return formatCurrency(value) },
+		"businessName":                      func(any) string { return "Negocio prueba" },
+		"businessLogoPath":                  func(any) string { return "" },
+		"businessPrimaryColor":              func(any) string { return "#172554" },
+		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
+		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":           func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast":     func(any) string { return "#ffffff" },
+		"businessPrimaryDarkColor":          func(any) string { return "#5bc89a" },
+		"businessPrimaryDarkStrong":         func(any) string { return "#7ddcb2" },
+		"businessPrimaryDarkSoft":           func(any) string { return "#233733" },
+		"businessPrimaryDarkContrast":       func(any) string { return "#0f1713" },
+		"businessPrimaryDarkStrongContrast": func(any) string { return "#0f1713" },
+		"pageCanLoan":                       func(any) bool { return false },
+		"pageCanCredit":                     func(any) bool { return true },
+		"money":                             func(value float64) string { return formatCurrency(value) },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -2076,15 +2086,20 @@ func TestSaleFlowTemplatesParse(t *testing.T) {
 
 func TestBusinessSettingsTemplateParsesLabelProfiles(t *testing.T) {
 	_, err := template.New("").Funcs(template.FuncMap{
-		"businessName":                  func(any) string { return "Negocio prueba" },
-		"businessLogoPath":              func(any) string { return "" },
-		"businessPrimaryColor":          func(any) string { return "#172554" },
-		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
-		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
-		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
-		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
-		"pageCanLoan":                   func(any) bool { return false },
-		"pageCanCredit":                 func(any) bool { return false },
+		"businessName":                      func(any) string { return "Negocio prueba" },
+		"businessLogoPath":                  func(any) string { return "" },
+		"businessPrimaryColor":              func(any) string { return "#172554" },
+		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
+		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":           func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast":     func(any) string { return "#ffffff" },
+		"businessPrimaryDarkColor":          func(any) string { return "#5bc89a" },
+		"businessPrimaryDarkStrong":         func(any) string { return "#7ddcb2" },
+		"businessPrimaryDarkSoft":           func(any) string { return "#233733" },
+		"businessPrimaryDarkContrast":       func(any) string { return "#0f1713" },
+		"businessPrimaryDarkStrongContrast": func(any) string { return "#0f1713" },
+		"pageCanLoan":                       func(any) bool { return false },
+		"pageCanCredit":                     func(any) bool { return false },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -2106,6 +2121,32 @@ func TestContrastTextHexMeetsWCAGAA(t *testing.T) {
 				t.Fatalf("contrast for background %s and foreground %s is %.2f, want at least 4.5", background, foreground, ratio)
 			}
 		}
+	}
+}
+
+func TestBusinessPrimaryVariantsMeetThemeContrast(t *testing.T) {
+	for _, primary := range []string{defaultPrimaryColor, "#112233", "#f59e0b", "#ffffff", "#000000"} {
+		lightStrong := lightPrimaryStrongColor(primary)
+		if ratio := hexContrastRatio(lightStrong, "#f8f5ee"); ratio < 4.5 {
+			t.Fatalf("light primary strong contrast for %s is %.2f, want at least 4.5", primary, ratio)
+		}
+		darkPrimary := darkPrimaryColor(primary)
+		if ratio := hexContrastRatio(darkPrimary, "#181b1f"); ratio < 4.5 {
+			t.Fatalf("dark primary contrast for %s is %.2f, want at least 4.5", primary, ratio)
+		}
+		darkStrong := darkPrimaryStrongColor(primary)
+		if ratio := hexContrastRatio(darkStrong, "#181b1f"); ratio < 4.5 {
+			t.Fatalf("dark primary strong contrast for %s is %.2f, want at least 4.5", primary, ratio)
+		}
+		if ratio := hexContrastRatio(darkStrong, darkPrimarySoftColor(primary)); ratio < 4.5 {
+			t.Fatalf("dark primary strong contrast on active tint for %s is %.2f, want at least 4.5", primary, ratio)
+		}
+	}
+	if got := primarySoftColor(defaultPrimaryColor); got == "#ffffff" {
+		t.Fatal("light primary soft should preserve a tinted background")
+	}
+	if got := darkPrimarySoftColor(defaultPrimaryColor); got == "#181b1f" {
+		t.Fatal("dark primary soft should preserve an accent tint")
 	}
 }
 
@@ -2143,16 +2184,21 @@ func TestBusinessSettingsTemplateMaintainsFixedSections(t *testing.T) {
 
 func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	templates, err := template.New("").Funcs(template.FuncMap{
-		"businessName":                  func(any) string { return "Negocio prueba" },
-		"businessLogoPath":              func(any) string { return "" },
-		"businessPrimaryColor":          func(any) string { return "#172554" },
-		"businessPrimaryStrong":         func(any) string { return "#0f172a" },
-		"businessPrimarySoft":           func(any) string { return "#e0e7ff" },
-		"businessPrimaryContrast":       func(any) string { return "#ffffff" },
-		"businessPrimaryStrongContrast": func(any) string { return "#ffffff" },
-		"pageCanLoan":                   func(any) bool { return false },
-		"pageCanCredit":                 func(any) bool { return true },
-		"money":                         func(float64) string { return "$0" },
+		"businessName":                      func(any) string { return "Negocio prueba" },
+		"businessLogoPath":                  func(any) string { return "" },
+		"businessPrimaryColor":              func(any) string { return "#172554" },
+		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
+		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":           func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast":     func(any) string { return "#ffffff" },
+		"businessPrimaryDarkColor":          func(any) string { return "#5bc89a" },
+		"businessPrimaryDarkStrong":         func(any) string { return "#7ddcb2" },
+		"businessPrimaryDarkSoft":           func(any) string { return "#233733" },
+		"businessPrimaryDarkContrast":       func(any) string { return "#0f1713" },
+		"businessPrimaryDarkStrongContrast": func(any) string { return "#0f1713" },
+		"pageCanLoan":                       func(any) bool { return false },
+		"pageCanCredit":                     func(any) bool { return true },
+		"money":                             func(float64) string { return "$0" },
 	}).ParseFiles(
 		"templates/partials/app_styles.html",
 		"templates/partials/header.html",
@@ -2244,8 +2290,16 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	if !bytes.Contains(adminRendered, []byte(`data-sidebar-shell`)) || !bytes.Contains(adminRendered, []byte(`id="sidebar-panel"`)) || !bytes.Contains(adminRendered, []byte(`id="theme-toggle"`)) {
 		t.Fatal("inventory page should render the shared collapsible sidebar shell")
 	}
-	if !bytes.Contains(adminRendered, []byte(`class="sidebar-menu-group"`)) {
-		t.Fatal("sidebar should expose hierarchical submenu groups")
+	if !bytes.Contains(adminRendered, []byte(`class="topbar-menu-panel"`)) {
+		t.Fatal("sidebar should expose submenu panels")
+	}
+	for _, submenuLink := range []string{`href="/csv/template"`, `href="/productos/etiquetas/masivas"`, `href="/admin/users"`, `href="/auditoria"`, `href="/csv/export"`} {
+		if !bytes.Contains(adminRendered, []byte(submenuLink)) {
+			t.Fatalf("sidebar should expose flat submenu link %s", submenuLink)
+		}
+	}
+	if bytes.Contains(adminRendered, []byte(`class="sidebar-menu-group"`)) || bytes.Contains(adminRendered, []byte(`class="sidebar-menu-heading"`)) || bytes.Contains(adminRendered, []byte("border-left: 1px solid")) {
+		t.Fatal("sidebar submenus should not render grouped labels or a vertical guide")
 	}
 	if !bytes.Contains(adminRendered, []byte(`class="sidebar-fixed-brand"`)) {
 		t.Fatal("sidebar should render a fixed brand")

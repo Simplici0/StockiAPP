@@ -7,17 +7,17 @@
         <style>
             :root {
                 color-scheme: light;
-                --bg: #f7f5f2;
-                --card: #ffffff;
-                --text: #26221f;
-                --muted: #6f6a65;
-                --primary: #e85d3c;
-                --primary-strong: #cf4528;
-                --primary-soft: #fff1e6;
+                --bg: #f1eee6;
+                --card: #f8f5ee;
+                --text: #27241f;
+                --muted: #686259;
+                --primary: #1f7a5a;
+                --primary-strong: #155e46;
+                --primary-soft: #e9f1ee;
                 --success: #2d9d78;
                 --warning: #f59e42;
                 --danger: #d64545;
-                --border: #e6dfd8;
+                --border: #d7d0c2;
                 --shadow-soft: 0 8px 18px rgba(18, 23, 38, 0.08);
             }
 
@@ -38,7 +38,7 @@
             }
 
             .global-banner {
-                background: #f47a24;
+                background: var(--primary);
                 padding: 10px 32px;
                 display: flex;
                 justify-content: space-between;
@@ -164,11 +164,11 @@
             .secondary {
                 background: var(--primary-soft);
                 color: var(--primary);
-                border-color: #f2c6a8;
+                border-color: var(--border);
             }
 
             .secondary:hover {
-                background: #d0d9f0;
+                background: var(--primary-soft);
             }
 
             .import-panel {

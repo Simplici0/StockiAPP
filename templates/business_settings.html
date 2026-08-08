@@ -46,8 +46,16 @@
             }
 
             .settings-nav-icon {
-                font-size: 19px;
-                line-height: 1;
+                display: inline-flex;
+                width: 20px;
+                height: 20px;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .settings-nav-icon svg {
+                width: 18px;
+                height: 18px;
             }
 
             .settings-panel[hidden] {
@@ -665,39 +673,42 @@
             <div class="flash error">{{.Error}}</div>
             {{end}}
 
+            <header class="page-heading">
+                <div class="page-heading-copy">
+                    <h1>Configuración</h1>
+                    <p>Administra la identidad, operación y preferencias de tu negocio.</p>
+                </div>
+            </header>
+
             <nav class="settings-nav" aria-label="Secciones de configuración">
                 <a href="/configuracion?tab=negocio" {{if eq .Section "negocio"}}aria-current="page"{{end}}>
-                    <span class="settings-nav-icon" aria-hidden="true">◉</span>
+                    <span class="settings-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8" /><path d="M12 8v8M8 12h8" /></svg></span>
                     <span>Negocio</span>
                 </a>
                 <a href="/configuracion?tab=inventario" {{if eq .Section "inventario"}}aria-current="page"{{end}}>
-                    <span class="settings-nav-icon" aria-hidden="true">▦</span>
+                    <span class="settings-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4 7.5 8 4.5 8-4.5M12 12v9" /></svg></span>
                     <span>Inventario</span>
                 </a>
                 <a href="/configuracion?tab=metodos-pago" {{if eq .Section "metodos-pago"}}aria-current="page"{{end}}>
-                    <span class="settings-nav-icon" aria-hidden="true">$</span>
+                    <span class="settings-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="M3.5 9h17M8 14h4" /></svg></span>
                     <span>Métodos de pago</span>
                 </a>
                 <a href="/configuracion?tab=usuarios" {{if eq .Section "usuarios"}}aria-current="page"{{end}}>
-                    <span class="settings-nav-icon" aria-hidden="true">♙</span>
+                    <span class="settings-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3" /><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 11a3 3 0 1 0 0-6M16 14.5a5.5 5.5 0 0 1 4.5 5.5" /></svg></span>
                     <span>Usuarios</span>
                 </a>
                 <a href="/configuracion?tab=integraciones" {{if eq .Section "integraciones"}}aria-current="page"{{end}}>
-                    <span class="settings-nav-icon" aria-hidden="true">↔</span>
+                    <span class="settings-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h10M10 5l4 3-4 3M20 16H10M14 13l-4 3 4 3" /></svg></span>
                     <span>Integraciones</span>
                 </a>
                 <a href="/configuracion?tab=avanzado" {{if eq .Section "avanzado"}}aria-current="page"{{end}}>
-                    <span class="settings-nav-icon" aria-hidden="true">⚙</span>
+                    <span class="settings-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3a2 2 0 0 1 2 2v1.1a7.5 7.5 0 0 1 2 1.2l.95-.55a2 2 0 1 1 2 3.46l-.95.55c.1.4.15.82.15 1.24s-.05.84-.15 1.24l.95.55a2 2 0 1 1-2 3.46l-.95-.55a7.5 7.5 0 0 1-2 1.2V19a2 2 0 1 1-4 0v-1.1a7.5 7.5 0 0 1-2-1.2l-.95.55a2 2 0 1 1-2-3.46l.95-.55A5 5 0 0 1 6 12c0-.42.05-.84.15-1.24l-.95-.55a2 2 0 1 1 2-3.46l.95.55a7.5 7.5 0 0 1 2-1.2V5a2 2 0 0 1 2-2Z" /><circle cx="12" cy="12" r="2.5" /></svg></span>
                     <span>Avanzado</span>
                 </a>
             </nav>
 
             <section class="settings-shell">
                 <section class="settings-section">
-                    <div class="settings-section-head">
-                        <h2>Configuración</h2>
-                    </div>
-
                     <section class="settings-panel-card settings-panel" data-settings-section="negocio" {{if ne .Section "negocio"}}hidden{{end}} aria-labelledby="settings-general-title">
                         <div class="settings-panel-head">
                             <div class="settings-panel-title">

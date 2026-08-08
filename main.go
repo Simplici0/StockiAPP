@@ -1153,6 +1153,12 @@ const (
 	defaultTenantID   = 1
 	defaultTenantSlug = "default"
 	defaultTenantName = "Default tenant"
+
+	defaultPrimaryColor           = "#1f7a5a"
+	legacyDefaultPrimaryColor     = "#5b5bd6"
+	defaultPrimaryStrongColor     = "#155e46"
+	defaultDarkPrimaryColor       = "#5bc89a"
+	defaultDarkPrimaryStrongColor = "#7ddcb2"
 )
 
 type dbEngine string
@@ -1191,7 +1197,7 @@ func defaultBusinessSettings() BusinessSettings {
 		ContactPhone:      "",
 		ContactEmail:      "",
 		SocialMedia:       "",
-		PrimaryColor:      "#5B5BD6",
+		PrimaryColor:      defaultPrimaryColor,
 		Currency:          "COP",
 		DateFormat:        "2006-01-02",
 		LabelPaperWidth:   "58mm",
@@ -4848,9 +4854,9 @@ func buildDashboardSalesData(db *sql.DB, user *User, startStr, endStr string, st
 	}
 	visibilitySQL, visibilityArgs := productVisibilityPredicate("p", user)
 	salesDateExpr := sqlDatePrefixExpr("v.fecha")
-	userSeriesColors := []string{"#5B5BD6", "#16A34A", "#F59E0B", "#DC2626", "#BB86FC", "#6B7280"}
+	userSeriesColors := []string{defaultPrimaryColor, "#16A34A", "#F59E0B", "#DC2626", "#BB86FC", "#6B7280"}
 	categoryColors := map[string]string{
-		"venta":   "#5B5BD6",
+		"venta":   defaultPrimaryColor,
 		"credito": "#16A34A",
 		"retoma":  "#F59E0B",
 	}
@@ -9611,6 +9617,96 @@ func shadeHexColor(hex string, delta int) string {
 	g := clamp(parse(hex[3:5]) + delta)
 	b := clamp(parse(hex[5:7]) + delta)
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
+}
+
+func mixHexColor(first, second string, firstPercent int) string {
+	first = normalizeHexColor(first, defaultPrimaryColor)
+	second = normalizeHexColor(second, defaultPrimaryColor)
+	if firstPercent < 0 {
+		firstPercent = 0
+	}
+	if firstPercent > 100 {
+		firstPercent = 100
+	}
+	secondPercent := 100 - firstPercent
+	parse := func(part string) int {
+		value, err := strconv.ParseInt(part, 16, 0)
+		if err != nil {
+			return 0
+		}
+		return int(value)
+	}
+	channel := func(firstPart, secondPart string) int {
+		value := (parse(firstPart)*firstPercent + parse(secondPart)*secondPercent + 50) / 100
+		if value < 0 {
+			return 0
+		}
+		if value > 255 {
+			return 255
+		}
+		return value
+	}
+	return fmt.Sprintf("#%02x%02x%02x",
+		channel(first[1:3], second[1:3]),
+		channel(first[3:5], second[3:5]),
+		channel(first[5:7], second[5:7]),
+	)
+}
+
+func lightPrimaryStrongColor(primary string) string {
+	primary = normalizeHexColor(primary, defaultPrimaryColor)
+	if primary == defaultPrimaryColor {
+		return defaultPrimaryStrongColor
+	}
+	candidate := shadeHexColor(primary, -24)
+	if hexContrastRatio(candidate, "#f8f5ee") >= 4.5 {
+		return candidate
+	}
+	for delta := 25; delta <= 255; delta++ {
+		candidate = shadeHexColor(primary, -delta)
+		if hexContrastRatio(candidate, "#f8f5ee") >= 4.5 {
+			return candidate
+		}
+	}
+	return "#000000"
+}
+
+func darkPrimaryColor(primary string) string {
+	primary = normalizeHexColor(primary, defaultPrimaryColor)
+	if primary == defaultPrimaryColor {
+		return defaultDarkPrimaryColor
+	}
+	if hexContrastRatio(primary, "#181b1f") >= 4.5 {
+		return primary
+	}
+	for delta := 1; delta <= 255; delta++ {
+		candidate := shadeHexColor(primary, delta)
+		if hexContrastRatio(candidate, "#181b1f") >= 4.5 {
+			return candidate
+		}
+	}
+	return "#ffffff"
+}
+
+func darkPrimaryStrongColor(primary string) string {
+	primary = normalizeHexColor(primary, defaultPrimaryColor)
+	if primary == defaultPrimaryColor {
+		return defaultDarkPrimaryStrongColor
+	}
+	base := darkPrimaryColor(primary)
+	candidate := shadeHexColor(base, 24)
+	if hexContrastRatio(candidate, "#181b1f") >= 4.5 {
+		return candidate
+	}
+	return base
+}
+
+func primarySoftColor(primary string) string {
+	return mixHexColor(primary, "#ffffff", 10)
+}
+
+func darkPrimarySoftColor(primary string) string {
+	return mixHexColor(darkPrimaryColor(primary), "#181b1f", 16)
 }
 
 func hexRelativeLuminance(hex string) float64 {
@@ -17662,6 +17758,15 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 	return nil
 }
 
+func migrateLegacyDefaultPrimaryColor(db *sql.DB) error {
+	_, err := db.Exec(`
+		UPDATE business_settings
+		SET primary_color = ?, updated_at = ?
+		WHERE LOWER(TRIM(primary_color)) = ?
+	`, defaultPrimaryColor, time.Now().Format(time.RFC3339), legacyDefaultPrimaryColor)
+	return err
+}
+
 func ensureSaleItemsBase(db *sql.DB) error {
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS sale_items (
@@ -18103,7 +18208,7 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		contact_phone TEXT NOT NULL DEFAULT '',
 		contact_email TEXT NOT NULL DEFAULT '',
 		social_media TEXT NOT NULL DEFAULT '',
-		primary_color TEXT NOT NULL DEFAULT '#5B5BD6',
+		primary_color TEXT NOT NULL DEFAULT '#1f7a5a',
 		currency TEXT NOT NULL DEFAULT 'COP',
 		date_format TEXT NOT NULL DEFAULT '2006-01-02',
 		label_paper_width TEXT NOT NULL DEFAULT '58mm',
@@ -18299,6 +18404,10 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(tenant_id) DO NOTHING
 	`, defaultTenantID, defaultBusinessSettings().BusinessName, defaultBusinessSettings().LogoPath, defaultBusinessSettings().PrimaryColor, defaultBusinessSettings().Currency, defaultBusinessSettings().DateFormat, time.Now().Format(time.RFC3339)); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := migrateLegacyDefaultPrimaryColor(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -18578,16 +18687,31 @@ func main() {
 			return resolveTemplateSettings(data).PrimaryColor
 		},
 		"businessPrimaryStrong": func(data any) string {
-			return shadeHexColor(resolveTemplateSettings(data).PrimaryColor, -24)
+			return lightPrimaryStrongColor(resolveTemplateSettings(data).PrimaryColor)
 		},
 		"businessPrimarySoft": func(data any) string {
-			return shadeHexColor(resolveTemplateSettings(data).PrimaryColor, 208)
+			return primarySoftColor(resolveTemplateSettings(data).PrimaryColor)
 		},
 		"businessPrimaryContrast": func(data any) string {
 			return contrastTextHex(resolveTemplateSettings(data).PrimaryColor)
 		},
 		"businessPrimaryStrongContrast": func(data any) string {
-			return contrastTextHex(shadeHexColor(resolveTemplateSettings(data).PrimaryColor, -24))
+			return contrastTextHex(lightPrimaryStrongColor(resolveTemplateSettings(data).PrimaryColor))
+		},
+		"businessPrimaryDarkColor": func(data any) string {
+			return darkPrimaryColor(resolveTemplateSettings(data).PrimaryColor)
+		},
+		"businessPrimaryDarkStrong": func(data any) string {
+			return darkPrimaryStrongColor(resolveTemplateSettings(data).PrimaryColor)
+		},
+		"businessPrimaryDarkSoft": func(data any) string {
+			return darkPrimarySoftColor(resolveTemplateSettings(data).PrimaryColor)
+		},
+		"businessPrimaryDarkContrast": func(data any) string {
+			return contrastTextHex(darkPrimaryColor(resolveTemplateSettings(data).PrimaryColor))
+		},
+		"businessPrimaryDarkStrongContrast": func(data any) string {
+			return contrastTextHex(darkPrimaryStrongColor(resolveTemplateSettings(data).PrimaryColor))
 		},
 		"pageCanLoan": func(data any) bool {
 			return movementEnabledFromTemplateData(db, data, "CanLoan", "prestamo")

@@ -11,6 +11,12 @@
 
         <main class="page-content audit-page__layout">
             {{template "breadcrumbs" .}}
+            <header class="page-heading">
+                <div class="page-heading-copy">
+                    <h1>Auditoría</h1>
+                    <p>Revisa los eventos operativos registrados en tu negocio.</p>
+                </div>
+            </header>
             {{if .Flash}}
             <div class="flash">{{.Flash}}</div>
             {{end}} {{if .Error}}

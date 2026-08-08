@@ -551,6 +551,13 @@
       <div class="flash error">{{.Error}}</div>
     {{end}}
 
+    <header class="page-heading">
+      <div class="page-heading-copy">
+        <h1>Usuarios</h1>
+        <p>Gestiona accesos, roles y estado de las cuentas operativas.</p>
+      </div>
+    </header>
+
     {{if eq .CurrentUser.Role "platform_admin"}}
     <section class="scope-banner">
       <div class="scope-pills">

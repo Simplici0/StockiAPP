@@ -19,10 +19,10 @@
 
             .hero-card,
             .section-card {
-                border-radius: 20px;
+                border-radius: var(--radius-md);
                 border: 1px solid var(--border-strong);
                 background: var(--bg-card);
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
                 padding: 20px;
             }
 
@@ -57,7 +57,7 @@
             .hero-notes {
                 margin-top: 14px;
                 padding: 14px;
-                border-radius: 16px;
+                border-radius: var(--radius-sm);
                 background: var(--bg-card);
                 border: 1px solid var(--border-strong);
                 font-size: 13px;
@@ -71,10 +71,10 @@
 
             .metric {
                 padding: 14px;
-                border-radius: 16px;
+                border-radius: var(--radius-sm);
                 background: var(--bg-card);
                 border: 1px solid var(--border-strong);
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
                 display: grid;
                 gap: 6px;
             }
@@ -103,7 +103,7 @@
                 color: var(--secondary);
                 font-size: 12px;
                 font-weight: 700;
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
                 white-space: nowrap;
             }
 
@@ -126,12 +126,12 @@
 
             .entity-row {
                 padding: 14px 16px;
-                border-radius: 16px;
+                border-radius: var(--radius-sm);
                 background: var(--bg-card);
                 border: 1px solid var(--border-strong);
                 display: grid;
                 gap: 6px;
-                box-shadow: var(--shadow-xs);
+                box-shadow: none;
             }
 
             .entity-row strong {
@@ -167,13 +167,9 @@
                 display: grid;
                 gap: 6px;
                 padding: 16px;
-                border-radius: 16px;
+                border-radius: var(--radius-sm);
                 border: 1px solid var(--border);
-                background: linear-gradient(
-                    180deg,
-                    var(--surface-gradient-start) 0%,
-                    var(--surface-gradient-end) 100%
-                );
+                background: var(--bg-card-muted);
             }
 
             .timeline-head {
@@ -217,12 +213,8 @@
             [data-theme="dark"] .section-card,
             [data-theme="dark"] .timeline-item {
                 border-color: var(--border);
-                background: linear-gradient(
-                    180deg,
-                    var(--surface-gradient-start) 0%,
-                    var(--surface-gradient-end) 100%
-                );
-                box-shadow: var(--shadow-xs);
+                background: var(--bg-card);
+                box-shadow: none;
             }
 
             [data-theme="dark"] .hero-notes,
@@ -255,6 +247,13 @@
             {{end}} {{if .Error}}
             <div class="flash error">{{.Error}}</div>
             {{end}}
+
+            <header class="page-heading">
+                <div class="page-heading-copy">
+                    <h1>Ficha de cliente</h1>
+                    <p>Consulta la relación comercial, movimientos y saldos.</p>
+                </div>
+            </header>
 
             <a class="back-link" href="/clientes">← Volver a clientes</a>
 

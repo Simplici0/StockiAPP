@@ -35,22 +35,23 @@
               --font-sans: "Inter", "Segoe UI", sans-serif;
               --font-heading: "Montserrat", "Inter", "Segoe UI", sans-serif;
               --font-mono: "Roboto Mono", "SFMono-Regular", Consolas, monospace;
-              --bg-base: #ffffff;
-              --card: #ffffff;
-              --card-muted: #f5f7fa;
-              --surface-elevated: #ffffff;
-              --text: #212121;
-              --muted: #6b7280;
+              --bg-base: #f1eee6;
+              --card: #f8f5ee;
+              --card-muted: #ebe7dd;
+              --surface-elevated: #fbf9f3;
+              --text: #27241f;
+              --muted: #686259;
               --primary: {{businessPrimaryColor .}};
               --primary-hover: {{businessPrimaryStrong .}};
-              --border: #d6d9de;
-              --border-strong: #d6d9de;
+              --primary-contrast: {{businessPrimaryContrast .}};
+              --border: #d7d0c2;
+              --border-strong: #8f877a;
               --danger: #dc2626;
               --shadow: 0 16px 40px rgba(33, 33, 33, 0.08);
               --shadow-soft: 0 8px 18px rgba(33, 33, 33, 0.08);
               --focus-ring: color-mix(in srgb, var(--primary) 16%, transparent);
-              --toggle-thumb-start: #ffffff;
-              --toggle-thumb-end: #f5f7fa;
+               --toggle-thumb-start: #faf8f2;
+               --toggle-thumb-end: #ebe7dd;
               --toggle-icon-sun: #f59e0b;
               --toggle-icon-moon: var(--primary);
               --toggle-ring: color-mix(in srgb, var(--primary) 12%, transparent);
@@ -58,25 +59,26 @@
 
             :root[data-theme="dark"] {
               color-scheme: dark;
-              --bg-base: #121212;
-              --card: #1f1f1f;
-              --card-muted: #2d2d2d;
-              --surface-elevated: #2d2d2d;
-              --text: #e5e5e5;
-              --muted: #9ca3af;
-              --primary: #d1d5db;
-              --primary-hover: #b6bcc4;
-              --border: #37474f;
-              --border-strong: #37474f;
+               --bg-base: #111315;
+               --card: #181b1f;
+               --card-muted: #20242a;
+               --surface-elevated: #292e35;
+               --text: #f1f3f5;
+               --muted: #aeb6c0;
+               --primary: {{businessPrimaryDarkColor .}};
+               --primary-hover: {{businessPrimaryDarkStrong .}};
+               --primary-contrast: {{businessPrimaryDarkContrast .}};
+               --border: #3b444e;
+               --border-strong: #68737e;
               --danger: #ef4444;
               --shadow: 0 20px 44px rgba(0, 0, 0, 0.36);
               --shadow-soft: 0 8px 18px rgba(0, 0, 0, 0.28);
-              --focus-ring: rgba(209, 213, 219, 0.3);
-              --toggle-thumb-start: #2d2d2d;
-              --toggle-thumb-end: #1f1f1f;
-              --toggle-icon-sun: #fca327;
-              --toggle-icon-moon: #d1d5db;
-              --toggle-ring: rgba(209, 213, 219, 0.14);
+               --focus-ring: color-mix(in srgb, var(--primary) 32%, transparent);
+               --toggle-thumb-start: #292e35;
+               --toggle-thumb-end: #181b1f;
+               --toggle-icon-sun: #fca327;
+               --toggle-icon-moon: var(--primary);
+               --toggle-ring: color-mix(in srgb, var(--primary) 16%, transparent);
             }
 
             * {
@@ -242,7 +244,7 @@
               border-radius: 11px;
               font-weight: 600;
               background: var(--primary);
-              color: white;
+              color: var(--primary-contrast);
               cursor: pointer;
               font-size: 14px;
               transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
