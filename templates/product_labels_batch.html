@@ -68,12 +68,40 @@
             .labels-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 24px; align-items: start; }
             .labels-controls { display: grid; gap: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
             .labels-controls h2 { margin: 0; font-size: 16px; }
-            .labels-product-list { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
-            .labels-list-toolbar { display: flex; gap: 12px; align-items: end; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--border); background: var(--bg-card-muted); }
+            .labels-product-list { min-width: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+            .labels-list-toolbar { grid-column: 1 / -1; display: flex; gap: 12px; align-items: end; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--border); background: var(--bg-card-muted); }
             .labels-list-toolbar .label-search { flex: 1 1 260px; }
             .labels-list-toolbar input { min-height: 42px; }
+            .labels-list-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+            .labels-list-toolbar-actions button { min-height: 42px; }
+            .labels-filter-toggle { display: none; }
             .label-search { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
             .labels-select-visible { min-height: 42px; white-space: nowrap; }
+            .labels-filter-panel { min-width: 0; display: grid; align-content: start; gap: 14px; padding: 16px 14px; border-right: 1px solid var(--border); background: var(--bg-card-muted); }
+            .labels-filter-panel.is-open { display: grid; }
+            .labels-filter-header { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+            .labels-filter-header h2 { margin: 0; color: var(--text); font-size: 15px; }
+            .labels-filter-clear { min-height: 36px; padding: 6px 8px; border: 0; color: var(--primary-strong); background: transparent; font-size: 12px; font-weight: 750; }
+            .labels-filter-clear:hover { color: var(--text); background: var(--bg-card); }
+            .labels-filter-summary { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+            .labels-filter-section { border-top: 1px solid var(--border); }
+            .labels-filter-section summary { min-height: 44px; display: flex; gap: 8px; align-items: center; justify-content: space-between; cursor: pointer; list-style: none; color: var(--text); font-size: 13px; font-weight: 800; }
+            .labels-filter-section summary::-webkit-details-marker { display: none; }
+            .labels-filter-section summary::after { content: "+"; color: var(--text-muted); font-size: 18px; font-weight: 400; }
+            .labels-filter-section[open] summary::after { content: "−"; }
+            .labels-filter-section-count { min-width: 20px; padding: 2px 6px; border-radius: 999px; color: var(--text-muted); background: var(--bg-card); font-size: 11px; text-align: center; }
+            .labels-filter-options { display: grid; gap: 2px; max-height: 230px; overflow: auto; padding: 0 0 8px; }
+            .labels-filter-option { min-height: 40px; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+            .labels-filter-option:hover { background: var(--bg-card); }
+            .labels-filter-option input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+            .labels-filter-option-copy { min-width: 0; display: flex; gap: 8px; align-items: center; justify-content: space-between; color: var(--text); font-size: 12px; }
+            .labels-filter-option-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .labels-filter-option-copy small { flex: 0 0 auto; color: var(--text-muted); font-size: 11px; }
+            .labels-filter-empty { margin: 0; padding: 4px 6px 10px; color: var(--text-muted); font-size: 12px; }
+            .labels-products-main { min-width: 0; }
+            .labels-results-bar { min-height: 42px; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+            .labels-selection-note { margin: 0; color: var(--warning-ink); font-weight: 750; text-align: right; }
+            .labels-selection-note[hidden] { display: none; }
             .labels-product-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 78px; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
             .labels-product-row:last-child { border-bottom: 0; }
             .labels-product-row[hidden] { display: none; }
@@ -95,8 +123,8 @@
             .labels-output-actions .secondary { background: var(--bg-card-muted); border-color: var(--border-strong); color: var(--text); }
             .labels-status { min-height: 18px; margin: 0; color: var(--text-muted); font-size: 12px; }
             .labels-status.error { color: var(--danger-ink); font-weight: 700; }
-            @media (max-width: 860px) { .labels-layout, .label-editor-panel { grid-template-columns: 1fr; } .labels-summary, .label-editor-preview { position: static; } }
-            @media (max-width: 560px) { .labels-intro, .labels-list-toolbar { align-items: stretch; flex-direction: column; } .label-editor-picker { grid-template-columns: 1fr; } .label-editor-picker p { margin: 0; } .label-editor-fields { grid-template-columns: 1fr; } .labels-product-row { grid-template-columns: 28px minmax(0, 1fr) 66px; gap: 8px; padding-inline: 10px; } }
+            @media (max-width: 860px) { .labels-layout, .label-editor-panel { grid-template-columns: 1fr; } .labels-summary, .label-editor-preview { position: static; } .labels-product-list { grid-template-columns: 1fr; } .labels-filter-toggle { display: inline-flex; } .labels-filter-panel { display: none; grid-column: 1; border-right: 0; border-bottom: 1px solid var(--border); } .labels-filter-panel.is-open { display: grid; } .labels-products-main { grid-column: 1; } }
+            @media (max-width: 560px) { .labels-intro, .labels-list-toolbar { align-items: stretch; flex-direction: column; } .labels-list-toolbar-actions { justify-content: stretch; } .labels-list-toolbar-actions button { flex: 1 1 auto; } .labels-results-bar { align-items: flex-start; flex-direction: column; } .labels-selection-note { text-align: left; } .label-editor-picker { grid-template-columns: 1fr; } .label-editor-picker p { margin: 0; } .label-editor-fields { grid-template-columns: 1fr; } .labels-product-row { grid-template-columns: 28px minmax(0, 1fr) 66px; gap: 8px; padding-inline: 10px; } }
         </style>
     </head>
     <body>
@@ -204,23 +232,61 @@
                     <div class="labels-product-list">
                         <div class="labels-list-toolbar">
                             <label class="label-search">Buscar producto
-                                <input id="label-product-search" type="search" placeholder="Nombre, ID o línea" autocomplete="off" />
+                                <input id="label-product-search" type="search" placeholder="Nombre, ID, línea o ubicación" autocomplete="off" />
                             </label>
-                            <button id="label-select-visible" class="secondary labels-select-visible" type="button">Usar existencias visibles</button>
+                            <div class="labels-list-toolbar-actions">
+                                <button id="label-filter-toggle" class="secondary labels-filter-toggle" type="button" aria-controls="label-filter-panel" aria-expanded="true">Filtros <span id="label-active-filter-count">0</span></button>
+                                <button id="label-select-visible" class="secondary labels-select-visible" type="button">Usar existencias visibles</button>
+                            </div>
                         </div>
-                        <div id="label-product-rows">
-                            {{range .Products}}
-                            <label class="labels-product-row" data-label-product="{{.ID}} {{.Name}} {{.Line}} {{.Size}}" data-available="{{.Available}}">
-                                <input class="label-product-check" name="id" value="{{.ID}}" type="checkbox" />
-                                <span class="labels-product-name">
-                                    <strong>{{.Name}}</strong>
-                                    <span>{{.ID}}{{if .Size}} · Talla {{.Size}}{{end}}{{if .Line}} · {{.Line}}{{end}} · {{.Available}} disponibles · {{.Price}}</span>
-                                </span>
-                                <input class="labels-copies" name="{{.CopiesKey}}" type="number" min="1" max="{{$.MaxCopies}}" value="{{.SuggestedCopies}}" disabled aria-label="Copias para {{.Name}}" />
-                            </label>
-                            {{else}}
-                            <p style="padding: 16px; color: var(--text-muted);">No hay productos visibles para imprimir.</p>
-                            {{end}}
+                        <aside id="label-filter-panel" class="labels-filter-panel is-open" aria-label="Filtros de productos">
+                            <div class="labels-filter-header">
+                                <h2>Filtrar productos</h2>
+                                <button id="label-clear-filters" class="labels-filter-clear" type="button">Limpiar</button>
+                            </div>
+                            <p id="label-filter-summary" class="labels-filter-summary">Todos los productos visibles</p>
+                            <details class="labels-filter-section" open>
+                                <summary><span>Línea</span><span class="labels-filter-section-count">{{len .LineFacets}}</span></summary>
+                                <div class="labels-filter-options">
+                                    {{range .LineFacets}}
+                                    <label class="labels-filter-option">
+                                        <input class="label-facet-check" type="checkbox" data-filter-group="line" value="{{.Value}}" />
+                                        <span class="labels-filter-option-copy"><span>{{.Label}}</span><small>{{.Count}}</small></span>
+                                    </label>
+                                    {{else}}<p class="labels-filter-empty">No hay líneas disponibles.</p>{{end}}
+                                </div>
+                            </details>
+                            <details class="labels-filter-section" open>
+                                <summary><span>Ubicación</span><span class="labels-filter-section-count">{{len .LocationFacets}}</span></summary>
+                                <div class="labels-filter-options">
+                                    {{range .LocationFacets}}
+                                    <label class="labels-filter-option">
+                                        <input class="label-facet-check" type="checkbox" data-filter-group="location" value="{{.Value}}" />
+                                        <span class="labels-filter-option-copy"><span>{{.Label}}</span><small>{{.Count}}</small></span>
+                                    </label>
+                                    {{else}}<p class="labels-filter-empty">No hay ubicaciones disponibles.</p>{{end}}
+                                </div>
+                            </details>
+                        </aside>
+                        <div class="labels-products-main">
+                            <div class="labels-results-bar" aria-live="polite">
+                                <span id="label-filter-result-count">Todos los productos visibles</span>
+                                <p id="label-hidden-selection-status" class="labels-selection-note" hidden></p>
+                            </div>
+                            <div id="label-product-rows">
+                                {{range .Products}}
+                                <label class="labels-product-row" data-label-product="{{.ID}} {{.Name}} {{.Line}} {{.Location}} {{.Size}}" data-label-line="{{.Line}}" data-label-location="{{.Location}}" data-available="{{.Available}}">
+                                    <input class="label-product-check" name="id" value="{{.ID}}" type="checkbox" />
+                                    <span class="labels-product-name">
+                                        <strong>{{.Name}}</strong>
+                                        <span>{{.ID}}{{if .Size}} · Talla {{.Size}}{{end}} · {{if .Line}}{{.Line}}{{else}}Sin línea{{end}} · {{if .Location}}{{.Location}}{{else}}Sin ubicación{{end}} · {{.Available}} disponibles · {{.Price}}</span>
+                                    </span>
+                                    <input class="labels-copies" name="{{.CopiesKey}}" type="number" min="1" max="{{$.MaxCopies}}" value="{{.SuggestedCopies}}" disabled aria-label="Copias para {{.Name}}" />
+                                </label>
+                                {{else}}
+                                <p style="padding: 16px; color: var(--text-muted);">No hay productos visibles para imprimir.</p>
+                                {{end}}
+                            </div>
                         </div>
                     </div>
 
@@ -257,10 +323,19 @@
                 const rows = Array.from(document.querySelectorAll(".labels-product-row"));
                 const search = document.getElementById("label-product-search");
                 const selectVisible = document.getElementById("label-select-visible");
+                const filterToggle = document.getElementById("label-filter-toggle");
+                const filterPanel = document.getElementById("label-filter-panel");
+                const clearFilters = document.getElementById("label-clear-filters");
+                const filterSummary = document.getElementById("label-filter-summary");
+                const filterResultCount = document.getElementById("label-filter-result-count");
+                const hiddenSelectionStatus = document.getElementById("label-hidden-selection-status");
+                const activeFilterCount = document.getElementById("label-active-filter-count");
+                const facetChecks = Array.from(document.querySelectorAll(".label-facet-check"));
                 const selectedCount = document.getElementById("label-selected-count");
                 const totalCount = document.getElementById("label-total-count");
                 const status = document.getElementById("label-batch-status");
                 const actions = [document.getElementById("label-print-batch"), document.getElementById("label-pdf-batch")];
+                const facetKey = (value) => String(value || "").trim().toLocaleLowerCase();
                 const availableCopies = (row) => Math.max(0, Number.parseInt(row.dataset.available, 10) || 0);
                 const applyAvailableCopies = (row, force = false) => {
                     const copies = row.querySelector(".labels-copies");
@@ -268,16 +343,25 @@
                     if (!copies || available < 1 || (!force && copies.dataset.manuallyAdjusted === "true")) return;
                     copies.value = String(Math.min({{.MaxCopies}}, available));
                 };
+                const selectedFacetValues = (group) => new Set(
+                    facetChecks
+                        .filter((check) => check.dataset.filterGroup === group && check.checked)
+                        .map((check) => facetKey(check.value)),
+                );
                 const sync = () => {
                     let selected = 0;
                     let total = 0;
+                    let visibleProducts = 0;
+                    let visibleSelected = 0;
                     rows.forEach((row) => {
                         const check = row.querySelector(".label-product-check");
                         const copies = row.querySelector(".labels-copies");
                         const active = Boolean(check && check.checked);
+                        if (!row.hidden) visibleProducts += 1;
                         if (copies) copies.disabled = !active;
                         if (!active) return;
                         selected += 1;
+                        if (!row.hidden) visibleSelected += 1;
                         const amount = Math.max(1, Number.parseInt(copies.value, 10) || 1);
                         copies.value = Math.min({{.MaxCopies}}, amount);
                         total += Number(copies.value);
@@ -288,7 +372,50 @@
                     actions.forEach((button) => { if (button) button.disabled = !valid; });
                     status.classList.toggle("error", total > maxLabels);
                     status.textContent = total > maxLabels ? `El lote supera el máximo de ${maxLabels} etiquetas.` : total > 0 ? `${total} etiqueta(s) preparada(s) para salida.` : "Selecciona productos o usa las existencias visibles.";
+                    if (filterResultCount) filterResultCount.textContent = `${visibleProducts} de ${rows.length} productos`;
+                    if (hiddenSelectionStatus) {
+                        const hiddenSelected = selected - visibleSelected;
+                        hiddenSelectionStatus.hidden = hiddenSelected < 1;
+                        hiddenSelectionStatus.textContent = hiddenSelected === 1 ? "1 seleccionado está fuera del filtro actual." : `${hiddenSelected} seleccionados están fuera del filtro actual.`;
+                    }
+                    const lineCount = selectedFacetValues("line").size;
+                    const locationCount = selectedFacetValues("location").size;
+                    const filters = lineCount + locationCount;
+                    if (activeFilterCount) activeFilterCount.textContent = String(filters);
+                    if (filterSummary) filterSummary.textContent = filters > 0 ? `${filters} filtro(s) activos · la selección se conserva al cambiar de vista` : "Todos los productos visibles";
                 };
+                const applyFilters = () => {
+                    const query = search?.value.trim().toLocaleLowerCase() || "";
+                    const selectedLines = selectedFacetValues("line");
+                    const selectedLocations = selectedFacetValues("location");
+                    rows.forEach((row) => {
+                        const searchable = row.dataset.labelProduct.toLocaleLowerCase();
+                        const matchesSearch = !query || searchable.includes(query);
+                        const matchesLine = selectedLines.size === 0 || selectedLines.has(facetKey(row.dataset.labelLine));
+                        const matchesLocation = selectedLocations.size === 0 || selectedLocations.has(facetKey(row.dataset.labelLocation));
+                        row.hidden = !(matchesSearch && matchesLine && matchesLocation);
+                    });
+                    sync();
+                };
+                const setFilterPanelOpen = (open) => {
+                    if (!filterPanel || !filterToggle) return;
+                    filterPanel.classList.toggle("is-open", open);
+                    filterToggle.setAttribute("aria-expanded", String(open));
+                };
+                if (filterToggle && filterPanel) {
+                    filterToggle.addEventListener("click", () => {
+                        setFilterPanelOpen(!filterPanel.classList.contains("is-open"));
+                    });
+                    if (window.matchMedia?.("(max-width: 860px)").matches) {
+                        setFilterPanelOpen(false);
+                    }
+                }
+                facetChecks.forEach((check) => check.addEventListener("change", applyFilters));
+                clearFilters?.addEventListener("click", () => {
+                    facetChecks.forEach((check) => { check.checked = false; });
+                    if (search) search.value = "";
+                    applyFilters();
+                });
                 rows.forEach((row) => {
                     row.querySelector(".label-product-check")?.addEventListener("change", (event) => {
                         if (event.currentTarget.checked) applyAvailableCopies(row);
@@ -299,10 +426,7 @@
                         sync();
                     });
                 });
-                search?.addEventListener("input", () => {
-                    const query = search.value.trim().toLowerCase();
-                    rows.forEach((row) => { row.hidden = query && !row.dataset.labelProduct.toLowerCase().includes(query); });
-                });
+                search?.addEventListener("input", applyFilters);
                 selectVisible?.addEventListener("click", () => {
                     const visible = rows.filter((row) => !row.hidden && availableCopies(row) > 0);
                     const shouldSelect = visible.some((row) => !row.querySelector(".label-product-check").checked);
@@ -313,6 +437,7 @@
                     });
                     sync();
                 });
+                applyFilters();
 
                 const previewMarkup = (values, compact) => {
                     const meta = values.size ? 'Talla M' : '';

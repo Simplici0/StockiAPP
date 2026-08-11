@@ -197,11 +197,18 @@ type productLabelBatchProduct struct {
 	ID              string
 	Name            string
 	Line            string
+	Location        string
 	Size            string
 	Price           string
 	Available       int
 	SuggestedCopies int
 	CopiesKey       string
+}
+
+type productLabelBatchFacet struct {
+	Value string
+	Label string
+	Count int
 }
 
 type productLabelsBatchPageData struct {
@@ -210,6 +217,8 @@ type productLabelsBatchPageData struct {
 	Flash            string
 	Error            string
 	Products         []productLabelBatchProduct
+	LineFacets       []productLabelBatchFacet
+	LocationFacets   []productLabelBatchFacet
 	DefaultSize      string // legacy template data retained for compatibility
 	DefaultProfileID int
 	Profiles         []LabelProfile
@@ -220,6 +229,46 @@ type productLabelsBatchPageData struct {
 	MaxCopies        int
 	SizeOptions      []labelPaperOption
 	DefaultGapMM     int
+}
+
+func productLabelBatchFacets(products []productLabelBatchProduct, locations bool) []productLabelBatchFacet {
+	byKey := make(map[string]*productLabelBatchFacet)
+	for _, product := range products {
+		value := strings.TrimSpace(product.Line)
+		if locations {
+			value = strings.TrimSpace(product.Location)
+		}
+		key := strings.ToLower(value)
+		if key == "" {
+			key = "__empty__"
+		}
+		facet, ok := byKey[key]
+		if !ok {
+			label := value
+			if label == "" {
+				if locations {
+					label = "Sin ubicación"
+				} else {
+					label = "Sin línea"
+				}
+			}
+			facet = &productLabelBatchFacet{Value: value, Label: label}
+			byKey[key] = facet
+		}
+		facet.Count++
+	}
+
+	facets := make([]productLabelBatchFacet, 0, len(byKey))
+	for _, facet := range byKey {
+		facets = append(facets, *facet)
+	}
+	sort.SliceStable(facets, func(i, j int) bool {
+		if (facets[i].Value == "") != (facets[j].Value == "") {
+			return facets[i].Value != ""
+		}
+		return strings.ToLower(facets[i].Label) < strings.ToLower(facets[j].Label)
+	})
+	return facets
 }
 
 type labelPaperOption struct {
@@ -21316,9 +21365,10 @@ func main() {
 				suggestedCopies = maxLabelBatchCopies
 			}
 			batchProducts = append(batchProducts, productLabelBatchProduct{
-				ID:   visibleID,
-				Name: product.Name,
-				Line: product.Line,
+				ID:       visibleID,
+				Name:     product.Name,
+				Line:     strings.TrimSpace(product.Line),
+				Location: strings.TrimSpace(product.Location),
 				Size: func() string {
 					if !product.TallaRequerida {
 						return ""
@@ -21331,6 +21381,8 @@ func main() {
 				CopiesKey:       "copies_" + visibleID,
 			})
 		}
+		lineFacets := productLabelBatchFacets(batchProducts, false)
+		locationFacets := productLabelBatchFacets(batchProducts, true)
 		settings := settingsForUser(currentUser)
 		profiles, defaultProfileID, err := ensureLabelProfilesForTenant(db, tenantIDFromUser(currentUser), settings.LabelPaperWidth)
 		if err != nil {
@@ -21343,6 +21395,8 @@ func main() {
 			Flash:            strings.TrimSpace(r.URL.Query().Get("mensaje")),
 			Error:            strings.TrimSpace(r.URL.Query().Get("error")),
 			Products:         batchProducts,
+			LineFacets:       lineFacets,
+			LocationFacets:   locationFacets,
 			DefaultProfileID: defaultProfileID,
 			Profiles:         profiles,
 			CanManageLabels:  isAdminRole(currentUser.Role),

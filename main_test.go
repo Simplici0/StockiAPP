@@ -2042,17 +2042,59 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 		t.Fatalf("compact print template should keep the visible ID when size is present")
 	}
 	rendered.Reset()
-	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", Size: "M", Available: 7, SuggestedCopies: 7, CopiesKey: "copies_P-1"}}, DefaultSize: "58mm", DefaultProfileID: 1, Profiles: []LabelProfile{{ID: 1, Name: "Compacta", LabelWidthMM: 50, LabelHeightMM: 25, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true}}, CanManageLabels: true, MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
+	if err := templates.ExecuteTemplate(&rendered, "product_labels_batch.html", productLabelsBatchPageData{Title: "Etiquetas masivas", Products: []productLabelBatchProduct{{ID: "P-1", Name: "Producto prueba", Line: "Ropa", Location: "Vitrina", Size: "M", Available: 7, SuggestedCopies: 7, CopiesKey: "copies_P-1"}}, LineFacets: []productLabelBatchFacet{{Value: "Ropa", Label: "Ropa", Count: 1}}, LocationFacets: []productLabelBatchFacet{{Value: "Vitrina", Label: "Vitrina", Count: 1}}, DefaultSize: "58mm", DefaultProfileID: 1, Profiles: []LabelProfile{{ID: 1, Name: "Compacta", LabelWidthMM: 50, LabelHeightMM: 25, Columns: 1, ShowBusiness: true, ShowPrice: true, ShowBarcode: true, ShowID: true}}, CanManageLabels: true, MaxLabels: maxLabelBatchLabels, MaxCopies: maxLabelBatchCopies, DefaultGapMM: defaultLabelGapMM, SizeOptions: labelPaperOptions()}); err != nil {
 		t.Fatalf("render batch template: %v", err)
 	}
 	if !bytes.Contains(rendered.Bytes(), []byte("/productos/etiquetas/lote")) {
 		t.Fatalf("batch template should submit to the batch route")
+	}
+	if !bytes.Contains(rendered.Bytes(), []byte(`id="label-filter-panel"`)) || !bytes.Contains(rendered.Bytes(), []byte(`data-label-location="Vitrina"`)) || !bytes.Contains(rendered.Bytes(), []byte(`data-filter-group="location"`)) {
+		t.Fatalf("batch template should expose location filters and product metadata")
 	}
 	if bytes.Contains(rendered.Bytes(), []byte("name=\"show_line\"")) {
 		t.Fatalf("label editor should not expose the retired line option")
 	}
 	if !bytes.Contains(rendered.Bytes(), []byte(`data-available="7"`)) || !bytes.Contains(rendered.Bytes(), []byte(`value="7"`)) || !bytes.Contains(rendered.Bytes(), []byte("7 disponibles")) || !bytes.Contains(rendered.Bytes(), []byte("Talla M")) {
 		t.Fatalf("batch template should show size and propose one label per available unit")
+	}
+}
+
+func TestProductLabelBatchFacetsGroupValuesAndMissingCategories(t *testing.T) {
+	products := []productLabelBatchProduct{
+		{Line: "Ropa", Location: "Vitrina"},
+		{Line: "ropa", Location: ""},
+		{Line: "", Location: "Vitrina"},
+		{Line: "Electro", Location: "Bodega"},
+	}
+
+	lineFacets := productLabelBatchFacets(products, false)
+	expectedLines := []productLabelBatchFacet{
+		{Value: "Electro", Label: "Electro", Count: 1},
+		{Value: "Ropa", Label: "Ropa", Count: 2},
+		{Value: "", Label: "Sin línea", Count: 1},
+	}
+	if len(lineFacets) != len(expectedLines) {
+		t.Fatalf("expected %d line facets, got %+v", len(expectedLines), lineFacets)
+	}
+	for index, expected := range expectedLines {
+		if lineFacets[index] != expected {
+			t.Fatalf("unexpected line facet at %d: expected %+v, got %+v", index, expected, lineFacets[index])
+		}
+	}
+
+	locationFacets := productLabelBatchFacets(products, true)
+	expectedLocations := []productLabelBatchFacet{
+		{Value: "Bodega", Label: "Bodega", Count: 1},
+		{Value: "Vitrina", Label: "Vitrina", Count: 2},
+		{Value: "", Label: "Sin ubicación", Count: 1},
+	}
+	if len(locationFacets) != len(expectedLocations) {
+		t.Fatalf("expected %d location facets, got %+v", len(expectedLocations), locationFacets)
+	}
+	for index, expected := range expectedLocations {
+		if locationFacets[index] != expected {
+			t.Fatalf("unexpected location facet at %d: expected %+v, got %+v", index, expected, locationFacets[index])
+		}
 	}
 }
 
