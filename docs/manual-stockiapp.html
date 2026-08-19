@@ -3388,6 +3388,50 @@
                             primero líneas, ubicaciones y owners disponibles
                         </li>
                     </ul>
+                    <h3>Actualizar ubicaciones por CSV</h3>
+                    <p>
+                        Los administradores pueden cambiar la ubicación de varios
+                        productos desde <strong>Productos → Actualizar ubicación</strong>.
+                        La plantilla solo requiere las columnas <code>id</code> y
+                        <code>location</code>.
+                    </p>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                        <strong>Prepara el archivo</strong>
+                                <span>
+                                    Usa el ID visible de cada producto y la nueva
+                                    ubicación. Deja <code>location</code> vacía para
+                                    dejar el producto sin ubicación. Una ubicación
+                                    nueva se crea automáticamente; una ubicación
+                                    inactiva debe activarse antes.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Valida antes de aplicar</strong>
+                                <span>
+                                    La pantalla muestra la ubicación actual, la nueva
+                                    y las filas rechazadas. Los productos inexistentes
+                                    o las ubicaciones inactivas deben corregirse.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Confirma y revisa</strong>
+                                <span>
+                                    La operación solo cambia la ubicación, no el stock
+                                    ni los datos comerciales. Cada cambio queda en
+                                    Auditoría.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
                     <div class="note">
                         <span class="ci">⚙️</span> Si vas a usar
                         automatizaciones o carga masiva, valida primero líneas,

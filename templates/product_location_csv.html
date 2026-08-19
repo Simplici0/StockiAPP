@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>{{.Title}} - StockiAPP</title>
+        <style>
+            .location-shell {
+                width: min(1080px, 100%);
+                margin: 0 auto;
+            }
+
+            .location-card {
+                margin-bottom: var(--space-4);
+            }
+
+            .location-notice {
+                display: flex;
+                gap: var(--space-2);
+                align-items: flex-start;
+                margin-top: var(--space-3);
+                padding: var(--space-3);
+                border: 1px solid var(--info-border);
+                border-radius: var(--radius-sm);
+                background: var(--info-soft);
+                color: var(--info-ink);
+                font-size: var(--text-sm);
+                line-height: 1.5;
+            }
+
+            .location-notice strong {
+                display: block;
+                margin-bottom: 2px;
+                color: var(--secondary);
+            }
+
+            .location-notice a {
+                color: var(--primary-strong);
+                font-weight: 700;
+                text-decoration: underline;
+                text-underline-offset: 2px;
+            }
+
+            .location-steps {
+                display: flex;
+                gap: 8px;
+                margin-top: var(--space-4);
+                margin-bottom: var(--space-3);
+                flex-wrap: wrap;
+            }
+
+            .location-step {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 12px;
+                border-radius: var(--chip-radius);
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card-muted);
+                color: var(--text-muted);
+                font-size: 12px;
+                font-weight: 600;
+                transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+            }
+
+            .location-step.active {
+                border-color: var(--primary);
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+            }
+
+            .location-step.completed {
+                border-color: var(--status-available-border);
+                background: var(--success-soft);
+                color: var(--success-ink);
+            }
+
+            .step-num {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: currentColor;
+                color: var(--bg-card);
+                font-size: 11px;
+                font-weight: 800;
+            }
+
+            .location-actions {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: var(--space-2);
+                margin-top: var(--space-3);
+            }
+
+            .location-file-label {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                min-height: 44px;
+                padding: 0 16px;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--control-radius);
+                background: var(--bg-card);
+                color: var(--text);
+                font-weight: 700;
+                font-size: 13px;
+                cursor: pointer;
+                box-shadow: var(--shadow-xs);
+                transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .location-file-label:hover {
+                background: var(--bg-card-muted);
+            }
+
+            .location-file-label:focus-within {
+                outline: 3px solid var(--focus-ring);
+                outline-offset: 2px;
+            }
+
+            .location-file-label input {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            .location-file-name {
+                flex: 1 1 220px;
+                min-width: 0;
+                padding: 10px 14px;
+                border: 1px solid var(--border);
+                border-radius: var(--control-radius);
+                background: var(--bg-input);
+                color: var(--text-muted);
+                font-size: 13px;
+                font-family: var(--font-mono);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .location-file-name.selected {
+                color: var(--text);
+                font-weight: 600;
+                border-color: var(--border-strong);
+            }
+
+            .location-status {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: var(--space-3);
+            }
+
+            .location-status span {
+                display: inline-flex;
+                align-items: center;
+                min-height: 28px;
+                padding: 0 12px;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--chip-radius);
+                background: var(--bg-card);
+                color: var(--secondary);
+                font-size: 12px;
+                font-weight: 700;
+                box-shadow: var(--shadow-xs);
+            }
+
+            .location-summary {
+                display: grid;
+                gap: 8px;
+                margin-top: var(--space-3);
+                padding: var(--space-3);
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-md);
+                background: var(--bg-card-muted);
+                color: var(--text-muted);
+                font-size: var(--text-sm);
+                line-height: 1.5;
+            }
+
+            .location-summary[data-state="ready"] {
+                border-color: var(--status-available-border);
+                background: var(--success-soft);
+                color: var(--success-ink);
+            }
+
+            .location-summary[data-state="error"] {
+                border-color: var(--danger-border);
+                background: var(--danger-soft);
+                color: var(--danger-ink);
+            }
+
+            .location-summary[data-state="warning"] {
+                border-color: var(--status-sold-border);
+                background: var(--warning-soft);
+                color: var(--warning-ink);
+            }
+
+            .location-summary strong {
+                color: inherit;
+            }
+
+            .location-errors {
+                margin: 0;
+                padding-left: 20px;
+            }
+
+            .location-errors li {
+                margin-bottom: 4px;
+            }
+
+            .location-table-wrap {
+                overflow-x: auto;
+                border: 1px solid var(--border-strong);
+                border-radius: var(--radius-md);
+                background: var(--bg-card);
+            }
+
+            .location-table {
+                width: 100%;
+                min-width: 620px;
+                border-collapse: collapse;
+            }
+
+            .location-table th,
+            .location-table td {
+                padding: 12px 14px;
+                border-bottom: 1px solid var(--border-strong);
+                text-align: left;
+                vertical-align: top;
+                font-size: 13.5px;
+            }
+
+            .location-table th {
+                background: var(--table-head-bg);
+                color: var(--secondary);
+                font-size: 11px;
+                font-weight: 750;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .location-table tr:hover {
+                background: var(--table-row-hover);
+            }
+
+            .location-table tr:last-child td {
+                border-bottom: 0;
+            }
+
+            .location-tag {
+                display: inline-flex;
+                align-items: center;
+                min-height: 24px;
+                padding: 3px 10px;
+                border-radius: var(--chip-radius);
+                border: 1px solid var(--border-strong);
+                background: var(--bg-card-muted);
+                color: var(--text-muted);
+                font-size: 11.5px;
+                font-weight: 700;
+            }
+
+            .location-tag.updated {
+                border-color: var(--status-available-border);
+                background: var(--success-soft);
+                color: var(--success-ink);
+            }
+
+            .location-tag.error {
+                border-color: var(--danger-border);
+                background: var(--danger-soft);
+                color: var(--danger-ink);
+            }
+
+            .location-tag.unchanged {
+                border-color: var(--status-sold-border);
+                background: var(--warning-soft);
+                color: var(--warning-ink);
+            }
+
+            .location-footer-links {
+                display: flex;
+                flex-wrap: wrap;
+                gap: var(--space-3);
+                margin-top: var(--space-4);
+                padding-top: var(--space-3);
+                border-top: 1px solid var(--border);
+            }
+
+            .location-footer-links a {
+                color: var(--primary-strong);
+                font-size: 13px;
+                font-weight: 700;
+                text-decoration: underline;
+                text-underline-offset: 2px;
+            }
+
+            .location-footer-links a:hover {
+                color: var(--primary);
+            }
+
+            .location-code {
+                font-family: var(--font-mono);
+                font-weight: 500;
+            }
+
+            @media (max-width: 680px) {
+                .location-actions {
+                    align-items: stretch;
+                    flex-direction: column;
+                }
+
+                .location-actions button,
+                .location-file-label {
+                    width: 100%;
+                }
+
+                .location-file-name {
+                    width: 100%;
+                }
+            }
+        </style>
+        {{template "app_styles" .}}
+    </head>
+    <body>
+        {{template "header" .}}
+        <main class="page-content">
+            <div class="location-shell">
+                <header class="page-heading">
+                    <div class="page-heading-copy">
+                        <nav class="tabs" aria-label="Modalidad de carga CSV" style="margin-bottom: 12px;">
+                            <a href="/csv/template" class="tab">Agregar productos</a>
+                            <a href="/csv/template?mode=location" class="tab active" aria-current="page">Actualizar ubicación</a>
+                        </nav>
+                        <h1>Actualizar ubicación de productos</h1>
+                        <p>
+                            Cambia la ubicación física de varios productos en lote utilizando un archivo CSV.
+                            El proceso identifica cada producto por su <strong>ID</strong> visible en la empresa actual.
+                        </p>
+                    </div>
+                    <div class="page-heading-actions">
+                        <a class="button secondary" href="/inventario">Volver a Inventario</a>
+                    </div>
+                </header>
+
+                <section class="card location-card" aria-labelledby="location-upload-title">
+                    <div class="card-header" style="margin-bottom: 0;">
+                        <div>
+                            <h2 id="location-upload-title">1. Archivo y validación</h2>
+                            <p style="margin-top: 4px;">
+                                Prepara y carga tu archivo con las columnas <strong>id</strong> y <strong>location</strong>.
+                                Deja la celda vacía para remover la ubicación actual de un producto.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="location-notice" role="note">
+                        <div aria-hidden="true" style="font-size: 16px;">ℹ</div>
+                        <div>
+                            <strong>Modo exclusivo: Solo Ubicaciones</strong>
+                            Esta operación solo modifica la ubicación física del producto.
+                            No altera existencias, precios, nombres, líneas, asignaciones, créditos ni retomas.
+                            Si deseas subir nuevos productos o inventario general, usa la <a href="/csv/template">Carga general de productos con CSV</a>.
+                        </div>
+                    </div>
+
+                    <div class="location-steps" aria-label="Pasos de la operación">
+                        <div class="location-step active" id="step-1">
+                            <span class="step-num">1</span>
+                            <span class="step-label">Seleccionar CSV</span>
+                        </div>
+                        <div class="location-step" id="step-2">
+                            <span class="step-num">2</span>
+                            <span class="step-label">Validar archivo</span>
+                        </div>
+                        <div class="location-step" id="step-3">
+                            <span class="step-num">3</span>
+                            <span class="step-label">Aplicar cambios</span>
+                        </div>
+                    </div>
+
+                    <div class="location-actions">
+                        <button class="button secondary" id="download-location-template" type="button">
+                            Descargar plantilla CSV
+                        </button>
+                        <label class="location-file-label" for="location-csv-file">
+                            <span>Seleccionar CSV</span>
+                            <input id="location-csv-file" type="file" accept=".csv,text/csv" />
+                        </label>
+                        <span class="location-file-name" id="location-file-name">Ningún archivo seleccionado</span>
+                    </div>
+
+                    <div class="location-actions">
+                        <button class="button secondary" id="validate-location-csv" type="button" disabled>
+                            Validar archivo
+                        </button>
+                        <button class="button primary" id="apply-location-csv" type="button" disabled>
+                            Actualizar ubicaciones
+                        </button>
+                    </div>
+
+                    <div class="location-status" id="location-status" aria-live="polite">
+                        <span>Filas: 0</span>
+                        <span>Se actualizarán: 0</span>
+                        <span>Sin cambios: 0</span>
+                        <span>Errores: 0</span>
+                    </div>
+
+                    <div class="location-summary" id="location-summary" data-state="idle" aria-live="polite">
+                        <strong id="location-summary-title">Validación pendiente</strong>
+                        <span id="location-summary-text">Selecciona un archivo CSV para comenzar el proceso.</span>
+                        <ul class="location-errors" id="location-errors"></ul>
+                    </div>
+                </section>
+
+                <section class="card location-card" aria-labelledby="location-preview-title">
+                    <div class="card-header" style="margin-bottom: var(--space-2);">
+                        <div>
+                            <h2 id="location-preview-title">2. Vista previa y verificación</h2>
+                            <p id="location-preview-help" style="margin-top: 4px;">
+                                La validación consulta los productos y ubicaciones registradas en la empresa antes de aplicar los cambios.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="location-table-wrap" tabindex="0" aria-label="Vista previa de actualización de ubicaciones">
+                        <table class="location-table">
+                            <thead>
+                                <tr>
+                                    <th>Fila</th>
+                                    <th>ID</th>
+                                    <th>Ubicación actual</th>
+                                    <th>Nueva ubicación</th>
+                                    <th>Resultado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="location-preview-body">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Sin archivo validado.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="location-footer-links">
+                        <a href="/configuracion?tab=inventario">Administrar catálogo de ubicaciones</a>
+                        <a href="/inventario">Ver inventario completo</a>
+                        <a href="/csv/template">Carga general de productos con CSV</a>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <script>
+            (() => {
+                const fileInput = document.getElementById("location-csv-file");
+                const fileName = document.getElementById("location-file-name");
+                const downloadButton = document.getElementById("download-location-template");
+                const validateButton = document.getElementById("validate-location-csv");
+                const applyButton = document.getElementById("apply-location-csv");
+                const status = document.getElementById("location-status");
+                const summary = document.getElementById("location-summary");
+                const summaryTitle = document.getElementById("location-summary-title");
+                const summaryText = document.getElementById("location-summary-text");
+                const errorsList = document.getElementById("location-errors");
+                const previewBody = document.getElementById("location-preview-body");
+                const step1 = document.getElementById("step-1");
+                const step2 = document.getElementById("step-2");
+                const step3 = document.getElementById("step-3");
+
+                let currentFile = null;
+                let validated = false;
+
+                const updateSteps = (currentStep, completedSteps = []) => {
+                    [step1, step2, step3].forEach((step, idx) => {
+                        const stepNum = idx + 1;
+                        if (!step) return;
+                        step.classList.remove("active", "completed");
+                        if (completedSteps.includes(stepNum)) {
+                            step.classList.add("completed");
+                        } else if (stepNum === currentStep) {
+                            step.classList.add("active");
+                        }
+                    });
+                };
+
+                const escapeCSV = (value) => {
+                    const text = String(value);
+                    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+                };
+
+                const parseCSV = (text) => {
+                    const delimiter = (() => {
+                        const firstLine = String(text).split(/\r?\n/, 1)[0] || "";
+                        return (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ";" : ",";
+                    })();
+                    const rows = [];
+                    let row = [];
+                    let value = "";
+                    let quoted = false;
+                    for (let index = 0; index < text.length; index += 1) {
+                        const char = text[index];
+                        const next = text[index + 1];
+                        if (char === '"' && quoted && next === '"') {
+                            value += '"';
+                            index += 1;
+                        } else if (char === '"') {
+                            quoted = !quoted;
+                        } else if (char === delimiter && !quoted) {
+                            row.push(value);
+                            value = "";
+                        } else if ((char === "\n" || char === "\r") && !quoted) {
+                            if (char === "\r" && next === "\n") index += 1;
+                            row.push(value);
+                            rows.push(row);
+                            row = [];
+                            value = "";
+                        } else {
+                            value += char;
+                        }
+                    }
+                    if (value !== "" || row.length > 0) {
+                        row.push(value);
+                        rows.push(row);
+                    }
+                    return rows.filter((candidate) => candidate.some((cell) => String(cell).trim() !== ""));
+                };
+
+                const setStatus = (rows, result) => {
+                    const failed = result?.failed_rows?.length || 0;
+                    const updated = result?.updated_products || 0;
+                    const unchanged = result?.unchanged_products || 0;
+                    status.replaceChildren(
+                        ...[
+                            `Filas: ${rows}`,
+                            `Se actualizarán: ${updated}`,
+                            `Sin cambios: ${unchanged}`,
+                            `Errores: ${failed}`,
+                        ].map((text) => {
+                            const span = document.createElement("span");
+                            span.textContent = text;
+                            return span;
+                        }),
+                    );
+                };
+
+                const setSummary = (state, title, text, errors = []) => {
+                    summary.dataset.state = state;
+                    summaryTitle.textContent = title;
+                    summaryText.textContent = text;
+                    errorsList.replaceChildren(
+                        ...errors.slice(0, 20).map((error) => {
+                            const item = document.createElement("li");
+                            const code = document.createElement("code");
+                            code.className = "location-code";
+                            code.textContent = `ID: ${error.id || "-"}`;
+                            item.textContent = `Fila ${error.row} (`;
+                            item.appendChild(code);
+                            item.appendChild(document.createTextNode(`): ${error.error}`));
+                            return item;
+                        }),
+                    );
+                    if (errors.length > 20) {
+                        const overflow = document.createElement("li");
+                        overflow.textContent = `...y ${errors.length - 20} errores más.`;
+                        overflow.style.fontWeight = "bold";
+                        errorsList.appendChild(overflow);
+                    }
+                };
+
+                const renderRows = (rows) => {
+                    previewBody.replaceChildren();
+                    if (!rows.length) {
+                        const emptyRow = document.createElement("tr");
+                        const emptyCell = document.createElement("td");
+                        emptyCell.colSpan = 5;
+                        emptyCell.style.textAlign = "center";
+                        emptyCell.style.color = "var(--text-muted)";
+                        emptyCell.style.padding = "24px";
+                        emptyCell.textContent = "Sin filas para mostrar.";
+                        emptyRow.appendChild(emptyCell);
+                        previewBody.appendChild(emptyRow);
+                        return;
+                    }
+                    rows.slice(0, 100).forEach((row) => {
+                        const tr = document.createElement("tr");
+
+                        const tdRow = document.createElement("td");
+                        tdRow.textContent = String(row.row);
+                        tr.appendChild(tdRow);
+
+                        const tdID = document.createElement("td");
+                        const codeID = document.createElement("code");
+                        codeID.className = "location-code";
+                        codeID.textContent = String(row.id || "-");
+                        tdID.appendChild(codeID);
+                        tr.appendChild(tdID);
+
+                        const tdCurrent = document.createElement("td");
+                        tdCurrent.textContent = String(row.current_location || "Sin ubicación");
+                        if (!row.current_location) tdCurrent.style.color = "var(--text-muted)";
+                        tr.appendChild(tdCurrent);
+
+                        const tdNew = document.createElement("td");
+                        tdNew.textContent = String(row.new_location || "Sin ubicación");
+                        if (!row.new_location) tdNew.style.color = "var(--text-muted)";
+                        else tdNew.style.fontWeight = "600";
+                        tr.appendChild(tdNew);
+
+                        const statusCell = document.createElement("td");
+                        const tag = document.createElement("span");
+                        tag.className = `location-tag ${row.status === "updated" || row.status === "ready" || row.status === "ready_create_location" ? "updated" : row.status === "error" ? "error" : row.status === "unchanged" ? "unchanged" : ""}`;
+                        tag.textContent = row.status === "updated" ? "Actualizado" : row.status === "unchanged" ? "Sin cambios" : row.status === "error" ? row.error : row.status === "ready_create_location" ? "Lista · crea ubicación" : row.status === "ready" ? "Lista" : "Pendiente";
+                        statusCell.appendChild(tag);
+                        tr.appendChild(statusCell);
+
+                        previewBody.appendChild(tr);
+                    });
+                    if (rows.length > 100) {
+                        const tr = document.createElement("tr");
+                        const td = document.createElement("td");
+                        td.colSpan = 5;
+                        td.style.textAlign = "center";
+                        td.style.color = "var(--text-muted)";
+                        td.textContent = `Se muestran 100 de ${rows.length} filas.`;
+                        tr.appendChild(td);
+                        previewBody.appendChild(tr);
+                    }
+                };
+
+                const localValidate = async (file) => {
+                    const text = await file.text();
+                    const rows = parseCSV(text);
+                    if (rows.length < 2) throw new Error("El CSV debe tener encabezado y al menos una fila.");
+                    const header = rows[0].map((cell) => String(cell).trim().toLowerCase().replace(/^\ufeff/, ""));
+                    if (!header.includes("id")) throw new Error("Falta la columna requerida id.");
+                    if (!header.includes("location") && !header.includes("ubicacion")) throw new Error("Falta la columna requerida location.");
+                    if (header.includes("tenant_id") || header.includes("tenantid")) throw new Error("El CSV no puede incluir tenant_id.");
+                    return rows.length - 1;
+                };
+
+                const requestValidation = async (dryRun) => {
+                    const formData = new FormData();
+                    formData.append("file", currentFile);
+                    formData.append("dry_run", dryRun ? "true" : "false");
+                    const response = await fetch("/productos/ubicaciones/csv", { method: "POST", body: formData });
+                    const result = await response.json().catch(() => ({}));
+                    if (!response.ok || !result.ok) throw new Error(result.error || "No se pudo procesar el archivo.");
+                    return result;
+                };
+
+                downloadButton.addEventListener("click", () => {
+                    const content = [["id", "location"], ["P-001", "Estante A-03"], ["P-002", ""]]
+                        .map((row) => row.map(escapeCSV).join(","))
+                        .join("\n");
+                    const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = "plantilla_actualizar_ubicacion.csv";
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    URL.revokeObjectURL(url);
+                });
+
+                fileInput.addEventListener("change", () => {
+                    currentFile = fileInput.files?.[0] || null;
+                    validated = false;
+                    validateButton.disabled = !currentFile;
+
+                    if (currentFile) {
+                        validateButton.className = "button primary";
+                        applyButton.className = "button secondary";
+                        applyButton.disabled = true;
+                        fileName.classList.add("selected");
+                        fileName.textContent = currentFile.name;
+                        updateSteps(2, [1]);
+                        setSummary("idle", "Archivo seleccionado", "Pulsa Validar archivo para verificar los productos y ubicaciones.");
+                    } else {
+                        validateButton.className = "button secondary";
+                        applyButton.className = "button primary";
+                        applyButton.disabled = true;
+                        fileName.classList.remove("selected");
+                        fileName.textContent = "Ningún archivo seleccionado";
+                        updateSteps(1, []);
+                        setSummary("idle", "Validación pendiente", "Selecciona un archivo CSV para comenzar el proceso.");
+                    }
+
+                    status.replaceChildren(...["Filas: 0", "Se actualizarán: 0", "Sin cambios: 0", "Errores: 0"].map((text) => {
+                        const span = document.createElement("span");
+                        span.textContent = text;
+                        return span;
+                    }));
+                    renderRows([]);
+                });
+
+                validateButton.addEventListener("click", async () => {
+                    if (!currentFile) return;
+                    validateButton.disabled = true;
+                    applyButton.disabled = true;
+                    setSummary("idle", "Validando archivo", "Consultando productos y ubicaciones...");
+                    try {
+                        const rowCount = await localValidate(currentFile);
+                        const result = await requestValidation(true);
+                        renderRows(result.rows || []);
+                        setStatus(rowCount, result);
+                        validated = !(result.failed_rows || []).length;
+
+                        if (validated) {
+                            validateButton.className = "button secondary";
+                            applyButton.className = "button primary";
+                            applyButton.disabled = !(result.updated_products > 0 || result.unchanged_products > 0);
+                            updateSteps(3, [1, 2]);
+                            setSummary("ready", "Archivo listo para actualizar", `${result.updated_products || 0} productos cambiarán de ubicación. ${result.created_locations || 0} ubicaciones nuevas se crearán.`);
+                        } else {
+                            validateButton.className = "button primary";
+                            applyButton.className = "button secondary";
+                            applyButton.disabled = true;
+                            updateSteps(2, [1]);
+                            setSummary("error", "Revisión requerida", "Corrige las filas rechazadas antes de actualizar.", result.failed_rows || []);
+                        }
+                    } catch (error) {
+                        validated = false;
+                        validateButton.className = "button primary";
+                        applyButton.className = "button secondary";
+                        applyButton.disabled = true;
+                        updateSteps(2, [1]);
+                        setSummary("error", "No se pudo validar", error.message || "Revisa el archivo e inténtalo de nuevo.");
+                    } finally {
+                        validateButton.disabled = !currentFile;
+                    }
+                });
+
+                applyButton.addEventListener("click", async () => {
+                    if (!currentFile || !validated) return;
+                    applyButton.disabled = true;
+                    validateButton.disabled = true;
+                    setSummary("idle", "Actualizando ubicaciones", "Aplicando cambios de forma segura...");
+                    try {
+                        const result = await requestValidation(false);
+                        renderRows(result.rows || []);
+                        setStatus(result.processed_rows || 0, result);
+                        if ((result.failed_rows || []).length > 0) {
+                            validated = false;
+                            updateSteps(2, [1]);
+                            setSummary("error", "La actualización no se aplicó", "Corrige las filas rechazadas y vuelve a validar el archivo.", result.failed_rows || []);
+                        } else {
+                            updateSteps(3, [1, 2, 3]);
+                            setSummary("ready", "Actualización completada", `${result.updated_products || 0} productos actualizados con éxito. ${result.unchanged_products || 0} sin cambios.`);
+                        }
+                    } catch (error) {
+                        updateSteps(3, [1, 2]);
+                        setSummary("error", "No se pudo actualizar", error.message || "La operación no se completó.");
+                    } finally {
+                        validateButton.disabled = !currentFile;
+                    }
+                });
+            })();
+        </script>
+    </body>
+</html>

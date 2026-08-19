@@ -976,7 +976,8 @@
                         <a href="/prestamos/producto"><span>Ver préstamos</span></a>
                         {{end}}
                         {{if or (eq .CurrentUser.Role "admin") (eq .CurrentUser.Role "platform_admin")}}
-                        <a href="/csv/template" target="_blank" rel="noreferrer"><span>Importar</span></a>
+                        <a href="/csv/template" target="_blank" rel="noreferrer"><span>Agregar productos</span></a>
+                        <a href="/csv/template?mode=location" target="_blank" rel="noreferrer"><span>Actualizar ubicación</span></a>
                         {{end}}
                         <a href="/productos/etiquetas/masivas"><span>Etiquetas</span></a>
                     </div>

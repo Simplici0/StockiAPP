@@ -948,6 +948,243 @@ func TestBusinessCatalogImportsRejectInactiveValues(t *testing.T) {
 	}
 }
 
+func TestProductLocationCSVImportUpdatesOnlyLocationAndAuditsChanges(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "product-location-csv"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	admin := mustLoadTestUser(t, db, "admin")
+	if _, err := db.Exec(`
+		INSERT INTO productos (
+			sku, tenant_id, id, linea, nombre, location, precio_venta,
+			retoma_enabled, retoma_price, anotaciones, talla_requerida, talla,
+			credit_enabled, debtor_name, installments_total, installments_paid,
+			total_value, installment_value, fecha_ingreso
+		) VALUES (
+			'LOC-BULK-SKU', 1, 'LOC-BULK-1', 'Línea original', 'Producto original',
+			'Ubicación anterior', 45000, 1, 12000, 'No tocar', 1, 'M',
+			0, '', 0, 0, 0, 0, ?
+		)
+	`, now); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en)
+		VALUES
+			('LOC-BULK-U1', 1, 'LOC-BULK-SKU', 'Disponible', ?),
+			('LOC-BULK-U2', 1, 'LOC-BULK-SKU', 'Reservada', ?)
+	`, now, now); err != nil {
+		t.Fatalf("insert units: %v", err)
+	}
+
+	raw := []byte("id,location\nLOC-BULK-1,Ubicación nueva\n")
+	dryRun, err := importProductLocationsFromCSV(db, admin, raw, "web", true)
+	if err != nil {
+		t.Fatalf("dry-run import: %v", err)
+	}
+	if dryRun.UpdatedProducts != 1 || dryRun.CreatedLocations != 1 || len(dryRun.FailedRows) != 0 {
+		t.Fatalf("unexpected dry-run response: %+v", dryRun)
+	}
+	if count := countRows(t, db, `SELECT COUNT(*) FROM business_locations WHERE tenant_id = 1 AND name = 'Ubicación nueva'`); count != 0 {
+		t.Fatalf("dry-run created location, got %d rows", count)
+	}
+	var location string
+	if err := db.QueryRow(`SELECT location FROM productos WHERE tenant_id = 1 AND sku = 'LOC-BULK-SKU'`).Scan(&location); err != nil {
+		t.Fatalf("read product after dry-run: %v", err)
+	}
+	if location != "Ubicación anterior" {
+		t.Fatalf("dry-run changed location to %q", location)
+	}
+
+	result, err := importProductLocationsFromCSV(db, admin, raw, "web", false)
+	if err != nil {
+		t.Fatalf("apply import: %v", err)
+	}
+	if result.UpdatedProducts != 1 || result.CreatedLocations != 1 || len(result.FailedRows) != 0 {
+		t.Fatalf("unexpected apply response: %+v", result)
+	}
+	if err := db.QueryRow(`SELECT location FROM productos WHERE tenant_id = 1 AND sku = 'LOC-BULK-SKU'`).Scan(&location); err != nil {
+		t.Fatalf("read updated product: %v", err)
+	}
+	if location != "Ubicación nueva" {
+		t.Fatalf("expected new location, got %q", location)
+	}
+	var line, name, notes string
+	var price float64
+	var size string
+	if err := db.QueryRow(`
+		SELECT linea, nombre, precio_venta, anotaciones, talla
+		FROM productos
+		WHERE tenant_id = 1 AND sku = 'LOC-BULK-SKU'
+	`).Scan(&line, &name, &price, &notes, &size); err != nil {
+		t.Fatalf("read unchanged product fields: %v", err)
+	}
+	if line != "Línea original" || name != "Producto original" || price != 45000 || notes != "No tocar" || size != "M" {
+		t.Fatalf("location import changed unrelated fields: line=%q name=%q price=%v notes=%q size=%q", line, name, price, notes, size)
+	}
+	if count := countRows(t, db, `SELECT COUNT(*) FROM unidades WHERE tenant_id = 1 AND producto_id = 'LOC-BULK-SKU'`); count != 2 {
+		t.Fatalf("location import changed units, got %d", count)
+	}
+	var payload string
+	if err := db.QueryRow(`
+		SELECT payload_json
+		FROM audit_events
+		WHERE tenant_id = 1 AND event_type = 'product_updated' AND entity_id = 'LOC-BULK-SKU'
+		ORDER BY id DESC
+		LIMIT 1
+	`).Scan(&payload); err != nil {
+		t.Fatalf("read location audit: %v", err)
+	}
+	for _, expected := range []string{`"previous_location":"Ubicación anterior"`, `"new_location":"Ubicación nueva"`, `"updated_via":"csv_location_update"`} {
+		if !strings.Contains(payload, expected) {
+			t.Fatalf("location audit missing %s: %s", expected, payload)
+		}
+	}
+}
+
+func TestProductLocationCSVImportScopesTenantAndRejectsInvalidBatch(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "product-location-csv-scope"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	usersCols, err := tableColumns(db, "users")
+	if err != nil {
+		t.Fatalf("tableColumns users: %v", err)
+	}
+	platformAdmin := mustLoadTestUser(t, db, "admin")
+	provisioned, err := createTenantWithSeed(db, platformAdmin, usersCols, "Tenant CSV Ubicaciones", "tenant-csv-locations", "tenant.csv.locations.admin", "TenantCSVLocations123!")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, location, precio_venta, fecha_ingreso)
+		VALUES
+			('LOC-SCOPE-T1', 1, 'SHARED-ID', 'Producto T1', 'Línea', 'T1 anterior', 1000, ?),
+			('LOC-SCOPE-T2', ?, 'SHARED-ID', 'Producto T2', 'Línea', 'T2 anterior', 2000, ?)
+	`, now, provisioned.Tenant.ID, now); err != nil {
+		t.Fatalf("insert scoped products: %v", err)
+	}
+	admin := mustLoadTestUser(t, db, "admin")
+	result, err := importProductLocationsFromCSV(db, admin, []byte("id,location\nSHARED-ID,T1 nueva\n"), "web", false)
+	if err != nil {
+		t.Fatalf("scoped import: %v", err)
+	}
+	if result.UpdatedProducts != 1 || len(result.FailedRows) != 0 {
+		t.Fatalf("unexpected scoped result: %+v", result)
+	}
+	var tenantOneLocation, tenantTwoLocation string
+	if err := db.QueryRow(`SELECT location FROM productos WHERE tenant_id = 1 AND sku = 'LOC-SCOPE-T1'`).Scan(&tenantOneLocation); err != nil {
+		t.Fatalf("read tenant one location: %v", err)
+	}
+	if err := db.QueryRow(`SELECT location FROM productos WHERE tenant_id = ? AND sku = 'LOC-SCOPE-T2'`, provisioned.Tenant.ID).Scan(&tenantTwoLocation); err != nil {
+		t.Fatalf("read tenant two location: %v", err)
+	}
+	if tenantOneLocation != "T1 nueva" || tenantTwoLocation != "T2 anterior" {
+		t.Fatalf("cross-tenant update detected: tenant1=%q tenant2=%q", tenantOneLocation, tenantTwoLocation)
+	}
+
+	invalid, err := importProductLocationsFromCSV(db, admin, []byte("id,location\nSHARED-ID,No debe aplicarse\nMISSING-ID,Otra\n"), "web", false)
+	if err != nil {
+		t.Fatalf("invalid batch import: %v", err)
+	}
+	if len(invalid.FailedRows) != 1 || invalid.FailedRows[0].ID != "MISSING-ID" {
+		t.Fatalf("unexpected invalid batch response: %+v", invalid)
+	}
+	if err := db.QueryRow(`SELECT location FROM productos WHERE tenant_id = 1 AND sku = 'LOC-SCOPE-T1'`).Scan(&tenantOneLocation); err != nil {
+		t.Fatalf("read product after invalid batch: %v", err)
+	}
+	if tenantOneLocation != "T1 nueva" {
+		t.Fatalf("invalid batch partially applied location: %q", tenantOneLocation)
+	}
+}
+
+func TestProductLocationCSVColumnIndexRejectsTenantAndRequiresLocation(t *testing.T) {
+	if _, err := productLocationCSVColumnIndex([]string{"id", "tenant_id", "location"}); err == nil {
+		t.Fatal("expected tenant_id column rejection")
+	}
+	if _, err := productLocationCSVColumnIndex([]string{"id"}); err == nil {
+		t.Fatal("expected missing location column error")
+	}
+	index, err := productLocationCSVColumnIndex([]string{"id", "ubicacion"})
+	if err != nil {
+		t.Fatalf("expected ubicacion alias: %v", err)
+	}
+	if index["location"] != 1 {
+		t.Fatalf("expected location alias mapped to column 1, got %v", index)
+	}
+}
+
+func TestHandleProductLocationCSVImportReturnsDryRunJSON(t *testing.T) {
+	t.Setenv("ADMIN_USER", "admin")
+	t.Setenv("ADMIN_PASS", "SuperSecreto123")
+
+	db, err := initDB(filepath.Join(t.TempDir(), "product-location-csv-handler"), defaultPaymentMethodNames())
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	if _, err := db.Exec(`
+		INSERT INTO productos (sku, tenant_id, id, nombre, linea, location, fecha_ingreso)
+		VALUES ('LOC-HANDLER-SKU', 1, 'LOC-HANDLER-1', 'Producto handler', 'Línea', 'Anterior', ?)
+	`, now); err != nil {
+		t.Fatalf("insert handler product: %v", err)
+	}
+	admin := mustLoadTestUser(t, db, "admin")
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile("file", "ubicaciones.csv")
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+	if _, err := file.Write([]byte("id,location\nLOC-HANDLER-1,Nueva\n")); err != nil {
+		t.Fatalf("write multipart file: %v", err)
+	}
+	if err := writer.WriteField("dry_run", "true"); err != nil {
+		t.Fatalf("write dry_run field: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart body: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/productos/ubicaciones/csv", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req = req.WithContext(context.WithValue(req.Context(), userContextKey, admin))
+	response := httptest.NewRecorder()
+	handleProductLocationCSVImport(db, nil).ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected dry-run status 200, got %d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode dry-run response: %v", err)
+	}
+	if payload["ok"] != true || payload["dry_run"] != true || payload["updated_products"] != float64(1) {
+		t.Fatalf("unexpected dry-run JSON response: %+v", payload)
+	}
+	var location string
+	if err := db.QueryRow(`SELECT location FROM productos WHERE tenant_id = 1 AND sku = 'LOC-HANDLER-SKU'`).Scan(&location); err != nil {
+		t.Fatalf("read product after handler dry-run: %v", err)
+	}
+	if location != "Anterior" {
+		t.Fatalf("handler dry-run changed location to %q", location)
+	}
+}
+
 func TestLoadEditedProductInventoryStateReflectsCurrentUnits(t *testing.T) {
 	t.Setenv("ADMIN_USER", "admin")
 	t.Setenv("ADMIN_PASS", "SuperSecreto123")
@@ -2059,6 +2296,46 @@ func TestProductLabelTemplatesRenderWithoutAppChrome(t *testing.T) {
 	}
 }
 
+func TestProductLocationCSVTemplateParsesAndRenders(t *testing.T) {
+	templates, err := template.New("").Funcs(template.FuncMap{
+		"businessName":                      func(any) string { return "Negocio prueba" },
+		"businessLogoPath":                  func(any) string { return "" },
+		"businessHasOwnLogo":                func(any) bool { return false },
+		"businessInitials":                  func(any) string { return "NP" },
+		"businessPrimaryColor":              func(any) string { return "#172554" },
+		"businessPrimaryStrong":             func(any) string { return "#0f172a" },
+		"businessPrimarySoft":               func(any) string { return "#e0e7ff" },
+		"businessPrimaryContrast":           func(any) string { return "#ffffff" },
+		"businessPrimaryStrongContrast":     func(any) string { return "#ffffff" },
+		"businessPrimaryDarkColor":          func(any) string { return "#5bc89a" },
+		"businessPrimaryDarkStrong":         func(any) string { return "#7ddcb2" },
+		"businessPrimaryDarkSoft":           func(any) string { return "#233733" },
+		"businessPrimaryDarkContrast":       func(any) string { return "#0f1713" },
+		"businessPrimaryDarkStrongContrast": func(any) string { return "#0f1713" },
+		"pageCanLoan":                       func(any) bool { return false },
+		"pageCanCredit":                     func(any) bool { return true },
+	}).ParseFiles(
+		"templates/partials/app_styles.html",
+		"templates/partials/header.html",
+		"templates/product_location_csv.html",
+	)
+	if err != nil {
+		t.Fatalf("parse product location CSV template: %v", err)
+	}
+	var rendered bytes.Buffer
+	if err := templates.ExecuteTemplate(&rendered, "product_location_csv.html", csvTemplatePageData{
+		Title:       "Actualizar ubicación",
+		CurrentUser: &User{Role: roleAdmin},
+	}); err != nil {
+		t.Fatalf("render product location CSV template: %v", err)
+	}
+	for _, expected := range []string{"Actualizar ubicación", "id", "location", "Actualizar ubicaciones", "/productos/ubicaciones/csv"} {
+		if !bytes.Contains(rendered.Bytes(), []byte(expected)) {
+			t.Fatalf("location CSV template missing %q", expected)
+		}
+	}
+}
+
 func TestProductLabelBatchFacetsGroupValuesAndMissingCategories(t *testing.T) {
 	products := []productLabelBatchProduct{
 		{Line: "Ropa", Location: "Vitrina"},
@@ -2343,7 +2620,7 @@ func TestInventoryEditModalsShowDeleteOnlyForAdmins(t *testing.T) {
 	if !bytes.Contains(adminRendered, []byte(`class="topbar-menu-panel"`)) {
 		t.Fatal("sidebar should expose submenu panels")
 	}
-	for _, submenuLink := range []string{`href="/csv/template"`, `href="/productos/etiquetas/masivas"`, `href="/admin/users"`, `href="/auditoria"`, `href="/csv/export"`} {
+	for _, submenuLink := range []string{`href="/csv/template"`, `href="/csv/template?mode=location"`, `href="/productos/etiquetas/masivas"`, `href="/admin/users"`, `href="/auditoria"`, `href="/csv/export"`} {
 		if !bytes.Contains(adminRendered, []byte(submenuLink)) {
 			t.Fatalf("sidebar should expose flat submenu link %s", submenuLink)
 		}

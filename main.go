@@ -476,6 +476,318 @@ type csvUploadResponse struct {
 	FailedRows      []csvFailedRow `json:"failed_rows"`
 }
 
+type productLocationCSVRow struct {
+	Row             int    `json:"row"`
+	ID              string `json:"id"`
+	SKU             string `json:"-"`
+	CurrentLocation string `json:"current_location"`
+	NewLocation     string `json:"new_location"`
+	Status          string `json:"status"`
+	Error           string `json:"error,omitempty"`
+}
+
+type productLocationCSVResponse struct {
+	ProcessedRows     int                     `json:"processed_rows"`
+	UpdatedProducts   int                     `json:"updated_products"`
+	UnchangedProducts int                     `json:"unchanged_products"`
+	CreatedLocations  int                     `json:"created_locations"`
+	FailedRows        []csvFailedRow          `json:"failed_rows"`
+	Rows              []productLocationCSVRow `json:"rows"`
+}
+
+type productLocationCSVChange struct {
+	Row             int
+	ID              string
+	SKU             string
+	CurrentLocation string
+	NewLocation     string
+	NeedsLocation   bool
+}
+
+type csvTemplatePageData struct {
+	Title       string
+	Subtitle    string
+	Mode        string
+	CurrentUser *User
+}
+
+func productLocationCSVColumnIndex(headerRow []string) (map[string]int, error) {
+	index := make(map[string]int, len(headerRow))
+	for position, rawName := range headerRow {
+		name := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(rawName, "\ufeff")))
+		if name == "" {
+			continue
+		}
+		if name == "tenant_id" || name == "tenantid" {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "El CSV no puede incluir la columna tenant_id."}
+		}
+		if name == "id" {
+			if _, exists := index["id"]; exists {
+				return nil, requestError{Status: http.StatusBadRequest, Message: "La columna id está duplicada."}
+			}
+			index["id"] = position
+			continue
+		}
+		if name == "location" || name == "ubicacion" {
+			if _, exists := index["location"]; exists {
+				return nil, requestError{Status: http.StatusBadRequest, Message: "Usa una sola columna: location o ubicacion."}
+			}
+			index["location"] = position
+		}
+	}
+	if _, ok := index["id"]; !ok {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "Falta la columna requerida id."}
+	}
+	if _, ok := index["location"]; !ok {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "Falta la columna requerida location."}
+	}
+	return index, nil
+}
+
+func productLocationCSVValue(row []string, index map[string]int, column string) string {
+	position, ok := index[column]
+	if !ok || position < 0 || position >= len(row) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(row[position], "\ufeff"))
+}
+
+func productLocationCSVRowHasContent(row []string) bool {
+	for _, cell := range row {
+		if strings.TrimSpace(cell) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func validateProductLocationsCSV(exec sqlQueryExecer, tenantID int, raw []byte) (productLocationCSVResponse, []productLocationCSVChange, error) {
+	reader := csv.NewReader(strings.NewReader(string(raw)))
+	reader.Comma = detectCSVDelimiter(string(raw))
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return productLocationCSVResponse{}, nil, requestError{Status: http.StatusBadRequest, Message: "No se pudo leer el CSV de ubicaciones."}
+	}
+	if len(records) < 2 {
+		return productLocationCSVResponse{}, nil, requestError{Status: http.StatusBadRequest, Message: "El CSV no contiene filas para procesar."}
+	}
+	index, err := productLocationCSVColumnIndex(records[0])
+	if err != nil {
+		return productLocationCSVResponse{}, nil, err
+	}
+
+	type parsedRow struct {
+		row         int
+		id          string
+		newLocation string
+	}
+	parsedRows := make([]parsedRow, 0, len(records)-1)
+	seenIDs := make(map[string][]int)
+	for position, row := range records[1:] {
+		if !productLocationCSVRowHasContent(row) {
+			continue
+		}
+		parsed := parsedRow{
+			row:         position + 1,
+			id:          productLocationCSVValue(row, index, "id"),
+			newLocation: productLocationCSVValue(row, index, "location"),
+		}
+		parsedRows = append(parsedRows, parsed)
+		if parsed.id != "" {
+			seenIDs[parsed.id] = append(seenIDs[parsed.id], parsed.row)
+		}
+	}
+	if len(parsedRows) == 0 {
+		return productLocationCSVResponse{}, nil, requestError{Status: http.StatusBadRequest, Message: "El CSV no contiene filas para procesar."}
+	}
+
+	response := productLocationCSVResponse{
+		ProcessedRows: len(parsedRows),
+		FailedRows:    []csvFailedRow{},
+		Rows:          make([]productLocationCSVRow, 0, len(parsedRows)),
+	}
+	changes := make([]productLocationCSVChange, 0, len(parsedRows))
+	locationCache := make(map[string]struct {
+		name        string
+		active      bool
+		exists      bool
+		needsCreate bool
+	})
+	missingLocations := make(map[string]string)
+
+	addFailure := func(row productLocationCSVRow, message string) {
+		row.Status = "error"
+		row.Error = message
+		response.Rows = append(response.Rows, row)
+		response.FailedRows = append(response.FailedRows, csvFailedRow{Row: row.Row, ID: row.ID, Error: message})
+	}
+
+	for _, parsed := range parsedRows {
+		result := productLocationCSVRow{
+			Row:         parsed.row,
+			ID:          parsed.id,
+			NewLocation: parsed.newLocation,
+		}
+		if parsed.id == "" {
+			addFailure(result, "El ID del producto es obligatorio.")
+			continue
+		}
+		if len(seenIDs[parsed.id]) > 1 {
+			addFailure(result, "El ID aparece repetido en el CSV.")
+			continue
+		}
+
+		var change productLocationCSVChange
+		err := exec.QueryRow(`
+			SELECT sku, id, COALESCE(location, '')
+			FROM productos
+			WHERE tenant_id = ? AND id = ?
+			LIMIT 1
+		`, normalizeTenantID(tenantID), parsed.id).Scan(&change.SKU, &change.ID, &change.CurrentLocation)
+		if err == sql.ErrNoRows {
+			addFailure(result, "Producto no encontrado en la empresa actual.")
+			continue
+		}
+		if err != nil {
+			return productLocationCSVResponse{}, nil, err
+		}
+		result.ID = change.ID
+		result.SKU = change.SKU
+		result.CurrentLocation = strings.TrimSpace(change.CurrentLocation)
+
+		newLocation := strings.TrimSpace(parsed.newLocation)
+		canonicalLocation := ""
+		if newLocation != "" {
+			cacheKey := strings.ToLower(newLocation)
+			location, cached := locationCache[cacheKey]
+			if !cached {
+				var active int
+				locationErr := exec.QueryRow(`
+					SELECT name, active
+					FROM business_locations
+					WHERE tenant_id = ? AND LOWER(name) = LOWER(?)
+					LIMIT 1
+				`, normalizeTenantID(tenantID), newLocation).Scan(&location.name, &active)
+				if locationErr == sql.ErrNoRows {
+					location.name = newLocation
+					location.needsCreate = true
+				} else if locationErr != nil {
+					return productLocationCSVResponse{}, nil, locationErr
+				} else {
+					location.exists = true
+					location.active = active == 1
+				}
+				locationCache[cacheKey] = location
+			} else if !location.active && location.exists {
+				addFailure(result, fmt.Sprintf("La ubicación %q está inactiva. Actívala antes de importarla.", location.name))
+				continue
+			}
+			if location.exists && !location.active {
+				addFailure(result, fmt.Sprintf("La ubicación %q está inactiva. Actívala antes de importarla.", location.name))
+				continue
+			}
+			canonicalLocation = strings.TrimSpace(location.name)
+		}
+
+		change.NewLocation = canonicalLocation
+		change.NeedsLocation = newLocation != "" && locationCache[strings.ToLower(newLocation)].needsCreate
+		if strings.EqualFold(result.CurrentLocation, canonicalLocation) {
+			result.Status = "unchanged"
+			response.UnchangedProducts++
+			response.Rows = append(response.Rows, result)
+			continue
+		}
+		if change.NeedsLocation {
+			missingLocations[strings.ToLower(change.NewLocation)] = change.NewLocation
+		}
+		if change.NeedsLocation {
+			result.Status = "ready_create_location"
+		} else {
+			result.Status = "ready"
+		}
+		response.Rows = append(response.Rows, result)
+		changes = append(changes, change)
+	}
+
+	response.UpdatedProducts = len(changes)
+	response.CreatedLocations = len(missingLocations)
+	return response, changes, nil
+}
+
+func importProductLocationsFromCSV(db *sql.DB, currentUser *User, raw []byte, source string, dryRun bool) (productLocationCSVResponse, error) {
+	tenantID, err := tenantIDFromUserStrict(currentUser)
+	if err != nil {
+		return productLocationCSVResponse{}, requestError{Status: http.StatusForbidden, Message: "No se pudo resolver la empresa actual."}
+	}
+	if dryRun {
+		response, _, err := validateProductLocationsCSV(db, tenantID, raw)
+		return response, err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return productLocationCSVResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo iniciar la actualización de ubicaciones."}
+	}
+	defer tx.Rollback()
+
+	response, changes, err := validateProductLocationsCSV(tx, tenantID, raw)
+	if err != nil {
+		return productLocationCSVResponse{}, err
+	}
+	if len(response.FailedRows) > 0 {
+		return response, nil
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	locationsToCreate := make(map[string]string)
+	for _, change := range changes {
+		if change.NeedsLocation {
+			locationsToCreate[strings.ToLower(change.NewLocation)] = change.NewLocation
+		}
+	}
+	for _, locationName := range locationsToCreate {
+		if err := ensureBusinessLocationExists(tx, tenantID, currentUser, locationName, now, "csv_location_update"); err != nil {
+			return productLocationCSVResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo crear una ubicación del CSV."}
+		}
+	}
+
+	for _, change := range changes {
+		result, err := tx.Exec(`
+			UPDATE productos
+			SET location = ?
+			WHERE tenant_id = ? AND sku = ? AND TRIM(COALESCE(location, '')) = ?
+		`, change.NewLocation, normalizeTenantID(tenantID), change.SKU, change.CurrentLocation)
+		if err != nil {
+			return productLocationCSVResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar una ubicación."}
+		}
+		affected, err := result.RowsAffected()
+		if err != nil || affected != 1 {
+			return productLocationCSVResponse{}, requestError{Status: http.StatusConflict, Message: "Un producto cambió mientras se procesaba el CSV. Vuelve a validar el archivo."}
+		}
+		if err := logAuditEvent(tx, currentUser, "product_updated", "product", change.SKU, source, map[string]any{
+			"product_id":        change.ID,
+			"product_sku":       change.SKU,
+			"previous_location": change.CurrentLocation,
+			"new_location":      change.NewLocation,
+			"updated_via":       "csv_location_update",
+		}); err != nil {
+			return productLocationCSVResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría de la ubicación."}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return productLocationCSVResponse{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo confirmar la actualización de ubicaciones."}
+	}
+	for index := range response.Rows {
+		if response.Rows[index].Status == "ready" || response.Rows[index].Status == "ready_create_location" {
+			response.Rows[index].Status = "updated"
+		}
+	}
+	response.UpdatedProducts = len(changes)
+	return response, nil
+}
+
 func readUploadedCSVFile(file multipart.File, header *multipart.FileHeader, limit int64) ([]byte, error) {
 	if header != nil {
 		if ext := strings.ToLower(strings.TrimSpace(filepath.Ext(header.Filename))); ext != ".csv" {
@@ -1373,12 +1685,13 @@ func loadDatabaseConfig() (databaseConfig, error) {
 }
 
 const (
-	loginFormBodyLimit      int64 = 64 << 10
-	defaultFormBodyLimit    int64 = 256 << 10
-	defaultJSONBodyLimit    int64 = 1 << 20
-	brandingUploadBodyLimit int64 = 10 << 20
-	customerCSVUploadLimit  int64 = 8 << 20
-	csvUploadBodyLimit      int64 = 40 << 20
+	loginFormBodyLimit            int64 = 64 << 10
+	defaultFormBodyLimit          int64 = 256 << 10
+	defaultJSONBodyLimit          int64 = 1 << 20
+	brandingUploadBodyLimit       int64 = 10 << 20
+	customerCSVUploadLimit        int64 = 8 << 20
+	csvUploadBodyLimit            int64 = 40 << 20
+	productLocationCSVUploadLimit int64 = 8 << 20
 
 	loginRateWindow       = 10 * time.Minute
 	loginRateLockDuration = 5 * time.Minute
@@ -1705,6 +2018,8 @@ func requestBodyLimit(r *http.Request) int64 {
 		return customerCSVUploadLimit
 	case r.URL.Path == "/productos/csv":
 		return csvUploadBodyLimit
+	case r.URL.Path == "/productos/ubicaciones/csv":
+		return productLocationCSVUploadLimit
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		return defaultJSONBodyLimit
 	default:
@@ -16885,6 +17200,87 @@ func handleCustomerCSVImport(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleProductLocationCSVImport(db *sql.DB, onApply func(*productLocationCSVResponse)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSONError := func(status int, message string) {
+			writeAPIJSON(w, status, map[string]any{
+				"ok":    false,
+				"error": message,
+			})
+		}
+
+		currentUser := userFromContext(r)
+		if currentUser == nil || !isAdminRole(currentUser.Role) {
+			writeJSONError(http.StatusForbidden, "Solo administradores pueden actualizar ubicaciones.")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeJSONError(http.StatusMethodNotAllowed, "Método no permitido.")
+			return
+		}
+
+		if err := r.ParseMultipartForm(8 << 20); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) || strings.Contains(strings.ToLower(err.Error()), "request body too large") {
+				writeJSONError(http.StatusRequestEntityTooLarge, "El archivo CSV excede el tamaño permitido.")
+				return
+			}
+			writeJSONError(http.StatusBadRequest, "No se pudo leer el archivo CSV.")
+			return
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			writeJSONError(http.StatusBadRequest, "Archivo CSV no encontrado.")
+			return
+		}
+		defer file.Close()
+
+		data, err := readUploadedCSVFile(file, header, productLocationCSVUploadLimit)
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
+				return
+			}
+			writeJSONError(http.StatusBadRequest, "No se pudo validar el archivo CSV.")
+			return
+		}
+
+		dryRun := false
+		if rawDryRun := strings.TrimSpace(r.FormValue("dry_run")); rawDryRun != "" {
+			dryRun, err = strconv.ParseBool(rawDryRun)
+			if err != nil {
+				writeJSONError(http.StatusBadRequest, "El campo dry_run es inválido.")
+				return
+			}
+		}
+
+		response, err := importProductLocationsFromCSV(db, currentUser, data, "web", dryRun)
+		if err != nil {
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
+				return
+			}
+			writeJSONError(http.StatusInternalServerError, "No se pudo actualizar el CSV de ubicaciones.")
+			return
+		}
+		if !dryRun && len(response.FailedRows) == 0 && onApply != nil {
+			onApply(&response)
+		}
+
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":                 true,
+			"dry_run":            dryRun,
+			"processed_rows":     response.ProcessedRows,
+			"updated_products":   response.UpdatedProducts,
+			"unchanged_products": response.UnchangedProducts,
+			"created_locations":  response.CreatedLocations,
+			"failed_rows":        response.FailedRows,
+			"rows":               response.Rows,
+		})
+	}
+}
+
 func setAPIContextHeaders(w http.ResponseWriter, r *http.Request) {
 	if tenant := tenantFromContext(r); tenant != nil {
 		w.Header().Set("X-Stocki-Tenant-ID", strconv.Itoa(normalizeTenantID(tenant.ID)))
@@ -18853,6 +19249,7 @@ func main() {
 		"templates/cambio_new.html",
 		"templates/cambio_confirm.html",
 		"templates/csv_template.html",
+		"templates/product_location_csv.html",
 		"templates/csv_export.html",
 		"templates/partials/header.html",
 	))
@@ -26453,13 +26850,20 @@ func main() {
 	})
 
 	mux.HandleFunc("/csv/template", adminOnly(func(w http.ResponseWriter, r *http.Request) {
-		renderTemplate(w, "csv_template.html", struct {
-			Title       string
-			Subtitle    string
-			CurrentUser *User
-		}{
+		mode := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("mode")))
+		if mode == "location" {
+			renderTemplate(w, "product_location_csv.html", csvTemplatePageData{
+				Title:       "Actualizar ubicación",
+				Subtitle:    "",
+				Mode:        mode,
+				CurrentUser: userFromContext(r),
+			}, "Error al renderizar actualización de ubicaciones")
+			return
+		}
+		renderTemplate(w, "csv_template.html", csvTemplatePageData{
 			Title:       "Plantilla CSV - Carga masiva",
 			Subtitle:    "",
+			Mode:        mode,
 			CurrentUser: userFromContext(r),
 		}, "Error al renderizar plantilla CSV")
 	}))
@@ -26467,6 +26871,22 @@ func main() {
 	mux.HandleFunc("/csv/inventario", handleCSVInventoryAggregate(db))
 	mux.HandleFunc("/csv/inventario/unidades", handleCSVInventoryUnits(db))
 	mux.HandleFunc("/csv/cambios", handleCSVChanges(db))
+	mux.HandleFunc("/productos/ubicaciones/csv", adminOnly(handleProductLocationCSVImport(db, func(response *productLocationCSVResponse) {
+		if response == nil {
+			return
+		}
+		productsMu.Lock()
+		defer productsMu.Unlock()
+		for index := range products {
+			for _, row := range response.Rows {
+				if row.Status != "updated" || products[index].SKU != row.SKU {
+					continue
+				}
+				products[index].Location = row.NewLocation
+				break
+			}
+		}
+	})))
 
 	mux.HandleFunc("/csv/export", adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		renderTemplate(w, "csv_export.html", struct {
