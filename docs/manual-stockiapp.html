@@ -1854,6 +1854,9 @@
                     <a class="nav-item" href="#inventario"
                         ><span class="nav-icon">📦</span> Inventario</a
                     >
+                    <a class="nav-item" href="#etiquetas"
+                        ><span class="nav-icon">🏷️</span> Etiquetas</a
+                    >
                     <a class="nav-item" href="#prestamos"
                         ><span class="nav-icon">🤝</span> Préstamos físicos</a
                     >
@@ -1863,11 +1866,20 @@
                     <a class="nav-item" href="#ventas"
                         ><span class="nav-icon">🏷️</span> Ventas</a
                     >
+                    <a class="nav-item" href="#facturas"
+                        ><span class="nav-icon">🧾</span> Facturas operativas</a
+                    >
                     <a class="nav-item" href="#creditos"
                         ><span class="nav-icon">💳</span> Créditos</a
                     >
                     <a class="nav-item" href="#retomas"
                         ><span class="nav-icon">🔄</span> Retomas y cambios</a
+                    >
+                </div>
+                <div class="nav-group">
+                    <span class="nav-label">Datos y archivos</span>
+                    <a class="nav-item" href="#csv"
+                        ><span class="nav-icon">📄</span> Importar y exportar CSV</a
                     >
                 </div>
                 <div class="nav-group">
@@ -1884,6 +1896,9 @@
                     <span class="nav-label">Administración</span>
                     <a class="nav-item" href="#configuracion"
                         ><span class="nav-icon">⚙️</span> Configuración</a
+                    >
+                    <a class="nav-item" href="#usuarios"
+                        ><span class="nav-icon">👥</span> Usuarios y claves</a
                     >
                     <a class="nav-item" href="#auditoria"
                         ><span class="nav-icon">🔍</span> Auditoría</a
@@ -2026,6 +2041,14 @@
                             </div>
                         </div>
                         <div class="mod-card">
+                            <div class="mod-icon">🏷️</div>
+                            <div class="mod-name">Etiquetas</div>
+                            <div class="mod-desc">
+                                Perfiles, filtros, copias e impresión por lote o
+                                por producto.
+                            </div>
+                        </div>
+                        <div class="mod-card">
                             <div class="mod-icon">🤝</div>
                             <div class="mod-name">Préstamos físicos</div>
                             <div class="mod-desc">
@@ -2046,6 +2069,14 @@
                             <div class="mod-name">Ventas</div>
                             <div class="mod-desc">
                                 Registro rápido, comprobante y ticket térmico.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-icon">🧾</div>
+                            <div class="mod-name">Facturas operativas</div>
+                            <div class="mod-desc">
+                                Documento de respaldo ligado a una venta o un
+                                crédito.
                             </div>
                         </div>
                         <div class="mod-card">
@@ -2071,6 +2102,14 @@
                                 formatos de impresión.
                             </div>
                         </div>
+                        <div class="mod-card">
+                            <div class="mod-icon">📄</div>
+                            <div class="mod-name">Datos y archivos</div>
+                            <div class="mod-desc">
+                                Cargas masivas, actualización de ubicaciones y
+                                exportaciones por tenant.
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -2086,12 +2125,12 @@
                         </div>
                     </div>
                     <p>
-                        En la operación diaria hay dos roles principales:
-                        vendedor y administrador. El rol aplica en ambos accesos:
-                        lo que puede hacer un vendedor en la web es exactamente
+                        En la operación diaria hay dos roles del negocio:
+                        empleado y administrador. El rol aplica en ambos accesos:
+                        lo que puede hacer un empleado en la web es exactamente
                         lo mismo que puede hacer en el bot. La plataforma también
-                        cuenta con un rol técnico de administración de empresas,
-                        usuarios y claves.
+                        cuenta con un rol técnico separado para administrar
+                        empresas, usuarios y claves.
                     </p>
                     <div class="role-grid">
                         <div class="role-card">
@@ -2171,6 +2210,16 @@
                                 </li>
                             </ul>
                         </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">🌐 Platform admin</div>
+                        <p>
+                            Administra empresas, usuarios de alcance global y
+                            credenciales iniciales. Es el único rol que puede
+                            generar reseteos temporales de contraseña y rotar la
+                            API key inicial de un tenant. No debe confundirse con
+                            el admin operativo de una empresa.
+                        </p>
                     </div>
                     <div class="note">
                         <span class="ci">ℹ️</span> La interfaz muestra menos o
@@ -2515,6 +2564,114 @@
                     </div>
                 </section>
 
+                <!-- ═══ ETIQUETAS ═══ -->
+                <section class="section" id="etiquetas">
+                    <div class="section-hd">
+                        <div class="section-ico">🏷️</div>
+                        <div>
+                            <div class="section-title">Etiquetas</div>
+                            <div class="section-sub">
+                                Identificación individual y preparación de lotes
+                                para impresión
+                            </div>
+                        </div>
+                    </div>
+                    <p>
+                        StockiAPP permite imprimir la etiqueta de un producto
+                        desde Inventario o preparar un lote completo desde
+                        <strong>Productos → Etiquetas</strong>. La etiqueta puede
+                        mostrar la información que el negocio necesita para
+                        reconocer, vender y consultar cada producto.
+                    </p>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Etiqueta individual</div>
+                            <div class="mod-desc">
+                                Úsala cuando necesites reimprimir o identificar un
+                                producto concreto. La acción está disponible en la
+                                fila del producto dentro de Inventario.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Etiquetas por lote</div>
+                            <div class="mod-desc">
+                                Filtra productos, selecciona varias filas, ajusta
+                                copias y prepara impresión o PDF en una sola salida.
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Preparar una impresión por lote</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Busca y filtra</strong>
+                                <span>
+                                    Usa el nombre, ID, línea o ubicación. También
+                                    puedes abrir los filtros por línea y ubicación
+                                    para reducir la lista.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Selecciona productos y copias</strong>
+                                <span>
+                                    Marca los productos que necesitas. La cantidad
+                                    sugerida toma como referencia las existencias
+                                    disponibles, pero puedes ajustarla para una
+                                    reimpresión.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Elige el perfil</strong>
+                                <span>
+                                    Selecciona el tamaño, las columnas y la
+                                    información que aparecerá. El perfil
+                                    predeterminado queda disponible para el uso
+                                    habitual del negocio.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">4</div>
+                            <div class="step-body">
+                                <strong>Prepara la salida</strong>
+                                <span>
+                                    Pulsa <strong>Preparar impresión</strong> o
+                                    <strong>Descargar PDF</strong>. El sistema
+                                    limita el lote al máximo permitido y muestra el
+                                    total antes de abrir la salida.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Configurar un perfil</h3>
+                    <ul class="chk">
+                        <li>Ancho y alto de cada etiqueta en milímetros</li>
+                        <li>Una o dos etiquetas por fila</li>
+                        <li>Separación lateral y vertical</li>
+                        <li>Negocio, contacto, talla, precio, código de barras e ID</li>
+                    </ul>
+                    <div class="warn">
+                        <span class="ci">⚠️</span>
+                        Antes de imprimir, usa la vista previa y configura el
+                        diálogo a escala <strong>100 % / tamaño real</strong>.
+                        Una escala automática puede cambiar las medidas físicas de
+                        la etiqueta.
+                    </div>
+                    <div class="note">
+                        <span class="ci">🏷️</span>
+                        Los perfiles se administran desde el editor de etiquetas.
+                        Crear, editar, eliminar o marcar un perfil como
+                        predeterminado requiere permisos de administración.
+                    </div>
+                </section>
+
                 <!-- ═══ PRÉSTAMOS FÍSICOS ═══ -->
                 <section class="section" id="prestamos">
                     <div class="section-hd">
@@ -2595,6 +2752,58 @@
                                 para conservar la trazabilidad.
                             </div>
                         </div>
+                    </div>
+                    <h3>¿Qué operación necesitas?</h3>
+                    <p>
+                        No confundas una salida temporal de inventario con una
+                        operación de crédito. Usa esta comparación antes de
+                        confirmar:
+                    </p>
+                    <table>
+                        <tr>
+                            <th>Operación</th>
+                            <th>Qué ocurre</th>
+                            <th>Cómo termina</th>
+                        </tr>
+                        <tr>
+                            <td><strong>Préstamo físico</strong></td>
+                            <td>
+                                Una o varias unidades pasan a estado prestado y
+                                quedan vinculadas al cliente y al retorno.
+                            </td>
+                            <td>
+                                Se revisa el retorno y se cierra el préstamo.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>Crédito de producto</strong></td>
+                            <td>
+                                Se registra una venta a crédito y el producto
+                                afecta el inventario como una venta.
+                            </td>
+                            <td>
+                                Se registra el pago de cuotas o abonos hasta
+                                completar el saldo.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>Préstamo de dinero</strong></td>
+                            <td>
+                                Se entrega dinero y no se consumen unidades del
+                                inventario.
+                            </td>
+                            <td>
+                                Se registra el pago de cuotas o abonos sobre el
+                                crédito financiero.
+                            </td>
+                        </tr>
+                    </table>
+                    <div class="tip">
+                        <span class="ci">💡</span>
+                        Si la persona debe devolver una unidad física, usa
+                        <strong>Préstamo de producto</strong>. Si debe pagar una
+                        deuda, usa un crédito o préstamo de dinero según el
+                        origen de la operación.
                     </div>
                     <div class="note">
                         <span class="ci">🤝</span> El acceso a préstamos puede
@@ -2835,6 +3044,109 @@
                     </div>
                 </section>
 
+                <!-- ═══ FACTURAS OPERATIVAS ═══ -->
+                <section class="section" id="facturas">
+                    <div class="section-hd">
+                        <div class="section-ico">🧾</div>
+                        <div>
+                            <div class="section-title">Facturas operativas</div>
+                            <div class="section-sub">
+                                Documento de respaldo ligado a una operación
+                                existente
+                            </div>
+                        </div>
+                    </div>
+                    <p>
+                        La factura operativa es un documento de soporte que se
+                        genera después de una venta o un crédito. No reemplaza el
+                        comprobante ni el ticket térmico de la operación diaria y
+                        no vuelve a descontar el inventario.
+                    </p>
+                    <h3>Cuándo generar una factura</h3>
+                    <ul class="chk">
+                        <li>
+                            Después de una venta confirmada cuando necesitas un
+                            documento operativo adicional
+                        </li>
+                        <li>
+                            Después de un crédito cuando el cliente necesita sus
+                            datos y el detalle de la operación por escrito
+                        </li>
+                        <li>
+                            Cuando necesitas consultar o imprimir nuevamente una
+                            factura ya creada
+                        </li>
+                    </ul>
+                    <h3>Flujo de emisión</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Abre la opción de factura</strong>
+                                <span>
+                                    Desde la confirmación de la venta o del
+                                    crédito, elige <strong>Generar factura</strong>.
+                                    La pantalla conserva el origen de la operación.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Busca o completa el cliente</strong>
+                                <span>
+                                    Reutiliza un cliente por nombre, documento o
+                                    teléfono. Si no existe, completa nombre,
+                                    documento, ciudad y los demás datos solicitados.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Revisa y confirma</strong>
+                                <span>
+                                    Verifica origen, cliente, detalle, valores y
+                                    observaciones antes de crear el documento.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">4</div>
+                            <div class="step-body">
+                                <strong>Consulta o imprime</strong>
+                                <span>
+                                    Al finalizar puedes abrir la factura por su
+                                    identificador e imprimirla con el ancho
+                                    configurado para el negocio.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Comprobante o ticket</div>
+                            <div class="mod-desc">
+                                Confirma la operación y está pensado para el cierre
+                                rápido de venta o pago.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Factura operativa</div>
+                            <div class="mod-desc">
+                                Conserva el detalle de respaldo y puede consultarse
+                                o imprimirse después de la operación.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="note">
+                        <span class="ci">🧾</span>
+                        La factura reutiliza la operación original. Si necesitas
+                        corregir datos, revisa la información del cliente antes de
+                        confirmar el documento.
+                    </div>
+                </section>
+
                 <!-- ═══ CRÉDITOS ═══ -->
                 <section class="section" id="creditos">
                     <div class="section-hd">
@@ -2919,6 +3231,43 @@
                             una copia de los datos del crédito y del cliente tal
                             como estaban al momento del pago.
                         </p>
+                        <h3>Snapshots de comprobantes</h3>
+                        <p>
+                            Cada comprobante de pago conserva una fotografía de la
+                            operación en el momento exacto del abono: cliente,
+                            crédito, monto pagado, deuda y cuotas. Si después se
+                            edita el crédito o se registra otro pago, el documento
+                            histórico no se recalcula ni cambia.
+                        </p>
+                        <h3>Créditos editados <span class="ba">Solo admin</span></h3>
+                        <p>
+                            En <strong>Créditos editados</strong> puedes revisar
+                            cambios administrativos sobre créditos del negocio.
+                            Filtra por fechas, usuario, estado, tipo de crédito,
+                            cliente o ID y compara los valores antes y después.
+                        </p>
+                        <div class="grid2">
+                            <div class="mod-card">
+                                <div class="mod-name">Qué muestra</div>
+                                <div class="mod-desc">
+                                    Crédito, cliente, tipo, estado anterior y nuevo,
+                                    campos modificados, usuario y origen del evento.
+                                </div>
+                            </div>
+                            <div class="mod-card">
+                                <div class="mod-name">Qué ayuda a investigar</div>
+                                <div class="mod-desc">
+                                    El efecto del cambio sobre la deuda actual y las
+                                    cuotas pendientes, dentro del tenant activo.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="note">
+                            <span class="ci">🔎</span>
+                            El reporte muestra ediciones reales registradas en
+                            Auditoría. No sustituye el historial de pagos ni cambia
+                            los snapshots de comprobantes ya emitidos.
+                        </div>
                         <div class="warn">
                             <span class="ci">⚠️</span> Evita crear créditos con
                             datos incompletos del deudor. Un crédito sin
@@ -3104,6 +3453,138 @@
                                 nuevo que no está en sistema
                             </div>
                         </div>
+                    </div>
+                </section>
+
+                <!-- ═══ CSV ═══ -->
+                <section class="section" id="csv">
+                    <div class="section-hd">
+                        <div class="section-ico">📄</div>
+                        <div>
+                            <div class="section-title">Importar y exportar CSV</div>
+                            <div class="section-sub">
+                                Carga masiva y reportes del tenant actual
+                            </div>
+                        </div>
+                    </div>
+                    <p>
+                        Los archivos CSV sirven para cargar datos en lote o sacar
+                        información operativa para análisis y respaldo. La pantalla
+                        y los archivos siempre trabajan sobre el tenant actual:
+                        no necesitas enviar ni agregar un tenant manualmente.
+                    </p>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Importar datos</div>
+                            <div class="mod-desc">
+                                Usa las plantillas para agregar productos, importar
+                                clientes o actualizar la ubicación física de varios
+                                productos.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Exportar reportes</div>
+                            <div class="mod-desc">
+                                Descarga inventario, unidades, ventas y cambios con
+                                el alcance que tu usuario puede consultar.
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Cargar un archivo</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Elige la plantilla correcta</strong>
+                                <span>
+                                    En <strong>CSV → Plantilla</strong> selecciona
+                                    carga general de productos o actualización de
+                                    ubicación. Para clientes, usa la importación
+                                    disponible en el módulo Clientes.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Completa las columnas requeridas</strong>
+                                <span>
+                                    Conserva los encabezados de la plantilla. Usa el
+                                    ID visible para actualizar un producto y el
+                                    nombre exacto de la ubicación cuando aplique.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Valida antes de aplicar</strong>
+                                <span>
+                                    Selecciona el archivo, revisa la vista previa y
+                                    corrige filas con productos inexistentes,
+                                    ubicaciones inactivas o campos inválidos antes
+                                    de confirmar.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">4</div>
+                            <div class="step-body">
+                                <strong>Confirma y revisa el resultado</strong>
+                                <span>
+                                    Después de aplicar, verifica Inventario,
+                                    Clientes o Auditoría según el tipo de carga.
+                                    Una actualización de ubicación no cambia stock
+                                    ni datos comerciales.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="warn">
+                        <span class="ci">⚠️</span>
+                        No agregues una columna <code>tenant_id</code>. El tenant se
+                        resuelve por la sesión autenticada y el archivo será
+                        rechazado si intenta enviarlo manualmente.
+                    </div>
+                    <h3>Exportar datos</h3>
+                    <p>
+                        En <strong>Exportar datos</strong> encontrarás archivos del
+                        estado actual y movimientos históricos. El rango de fechas
+                        solo se aplica a ventas y cambios; el inventario refleja el
+                        estado actual.
+                    </p>
+                    <table>
+                        <tr>
+                            <th>Archivo</th>
+                            <th>Contenido</th>
+                            <th>Rango</th>
+                        </tr>
+                        <tr>
+                            <td>Inventario agregado</td>
+                            <td>Una fila por producto, ubicación y cantidades por estado.</td>
+                            <td>No requiere</td>
+                        </tr>
+                        <tr>
+                            <td>Inventario por unidades</td>
+                            <td>Detalle de cada unidad, estado, ingreso y caducidad.</td>
+                            <td>No requiere</td>
+                        </tr>
+                        <tr>
+                            <td>Ventas</td>
+                            <td>Ventas registradas con producto, cantidad y pago.</td>
+                            <td>Usa el seleccionado</td>
+                        </tr>
+                        <tr>
+                            <td>Cambios</td>
+                            <td>Movimientos auditados con cantidades entrantes y salientes.</td>
+                            <td>Usa el seleccionado</td>
+                        </tr>
+                    </table>
+                    <div class="note">
+                        <span class="ci">📄</span>
+                        Los préstamos físicos tienen su propia exportación desde el
+                        reporte de préstamos. Los archivos descargados contienen
+                        únicamente datos que tu usuario puede consultar.
                     </div>
                 </section>
 
@@ -3438,6 +3919,197 @@
                         ubicaciones, owners y parámetros de impresión. Así reduces
                         errores al crear productos.
                     </div>
+                    <h3>Plataforma: empresas <span class="ba">Solo platform admin</span></h3>
+                    <p>
+                        La administración global de empresas está separada de la
+                        configuración local del negocio. Solo un
+                        <strong>platform admin</strong> puede acceder a este bloque.
+                    </p>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Crear una empresa</strong>
+                                <span>
+                                    Define nombre, slug, usuario admin inicial y su
+                                    contraseña. StockiAPP prepara el tenant con su
+                                    configuración operativa inicial.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Guardar la API key inicial</strong>
+                                <span>
+                                    La clave se muestra una sola vez. Guárdala en el
+                                    gestor de secretos o workflow n8n del negocio y
+                                    comprueba el acceso con <code>/api/health</code>.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Activar o inactivar una empresa</strong>
+                                <span>
+                                    Inactivar bloquea el acceso web, la API y las
+                                    sesiones activas del tenant. Activar restaura el
+                                    acceso.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">4</div>
+                            <div class="step-body">
+                                <strong>Regenerar la API key inicial</strong>
+                                <span>
+                                    La nueva clave invalida la anterior. Actualiza
+                                    todas las automatizaciones antes de volver a
+                                    operar con ellas.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="warn">
+                        <span class="ci">⚠️</span>
+                        El <strong>hard reset por módulo</strong> es irreversible.
+                        Solo úsalo en una empresa autorizada, escribe el slug exacto
+                        y revisa el alcance antes de confirmar: inventario, créditos
+                        o usuarios eliminan datos distintos.
+                    </div>
+                </section>
+
+                <!-- ═══ USUARIOS Y CLAVES ═══ -->
+                <section class="section" id="usuarios">
+                    <div class="section-hd">
+                        <div class="section-ico">👥</div>
+                        <div>
+                            <div class="section-title">Usuarios y claves</div>
+                            <div class="section-sub">
+                                Administración de accesos, roles y reseteos seguros
+                            </div>
+                        </div>
+                    </div>
+                    <p>
+                        Desde <strong>Usuarios</strong> puedes crear y administrar
+                        cuentas operativas según el alcance de tu rol. Cada cuenta
+                        pertenece a un tenant y puede tener nombre, correo, Telegram
+                        ID, estado y rol.
+                    </p>
+                    <div class="grid2">
+                        <div class="mod-card">
+                            <div class="mod-name">Empleado</div>
+                            <div class="mod-desc">
+                                Opera los flujos habilitados para su negocio y ve la
+                                información permitida por ownership y configuración.
+                            </div>
+                        </div>
+                        <div class="mod-card">
+                            <div class="mod-name">Admin</div>
+                            <div class="mod-desc">
+                                Gestiona la operación, catálogo, usuarios del negocio
+                                y configuración local.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">🌐 Platform admin</div>
+                        <p>
+                            Tiene alcance global sobre empresas y usuarios. Puede
+                            gestionar cuentas platform admin y es el único rol
+                            autorizado para emitir una contraseña temporal para otro
+                            usuario.
+                        </p>
+                    </div>
+                    <h3>Crear o actualizar un usuario</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Completa los datos</strong>
+                                <span>
+                                    Define usuario, nombre, correo, Telegram ID,
+                                    contraseña inicial, rol y estado activo.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Revisa el alcance</strong>
+                                <span>
+                                    Un admin gestiona usuarios de su empresa. Un
+                                    platform admin puede trabajar con cuentas de
+                                    alcance global.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Guarda y comunica el acceso</strong>
+                                <span>
+                                    Entrega la cuenta por un canal seguro. Si la
+                                    cuenta queda inactiva, no podrá operar hasta que
+                                    un administrador la active.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Generar una contraseña temporal</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Abre Administrar en el usuario</strong>
+                                <span>
+                                    Solo un platform admin verá la acción
+                                    <strong>Generar contraseña temporal</strong>.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Confirma el reseteo</strong>
+                                <span>
+                                    StockiAPP cierra las sesiones activas, invalida
+                                    el acceso anterior y marca el cambio como
+                                    pendiente.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Entrega la clave una sola vez</strong>
+                                <span>
+                                    La contraseña temporal se muestra únicamente en
+                                    la pantalla de resultado. Comunícala por un canal
+                                    seguro y no la reutilices.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">4</div>
+                            <div class="step-body">
+                                <strong>Completa el cambio obligatorio</strong>
+                                <span>
+                                    En el siguiente ingreso, el usuario será enviado
+                                    a <strong>Definir una nueva contraseña</strong>.
+                                    Debe escribirla dos veces y usar al menos diez
+                                    caracteres.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="note">
+                        <span class="ci">🔐</span>
+                        Los reseteos emitidos y completados quedan registrados en
+                        Auditoría. No envíes contraseñas temporales por chats o
+                        documentos públicos.
+                    </div>
                 </section>
 
                 <!-- ═══ AUDITORÍA ═══ -->
@@ -3492,6 +4164,32 @@
                         Después entra al detalle solo de los eventos que
                         realmente explican el cambio que estás investigando.
                     </p>
+                    <h3>Eventos que conviene reconocer</h3>
+                    <ul class="chk">
+                        <li>
+                            <strong>credit_sale_updated</strong>: un admin editó
+                            un crédito y el reporte muestra el antes y después
+                        </li>
+                        <li>
+                            <strong>user_password_reset_issued</strong> y
+                            <strong>user_password_reset_completed</strong>:
+                            se emitió o completó un cambio temporal de contraseña
+                        </li>
+                        <li>
+                            <strong>tenant_initial_api_key_rotated</strong>: se
+                            invalidó la API key inicial anterior y se generó otra
+                        </li>
+                        <li>
+                            Ediciones, duplicaciones, ventas, retomas, cambios,
+                            préstamos y reasignaciones de catálogos
+                        </li>
+                    </ul>
+                    <div class="note">
+                        <span class="ci">🔐</span>
+                        La auditoría respeta el tenant y el usuario que consulta.
+                        Úsala para reconstruir una operación, no para editar datos
+                        directamente.
+                    </div>
                 </section>
 
                 <!-- ═══ INTEGRACIONES ═══ -->
@@ -3538,6 +4236,43 @@
                         tenant. No envíes <strong>tenant_id</strong> manualmente:
                         el contexto se resuelve por la credencial autenticada.
                         Consulta los contratos vigentes en <strong>docs/api.md</strong>.
+                    </div>
+                    <h3>API key inicial del tenant</h3>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-n">1</div>
+                            <div class="step-body">
+                                <strong>Guárdala cuando se crea la empresa</strong>
+                                <span>
+                                    La clave inicial se muestra una sola vez en el
+                                    onboarding del tenant. Guarda el token en un
+                                    gestor de secretos o en las credenciales de n8n.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">2</div>
+                            <div class="step-body">
+                                <strong>Prueba el contexto</strong>
+                                <span>
+                                    Usa la clave contra <code>/api/health</code> y
+                                    después consulta los endpoints que tu integración
+                                    necesite. La API resuelve el tenant por la
+                                    credencial.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-n">3</div>
+                            <div class="step-body">
+                                <strong>Rota solo cuando sea necesario</strong>
+                                <span>
+                                    Al regenerarla, la clave anterior deja de
+                                    funcionar. Actualiza n8n, agentes y cualquier
+                                    workflow antes de volver a ejecutar operaciones.
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -3787,6 +4522,19 @@
                             Mantén líneas y ubicaciones activas solo cuando estén
                             disponibles para la operación
                         </li>
+                        <li>
+                            No compartas contraseñas temporales ni API keys en
+                            canales públicos; rota una clave si sospechas que fue
+                            expuesta
+                        </li>
+                        <li>
+                            Usa la plantilla CSV correspondiente y revisa la vista
+                            previa antes de aplicar una carga masiva
+                        </li>
+                        <li>
+                            Revisa Auditoría cuando necesites explicar una edición,
+                            un reset de acceso o una rotación de credencial
+                        </li>
                     </ul>
                     <div class="tip">
                         <span class="ci">💡</span> Si el equipo entero trabaja
@@ -3907,6 +4655,68 @@
                             Abre el detalle del préstamo desde el listado, verifica
                             el cliente y las unidades, y registra el estado real de
                             retorno. No cambies el stock por fuera del flujo.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            No puedo generar una factura
+                        </div>
+                        <div class="trouble-a">
+                            La factura debe partir de una venta o crédito válido.
+                            Revisa que la operación exista, que el cliente tenga
+                            los datos requeridos y que tu usuario tenga permiso.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            El CSV fue rechazado
+                        </div>
+                        <div class="trouble-a">
+                            Descarga la plantilla del flujo correcto, conserva sus
+                            encabezados y elimina cualquier columna
+                            <code>tenant_id</code>. En actualización de ubicación,
+                            corrige productos inexistentes o ubicaciones inactivas.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            No aparece "Créditos editados"
+                        </div>
+                        <div class="trouble-a">
+                            Ese reporte requiere permisos de administrador. Si sí
+                            tienes el rol, limpia los filtros de fecha, cliente,
+                            usuario, estado y tipo de crédito.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            El usuario quedó obligado a cambiar su contraseña
+                        </div>
+                        <div class="trouble-a">
+                            Es el comportamiento esperado después de un reset
+                            temporal. Ingresa con la clave recibida y completa
+                            <strong>Definir una nueva contraseña</strong>. Si no
+                            tienes la clave, pide otro reset a un platform admin.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            La API dejó de responder después de rotar una key
+                        </div>
+                        <div class="trouble-a">
+                            La clave anterior queda invalidada. Actualiza el token
+                            en n8n o en el agente, verifica el tenant con
+                            <code>/api/health</code> y vuelve a probar la operación.
+                        </div>
+                    </div>
+                    <div class="trouble">
+                        <div class="trouble-q">
+                            No puedo preparar un lote de etiquetas
+                        </div>
+                        <div class="trouble-a">
+                            Selecciona al menos un producto, revisa las copias y
+                            elige un perfil. Si no hay productos visibles, limpia la
+                            búsqueda y los filtros de línea o ubicación.
                         </div>
                     </div>
 
