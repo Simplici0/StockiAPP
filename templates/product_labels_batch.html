@@ -70,18 +70,20 @@
             .labels-controls h2 { margin: 0; font-size: 16px; }
             .labels-product-list { min-width: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
             .labels-list-toolbar { grid-column: 1 / -1; display: flex; gap: 12px; align-items: end; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--border); background: var(--bg-card-muted); }
-            .labels-list-toolbar .label-search { flex: 1 1 260px; }
-            .labels-list-toolbar input { min-height: 42px; }
+            .labels-list-toolbar .label-search { flex: 1 1 260px; margin-bottom: 0; }
+            .labels-list-toolbar input { min-height: 44px; }
             .labels-list-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
-            .labels-list-toolbar-actions button { min-height: 42px; }
-            .labels-filter-toggle { display: none; }
+            .labels-list-toolbar-actions button { min-height: 44px; }
+            .labels-filter-toggle { display: inline-flex; }
             .label-search { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
-            .labels-select-visible { min-height: 42px; white-space: nowrap; }
+            .labels-select-visible { min-height: 44px; white-space: nowrap; }
+            .labels-product-list.filters-collapsed { grid-template-columns: minmax(0, 1fr); }
             .labels-filter-panel { min-width: 0; display: grid; align-content: start; gap: 14px; padding: 16px 14px; border-right: 1px solid var(--border); background: var(--bg-card-muted); }
             .labels-filter-panel.is-open { display: grid; }
+            .labels-filter-panel[hidden] { display: none !important; }
             .labels-filter-header { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
             .labels-filter-header h2 { margin: 0; color: var(--text); font-size: 15px; }
-            .labels-filter-clear { min-height: 36px; padding: 6px 8px; border: 0; color: var(--primary-strong); background: transparent; font-size: 12px; font-weight: 750; }
+            .labels-filter-clear { min-height: 44px; padding: 6px 8px; border: 0; color: var(--primary-strong); background: transparent; font-size: 12px; font-weight: 750; }
             .labels-filter-clear:hover { color: var(--text); background: var(--bg-card); }
             .labels-filter-summary { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
             .labels-filter-section { border-top: 1px solid var(--border); }
@@ -91,7 +93,7 @@
             .labels-filter-section[open] summary::after { content: "−"; }
             .labels-filter-section-count { min-width: 20px; padding: 2px 6px; border-radius: 999px; color: var(--text-muted); background: var(--bg-card); font-size: 11px; text-align: center; }
             .labels-filter-options { display: grid; gap: 2px; max-height: 230px; overflow: auto; padding: 0 0 8px; }
-            .labels-filter-option { min-height: 40px; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+            .labels-filter-option { min-height: 44px; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
             .labels-filter-option:hover { background: var(--bg-card); }
             .labels-filter-option input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
             .labels-filter-option-copy { min-width: 0; display: flex; gap: 8px; align-items: center; justify-content: space-between; color: var(--text); font-size: 12px; }
@@ -109,7 +111,7 @@
             .labels-product-name { min-width: 0; display: grid; gap: 3px; }
             .labels-product-name strong { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
             .labels-product-name span { color: var(--text-muted); font-size: 12px; }
-            .labels-copies { min-height: 42px; text-align: center; }
+            .labels-copies { min-height: 44px; text-align: center; }
             .labels-summary { position: sticky; top: 14px; display: grid; gap: 16px; padding: 18px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-card); box-shadow: var(--shadow-xs); }
             .labels-summary h2 { margin: 0; font-size: 16px; }
             .labels-summary label { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 700; }
@@ -123,7 +125,7 @@
             .labels-output-actions .secondary { background: var(--bg-card-muted); border-color: var(--border-strong); color: var(--text); }
             .labels-status { min-height: 18px; margin: 0; color: var(--text-muted); font-size: 12px; }
             .labels-status.error { color: var(--danger-ink); font-weight: 700; }
-            @media (max-width: 860px) { .labels-layout, .label-editor-panel { grid-template-columns: 1fr; } .labels-summary, .label-editor-preview { position: static; } .labels-product-list { grid-template-columns: 1fr; } .labels-filter-toggle { display: inline-flex; } .labels-filter-panel { display: none; grid-column: 1; border-right: 0; border-bottom: 1px solid var(--border); } .labels-filter-panel.is-open { display: grid; } .labels-products-main { grid-column: 1; } }
+            @media (max-width: 860px) { .labels-layout, .label-editor-panel { grid-template-columns: 1fr; } .labels-summary, .label-editor-preview { position: static; } .labels-product-list, .labels-product-list.filters-collapsed { grid-template-columns: 1fr; } .labels-filter-panel { display: none; grid-column: 1; border-right: 0; border-bottom: 1px solid var(--border); } .labels-filter-panel.is-open { display: grid; } .labels-products-main { grid-column: 1; } }
             @media (max-width: 560px) { .labels-intro, .labels-list-toolbar { align-items: stretch; flex-direction: column; } .labels-list-toolbar-actions { justify-content: stretch; } .labels-list-toolbar-actions button { flex: 1 1 auto; } .labels-results-bar { align-items: flex-start; flex-direction: column; } .labels-selection-note { text-align: left; } .label-editor-picker { grid-template-columns: 1fr; } .label-editor-picker p { margin: 0; } .label-editor-fields { grid-template-columns: 1fr; } .labels-product-row { grid-template-columns: 28px minmax(0, 1fr) 66px; gap: 8px; padding-inline: 10px; } }
         </style>
     </head>
@@ -229,17 +231,17 @@
                 {{end}}
 
                 <form id="labels-batch-form" class="labels-layout" method="POST" action="/productos/etiquetas/lote" target="_blank">
-                    <div class="labels-product-list">
+                    <div class="labels-product-list filters-collapsed">
                         <div class="labels-list-toolbar">
                             <label class="label-search">Buscar producto
                                 <input id="label-product-search" type="search" placeholder="Nombre, ID, línea o ubicación" autocomplete="off" />
                             </label>
                             <div class="labels-list-toolbar-actions">
-                                <button id="label-filter-toggle" class="secondary labels-filter-toggle" type="button" aria-controls="label-filter-panel" aria-expanded="true">Filtros <span id="label-active-filter-count">0</span></button>
+                                <button id="label-filter-toggle" class="secondary labels-filter-toggle" type="button" aria-controls="label-filter-panel" aria-expanded="false">Filtros <span id="label-active-filter-count">0</span></button>
                                 <button id="label-select-visible" class="secondary labels-select-visible" type="button">Usar existencias visibles</button>
                             </div>
                         </div>
-                        <aside id="label-filter-panel" class="labels-filter-panel is-open" aria-label="Filtros de productos">
+                        <aside id="label-filter-panel" class="labels-filter-panel" aria-label="Filtros de productos" hidden>
                             <div class="labels-filter-header">
                                 <h2>Filtrar productos</h2>
                                 <button id="label-clear-filters" class="labels-filter-clear" type="button">Limpiar</button>
@@ -325,6 +327,7 @@
                 const selectVisible = document.getElementById("label-select-visible");
                 const filterToggle = document.getElementById("label-filter-toggle");
                 const filterPanel = document.getElementById("label-filter-panel");
+                const productList = document.querySelector(".labels-product-list");
                 const clearFilters = document.getElementById("label-clear-filters");
                 const filterSummary = document.getElementById("label-filter-summary");
                 const filterResultCount = document.getElementById("label-filter-result-count");
@@ -397,10 +400,13 @@
                     });
                     sync();
                 };
-                const setFilterPanelOpen = (open) => {
-                    if (!filterPanel || !filterToggle) return;
+                const setFilterPanelOpen = (open, restoreFocus = false) => {
+                    if (!filterPanel || !filterToggle || !productList) return;
                     filterPanel.classList.toggle("is-open", open);
+                    filterPanel.hidden = !open;
+                    productList.classList.toggle("filters-collapsed", !open);
                     filterToggle.setAttribute("aria-expanded", String(open));
+                    if (restoreFocus) filterToggle.focus();
                 };
                 if (filterToggle && filterPanel) {
                     filterToggle.addEventListener("click", () => {
@@ -410,6 +416,17 @@
                         setFilterPanelOpen(false);
                     }
                 }
+                document.addEventListener("keydown", (event) => {
+                    if (
+                        event.key === "Escape" &&
+                        filterPanel &&
+                        !filterPanel.hidden &&
+                        filterPanel.contains(document.activeElement)
+                    ) {
+                        event.preventDefault();
+                        setFilterPanelOpen(false, true);
+                    }
+                });
                 facetChecks.forEach((check) => check.addEventListener("change", applyFilters));
                 clearFilters?.addEventListener("click", () => {
                     facetChecks.forEach((check) => { check.checked = false; });

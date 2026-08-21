@@ -19256,6 +19256,7 @@ func main() {
 	renderTemplate := func(w http.ResponseWriter, name string, data any, renderErrMessage string) {
 		var rendered bytes.Buffer
 		if err := tmpl.ExecuteTemplate(&rendered, name, data); err != nil {
+			log.Printf("SSR template render failed name=%q error=%v", name, err)
 			http.Error(w, renderErrMessage, http.StatusInternalServerError)
 			return
 		}

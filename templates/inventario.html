@@ -82,11 +82,91 @@
                 font-weight: 700;
             }
 
-            .filters-row {
+            .filters-toolbar {
                 display: grid;
-                grid-template-columns: minmax(280px, 2fr) repeat(2, minmax(150px, 0.7fr));
+                grid-template-columns: minmax(0, 1fr) auto;
                 gap: var(--space-3);
-                align-items: flex-end;
+                align-items: end;
+            }
+
+            .filters-toolbar-actions {
+                display: flex;
+                align-items: end;
+                justify-content: flex-end;
+                gap: var(--space-2);
+                flex-wrap: wrap;
+            }
+
+            .inventory-filter-toggle,
+            .inventory-filter-clear {
+                min-height: 44px;
+                white-space: nowrap;
+            }
+
+            .filter-count {
+                display: inline-flex;
+                min-width: 22px;
+                height: 22px;
+                align-items: center;
+                justify-content: center;
+                padding: 0 6px;
+                border-radius: 999px;
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+                font-size: 12px;
+                font-weight: 800;
+            }
+
+            .filters-active {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                min-height: 0;
+            }
+
+            .filters-active:empty {
+                display: none;
+            }
+
+            .filter-chip {
+                display: inline-flex;
+                min-height: 44px;
+                align-items: center;
+                gap: 6px;
+                padding: 6px 10px;
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                background: var(--bg-card-muted);
+                color: var(--text);
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            .filter-chip:hover,
+            .filter-chip:focus-visible {
+                border-color: var(--primary-strong);
+                background: var(--primary-soft);
+                color: var(--primary-strong);
+            }
+
+            .filter-chip::after {
+                content: "×";
+                color: var(--text-muted);
+                font-size: 16px;
+                font-weight: 500;
+                line-height: 1;
+            }
+
+            .filters-panel {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: var(--space-3);
+                padding-top: var(--space-2);
+                border-top: 1px solid var(--border);
+            }
+
+            .filters-panel[hidden] {
+                display: none;
             }
 
             .filter-group {
@@ -1637,8 +1717,8 @@
                     padding: 14px;
                 }
 
-                .filters-row {
-                    grid-template-columns: 1fr;
+                .filters-panel {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
 
                 .filter-group,
@@ -1662,23 +1742,21 @@
                     bottom: calc(16px + env(safe-area-inset-bottom));
                 }
 
-                .filters-row {
-                    display: grid;
-                    grid-template-columns: repeat(2, minmax(0, 1fr));
-                    gap: 12px;
-                    align-items: end;
+                .filters-toolbar {
+                    grid-template-columns: 1fr;
                 }
 
-                .filter-group,
-                .filter-group.search-group {
-                    min-width: 0;
-                    width: 100%;
-                    flex: none;
+                .filters-toolbar-actions {
+                    align-items: stretch;
+                    justify-content: stretch;
                 }
 
-                .filter-group.search-group {
-                    grid-column: 1 / -1;
-                    order: -1;
+                .filters-toolbar-actions > * {
+                    flex: 1 1 0;
+                }
+
+                .filters-panel {
+                    grid-template-columns: 1fr;
                 }
 
                 .filter-group label {
@@ -2003,16 +2081,48 @@
                     <p>Consulta existencias y registra movimientos de tus productos.</p>
                 </div>
             </header>
-            <section class="filters">
-                <div class="filters-row">
+            <section class="filters" aria-label="Filtros de inventario">
+                <div class="filters-toolbar">
                     <div class="filter-group search-group">
                         <label for="searchFilter">Búsqueda</label>
                         <input
                             id="searchFilter"
                             type="search"
-                            placeholder="Nombre, ID, línea, deudor o documento"
+                            placeholder="Nombre, ID, línea, ubicación, deudor o documento"
                         />
                     </div>
+                    <div class="filters-toolbar-actions">
+                        <button
+                            id="inventory-filter-toggle"
+                            class="button secondary inventory-filter-toggle"
+                            type="button"
+                            aria-controls="inventory-filter-panel"
+                            aria-expanded="false"
+                        >
+                            Filtros
+                            <span
+                                id="inventory-filter-count"
+                                class="filter-count"
+                                aria-live="polite"
+                            >1</span>
+                        </button>
+                        <button
+                            id="inventory-filter-clear"
+                            class="button secondary inventory-filter-clear"
+                            type="button"
+                            hidden
+                        >
+                            Limpiar
+                        </button>
+                    </div>
+                </div>
+                <div
+                    id="inventory-active-filters"
+                    class="filters-active"
+                    aria-live="polite"
+                    aria-label="Filtros activos"
+                ></div>
+                <div id="inventory-filter-panel" class="filters-panel" hidden>
                     <div class="filter-group filter-group--secondary">
                         <label for="statusFilter">Estado</label>
                         <select id="statusFilter">
@@ -2042,6 +2152,12 @@
                     <div class="filter-group filter-group--secondary">
                         <label for="lineFilter">Línea</label>
                         <select id="lineFilter">
+                            <option value="all">Todas</option>
+                        </select>
+                    </div>
+                    <div class="filter-group filter-group--secondary">
+                        <label for="locationFilter">Ubicación</label>
+                        <select id="locationFilter">
                             <option value="all">Todas</option>
                         </select>
                     </div>
@@ -4334,8 +4450,14 @@
 
             const statusFilter = document.getElementById("statusFilter");
             const lineFilter = document.getElementById("lineFilter");
+            const locationFilter = document.getElementById("locationFilter");
             const searchFilter = document.getElementById("searchFilter");
             const expiryToggle = document.getElementById("expiryToggle");
+            const inventoryFilterToggle = document.getElementById("inventory-filter-toggle");
+            const inventoryFilterPanel = document.getElementById("inventory-filter-panel");
+            const inventoryFilterClear = document.getElementById("inventory-filter-clear");
+            const inventoryActiveFilters = document.getElementById("inventory-active-filters");
+            const inventoryFilterCount = document.getElementById("inventory-filter-count");
             const productTable = document.getElementById("productTable");
             const summary = document.getElementById("summary");
             const downloadTemplateButton = document.getElementById("download-template");
@@ -4354,6 +4476,10 @@
             const normalizeLine = (value) => {
               const line = String(value || "").trim();
               return line || "Sin línea";
+            };
+            const normalizeLocation = (value) => {
+              const location = String(value || "").trim();
+              return location || "Sin ubicación";
             };
             const buildProductSearchText = (product) =>
               [
@@ -4394,6 +4520,32 @@
                 lineFilter.appendChild(preservedOption);
               }
               lineFilter.value = currentValue;
+            };
+            const populateLocationFilter = () => {
+              if (!locationFilter) return;
+              const currentValue = locationFilter.value || "all";
+              const locations = Array.from(
+                new Set([
+                  ...editableLocations,
+                  ...products.map((product) => normalizeLocation(product.location)),
+                ]),
+              )
+                .filter(Boolean)
+                .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+              locationFilter.innerHTML = '<option value="all">Todas</option>';
+              locations.forEach((location) => {
+                const option = document.createElement("option");
+                option.value = location;
+                option.textContent = location;
+                locationFilter.appendChild(option);
+              });
+              if (currentValue !== "all" && !locations.includes(currentValue)) {
+                const preservedOption = document.createElement("option");
+                preservedOption.value = currentValue;
+                preservedOption.textContent = currentValue;
+                locationFilter.appendChild(preservedOption);
+              }
+              locationFilter.value = currentValue;
             };
 
             const bogotaDateOptions = { timeZone: "America/Bogota" };
@@ -4556,12 +4708,13 @@
             };
 
             const getFilteredProducts = () => {
-              if (!statusFilter || !lineFilter || !searchFilter || !expiryToggle) {
+              if (!statusFilter || !lineFilter || !locationFilter || !searchFilter || !expiryToggle) {
                 console.warn("Filtros no disponibles: faltan controles de filtro en el DOM.");
                 return products;
               }
               const statusValue = statusFilter.value;
               const lineValue = lineFilter.value;
+              const locationValue = locationFilter.value;
               const query = searchFilter.value.toLowerCase().trim();
               const expiryOnly = expiryToggle.checked;
 
@@ -4569,16 +4722,14 @@
                 const matchesSearch = !query || String(product.searchText || "").includes(query);
                 const matchesStatus = productMatchesStatusFilter(product, statusValue);
                 const matchesLine = lineValue === "all" || normalizeLine(product.line) === lineValue;
+                const matchesLocation =
+                  locationValue === "all" || normalizeLocation(product.location) === locationValue;
                 const matchesExpiry =
                   !expiryOnly ||
                   product.ageAlert ||
                   product.units.some((unit) => isExpiringSoon(unit.expires));
 
-                if (query) {
-                  return matchesSearch && matchesExpiry;
-                }
-
-                return matchesStatus && matchesLine && matchesSearch && matchesExpiry;
+                return matchesStatus && matchesLine && matchesLocation && matchesSearch && matchesExpiry;
               });
 
               return filtered;
@@ -4588,8 +4739,92 @@
               const filtered = getFilteredProducts();
               renderTable(filtered);
               updateSummary(filtered);
+              renderActiveInventoryFilters();
               return filtered;
             };
+
+            const renderActiveInventoryFilters = () => {
+              if (!inventoryActiveFilters) return;
+              inventoryActiveFilters.replaceChildren();
+              const active = [];
+              const addChip = (label, clear) => {
+                const chip = document.createElement("button");
+                chip.type = "button";
+                chip.className = "filter-chip";
+                chip.textContent = label;
+                chip.setAttribute("aria-label", `Quitar ${label}`);
+                chip.addEventListener("click", () => {
+                  clear();
+                  applyFilters();
+                });
+                inventoryActiveFilters.appendChild(chip);
+                active.push(label);
+              };
+              const selectedText = (select, fallback) =>
+                select?.selectedOptions?.[0]?.textContent?.trim() || fallback;
+
+              if (searchFilter?.value.trim()) {
+                addChip(`Búsqueda: ${searchFilter.value.trim()}`, () => {
+                  searchFilter.value = "";
+                });
+              }
+              if (statusFilter && statusFilter.value !== "all") {
+                addChip(`Estado: ${selectedText(statusFilter, statusFilter.value)}`, () => {
+                  statusFilter.value = "all";
+                });
+              }
+              if (lineFilter && lineFilter.value !== "all") {
+                addChip(`Línea: ${selectedText(lineFilter, lineFilter.value)}`, () => {
+                  lineFilter.value = "all";
+                });
+              }
+              if (locationFilter && locationFilter.value !== "all") {
+                addChip(`Ubicación: ${selectedText(locationFilter, locationFilter.value)}`, () => {
+                  locationFilter.value = "all";
+                });
+              }
+              if (expiryToggle?.checked) {
+                addChip("Próximos a caducar", () => {
+                  expiryToggle.checked = false;
+                });
+              }
+              if (inventoryFilterCount) inventoryFilterCount.textContent = String(active.length);
+              if (inventoryFilterClear) inventoryFilterClear.hidden = active.length === 0;
+            };
+
+            const clearInventoryFilters = () => {
+              if (statusFilter) statusFilter.value = "all";
+              if (lineFilter) lineFilter.value = "all";
+              if (locationFilter) locationFilter.value = "all";
+              if (searchFilter) searchFilter.value = "";
+              if (expiryToggle) expiryToggle.checked = false;
+              applyFilters();
+            };
+
+            const setInventoryFilterPanelOpen = (open, restoreFocus = false) => {
+              if (!inventoryFilterPanel || !inventoryFilterToggle) return;
+              inventoryFilterPanel.hidden = !open;
+              inventoryFilterToggle.setAttribute("aria-expanded", String(open));
+              if (restoreFocus) inventoryFilterToggle.focus();
+            };
+
+            inventoryFilterToggle?.addEventListener("click", () => {
+              setInventoryFilterPanelOpen(
+                inventoryFilterPanel?.hidden !== false,
+              );
+            });
+            inventoryFilterClear?.addEventListener("click", clearInventoryFilters);
+            document.addEventListener("keydown", (event) => {
+              if (
+                event.key === "Escape" &&
+                inventoryFilterPanel &&
+                !inventoryFilterPanel.hidden &&
+                inventoryFilterPanel.contains(document.activeElement)
+              ) {
+                event.preventDefault();
+                setInventoryFilterPanelOpen(false, true);
+              }
+            });
 
             const replaceProductInMemory = (previousId, productUpdate, linkedBaseId) => {
               const index = products.findIndex(
@@ -4662,6 +4897,7 @@
               Boolean(
                 (statusFilter && statusFilter.value !== "all") ||
                 (lineFilter && lineFilter.value !== "all") ||
+                (locationFilter && locationFilter.value !== "all") ||
                 (searchFilter && searchFilter.value.trim()) ||
                 (expiryToggle && expiryToggle.checked)
               );
@@ -4691,13 +4927,7 @@
                 clear.type = "button";
                 clear.className = "secondary";
                 clear.textContent = "Limpiar filtros";
-                clear.addEventListener("click", () => {
-                  if (statusFilter) statusFilter.value = "all";
-                  if (lineFilter) lineFilter.value = "all";
-                  if (searchFilter) searchFilter.value = "";
-                  if (expiryToggle) expiryToggle.checked = false;
-                  applyFilters();
-                });
+                clear.addEventListener("click", clearInventoryFilters);
                 actions.appendChild(clear);
               } else {
                 const create = document.createElement("a");
@@ -4973,9 +5203,10 @@
             };
 
             populateLineFilter();
+            populateLocationFilter();
             applyFilters();
-            if (statusFilter && lineFilter && searchFilter && expiryToggle) {
-              [statusFilter, lineFilter, expiryToggle].forEach((input) =>
+            if (statusFilter && lineFilter && locationFilter && searchFilter && expiryToggle) {
+              [statusFilter, lineFilter, locationFilter, expiryToggle].forEach((input) =>
                 input.addEventListener("change", applyFilters)
               );
               let filterInputTimer = null;
@@ -8818,6 +9049,7 @@
                         }
                         closeModal(editModal);
                         populateLineFilter();
+                        populateLocationFilter();
                         const visibleProducts = applyFilters();
                         const productRemainsVisible = visibleProducts.some(
                             (product) =>
