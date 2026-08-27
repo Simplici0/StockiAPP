@@ -17385,6 +17385,14 @@ func handleCSVInventoryAggregate(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func csvLocationLabel(location string) string {
+	location = normalizeInventoryLocation(location)
+	if location == "" {
+		return "Sin ubicación"
+	}
+	return location
+}
+
 func handleCSVInventoryUnits(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -17406,7 +17414,8 @@ func handleCSVInventoryUnits(db *sql.DB) http.HandlerFunc {
 				u.id,
 				COALESCE(u.estado, ''),
 				COALESCE(u.creado_en, ''),
-				COALESCE(u.caducidad, '')
+				COALESCE(u.caducidad, ''),
+				COALESCE(u.location, '')
 			FROM unidades u
 			JOIN productos p ON p.tenant_id = u.tenant_id AND p.sku = u.producto_id
 			WHERE `+visibilitySQL+`
@@ -17417,13 +17426,14 @@ func handleCSVInventoryUnits(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		defer rows.Close()
-		csvRows := [][]string{{"product_id", "nombre", "linea", "locacion", "unidad_id", "estado", "fecha_ingreso", "caducidad"}}
+		csvRows := [][]string{{"product_id", "nombre", "linea", "locacion", "unidad_id", "estado", "fecha_ingreso", "caducidad", "locacion_unidad"}}
 		for rows.Next() {
-			row := make([]string, 8)
-			if err := rows.Scan(&row[0], &row[1], &row[2], &row[3], &row[4], &row[5], &row[6], &row[7]); err != nil {
+			row := make([]string, 9)
+			if err := rows.Scan(&row[0], &row[1], &row[2], &row[3], &row[4], &row[5], &row[6], &row[7], &row[8]); err != nil {
 				http.Error(w, "No se pudieron leer las unidades.", http.StatusInternalServerError)
 				return
 			}
+			row[8] = csvLocationLabel(row[8])
 			csvRows = append(csvRows, row)
 		}
 		if err := rows.Err(); err != nil {
@@ -17431,6 +17441,83 @@ func handleCSVInventoryUnits(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		writeCSVDownload(w, "inventario_unidades_"+time.Now().In(appTimeLocation).Format("2006-01-02")+".csv", csvRows)
+	}
+}
+
+func handleCSVInventoryByLocation(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Método no permitido", http.StatusMethodNotAllowed)
+			return
+		}
+		currentUser := userFromContext(r)
+		if currentUser == nil {
+			http.Error(w, "No autorizado", http.StatusForbidden)
+			return
+		}
+		visibilitySQL, args := productVisibilityPredicate("p", currentUser)
+		locationKey := `CASE
+			WHEN LOWER(TRIM(COALESCE(u.location, ''))) IN ('sin ubicación', 'sin ubicacion') THEN ''
+			ELSE LOWER(TRIM(COALESCE(u.location, '')))
+		END`
+		rows, err := db.Query(`
+			SELECT
+				COALESCE(NULLIF(p.id, ''), p.sku),
+				COALESCE(p.nombre, ''),
+				COALESCE(p.linea, ''),
+				CASE
+					WHEN `+locationKey+` = '' THEN ''
+					ELSE COALESCE(MIN(NULLIF(TRIM(u.location), '')), '')
+				END,
+				SUM(CASE WHEN u.estado IN ('Disponible', 'available') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Reservada', 'Reservado', 'reserved') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Prestada', 'Prestado', 'loaned') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Cambio', 'swapped') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Danada', 'Dañada', 'Dañado', 'damaged') THEN 1 ELSE 0 END),
+				SUM(CASE WHEN u.estado IN ('Vendida', 'Vendido', 'sold') THEN 1 ELSE 0 END),
+				COUNT(u.id),
+				COALESCE(p.precio_venta, 0)
+			FROM unidades u
+			JOIN productos p ON p.tenant_id = u.tenant_id AND p.sku = u.producto_id
+			WHERE `+visibilitySQL+`
+			GROUP BY p.sku, p.id, p.nombre, p.linea, `+locationKey+`
+			ORDER BY p.nombre, p.id, p.sku, `+locationKey+`
+		`, args...)
+		if err != nil {
+			http.Error(w, "No se pudo consultar el inventario por ubicación.", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		csvRows := [][]string{{"product_id", "nombre", "linea", "locacion", "disponibles", "reservadas", "prestadas", "en_cambio", "danadas", "vendidas", "total_unidades", "precio_venta"}}
+		for rows.Next() {
+			var productID, name, line, location string
+			var available, reserved, loaned, swapped, damaged, sold, total int
+			var salePrice float64
+			if err := rows.Scan(&productID, &name, &line, &location, &available, &reserved, &loaned, &swapped, &damaged, &sold, &total, &salePrice); err != nil {
+				http.Error(w, "No se pudo leer el inventario por ubicación.", http.StatusInternalServerError)
+				return
+			}
+			csvRows = append(csvRows, []string{
+				productID,
+				name,
+				line,
+				csvLocationLabel(location),
+				strconv.Itoa(available),
+				strconv.Itoa(reserved),
+				strconv.Itoa(loaned),
+				strconv.Itoa(swapped),
+				strconv.Itoa(damaged),
+				strconv.Itoa(sold),
+				strconv.Itoa(total),
+				fmt.Sprintf("%.2f", salePrice),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, "No se pudo procesar el inventario por ubicación.", http.StatusInternalServerError)
+			return
+		}
+		writeCSVDownload(w, "inventario_ubicaciones_"+time.Now().In(appTimeLocation).Format("2006-01-02")+".csv", csvRows)
 	}
 }
 
@@ -28268,6 +28355,7 @@ func main() {
 
 	mux.HandleFunc("/csv/inventario", handleCSVInventoryAggregate(db))
 	mux.HandleFunc("/csv/inventario/unidades", handleCSVInventoryUnits(db))
+	mux.HandleFunc("/csv/inventario/ubicaciones", handleCSVInventoryByLocation(db))
 	mux.HandleFunc("/csv/cambios", handleCSVChanges(db))
 	mux.HandleFunc("/productos/ubicaciones/csv", adminOnly(handleProductLocationCSVImport(db, func(response *productLocationCSVResponse) {
 		if response == nil {

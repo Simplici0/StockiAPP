@@ -610,6 +610,29 @@ func TestCSVExportsRespectTenantAndOwnership(t *testing.T) {
 		t.Fatalf("seed export units: %v", err)
 	}
 	if _, err := db.Exec(`
+		UPDATE unidades
+		SET location = CASE id
+			WHEN 'CSV-U-T1' THEN 'Tenant Uno'
+			WHEN 'CSV-U-PUBLIC' THEN 'Bodega Centro'
+			WHEN 'CSV-U-OWN' THEN ''
+			WHEN 'CSV-U-HIDDEN' THEN 'Privada'
+			ELSE location
+		END
+	`); err != nil {
+		t.Fatalf("assign export unit locations: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location)
+		VALUES
+			('CSV-U-PUBLIC-RES', 2, 'CSV-T2-PUBLIC', 'Reservada', '2026-07-04T10:00:00Z', NULL, ' bodega centro '),
+			('CSV-U-PUBLIC-LOAN', 2, 'CSV-T2-PUBLIC', 'Prestada', '2026-07-05T10:00:00Z', NULL, 'BODEGA CENTRO'),
+			('CSV-U-PUBLIC-SWAP', 2, 'CSV-T2-PUBLIC', 'Cambio', '2026-07-06T10:00:00Z', NULL, 'Bodega Centro'),
+			('CSV-U-PUBLIC-DAMAGE', 2, 'CSV-T2-PUBLIC', 'Dañada', '2026-07-07T10:00:00Z', NULL, 'bodega centro'),
+			('CSV-U-PUBLIC-SOLD', 2, 'CSV-T2-PUBLIC', 'Vendida', '2026-07-08T10:00:00Z', NULL, ' BODEGA CENTRO ')
+	`); err != nil {
+		t.Fatalf("seed export location units: %v", err)
+	}
+	if _, err := db.Exec(`
 		INSERT INTO ventas (tenant_id, producto_id, cantidad, precio_final, metodo_pago, notas, fecha)
 		VALUES
 			(1, 'CSV-T1', 1, 1000, 'Efectivo', '', '2026-07-10T10:00:00Z'),
@@ -659,6 +682,58 @@ func TestCSVExportsRespectTenantAndOwnership(t *testing.T) {
 	_, unitRows := performCSVRequest(t, handleCSVInventoryUnits(db), "/csv/inventario/unidades", employee)
 	assertContains(unitRows, "CSV-U-PUBLIC", "CSV-U-OWN")
 	assertEmployeeHidden(unitRows)
+	if got := strings.Join(unitRows[0], "|"); got != "product_id|nombre|linea|locacion|unidad_id|estado|fecha_ingreso|caducidad|locacion_unidad" {
+		t.Fatalf("unexpected unit CSV header: %q", got)
+	}
+	findRow := func(rows [][]string, column int, value string) []string {
+		t.Helper()
+		for _, row := range rows[1:] {
+			if len(row) > column && row[column] == value {
+				return row
+			}
+		}
+		return nil
+	}
+	publicUnitRow := findRow(unitRows, 4, "CSV-U-PUBLIC")
+	if publicUnitRow == nil || !strings.EqualFold(publicUnitRow[8], "Bodega Centro") {
+		t.Fatalf("expected physical unit location in CSV, got %v", publicUnitRow)
+	}
+	ownUnitRow := findRow(unitRows, 4, "CSV-U-OWN")
+	if ownUnitRow == nil || ownUnitRow[8] != "Sin ubicación" {
+		t.Fatalf("expected empty physical location label in CSV, got %v", ownUnitRow)
+	}
+
+	locationResponse, locationRows := performCSVRequest(t, handleCSVInventoryByLocation(db), "/csv/inventario/ubicaciones", employee)
+	if disposition := locationResponse.Header().Get("Content-Disposition"); !strings.Contains(disposition, "inventario_ubicaciones_") {
+		t.Fatalf("unexpected location CSV disposition: %q", disposition)
+	}
+	if got := strings.Join(locationRows[0], "|"); got != "product_id|nombre|linea|locacion|disponibles|reservadas|prestadas|en_cambio|danadas|vendidas|total_unidades|precio_venta" {
+		t.Fatalf("unexpected location CSV header: %q", got)
+	}
+	publicLocationRow := findRow(locationRows, 0, "CSV-T2-PUBLIC")
+	if publicLocationRow == nil {
+		t.Fatalf("expected public product location row, got %v", locationRows)
+	}
+	if !strings.EqualFold(publicLocationRow[3], "Bodega Centro") {
+		t.Fatalf("expected normalized location label, got %q", publicLocationRow[3])
+	}
+	for index, expected := range map[int]string{4: "1", 5: "1", 6: "1", 7: "1", 8: "1", 9: "1", 10: "6"} {
+		if publicLocationRow[index] != expected {
+			t.Fatalf("unexpected public location count at column %d: got %q want %q; row=%v", index, publicLocationRow[index], expected, publicLocationRow)
+		}
+	}
+	if publicLocationRow[11] != "2000.00" {
+		t.Fatalf("expected public sale price in location CSV, got %q", publicLocationRow[11])
+	}
+	ownedLocationRow := findRow(locationRows, 0, "CSV-T2-OWN")
+	if ownedLocationRow == nil || ownedLocationRow[3] != "Sin ubicación" {
+		t.Fatalf("expected unassigned owned location row, got %v", ownedLocationRow)
+	}
+	if strings.Contains(fmt.Sprint(locationRows), "CSV-T2-HIDDEN") || strings.Contains(fmt.Sprint(locationRows), "CSV-T1") {
+		t.Fatalf("location CSV exposed a hidden product or another tenant: %v", locationRows)
+	}
+	_, adminLocationRows := performCSVRequest(t, handleCSVInventoryByLocation(db), "/csv/inventario/ubicaciones", admin)
+	assertContains(adminLocationRows, "CSV-T2-PUBLIC", "CSV-T2-OWN", "CSV-T2-HIDDEN", "Privada")
 
 	dateRange := "?start_date=2026-07-01&end_date=2026-07-31"
 	_, salesRows := performCSVRequest(t, handleCSVSales(db), "/csv/ventas"+dateRange, employee)

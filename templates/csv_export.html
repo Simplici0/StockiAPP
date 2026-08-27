@@ -7,62 +7,25 @@
         <style>
             .export-page {
                 display: grid;
-                gap: 24px;
+                gap: 32px;
             }
 
-            .export-heading {
-                display: grid;
-                gap: 8px;
+            .export-page > .page-heading {
+                margin-bottom: 0;
             }
 
-            .export-heading h1,
-            .export-heading p,
-            .export-card h2,
-            .export-card p,
-            .export-range h2,
-            .export-range p {
+            .export-card h3,
+            .export-card p {
                 margin: 0;
             }
 
-            .export-heading h1 {
-                color: var(--text);
-                font-size: clamp(1.5rem, 3vw, 2rem);
-                letter-spacing: -0.03em;
-            }
-
-            .export-heading p,
-            .export-card p,
-            .export-range p {
-                color: var(--text-muted);
-                line-height: 1.55;
-            }
-
-            .export-context {
-                display: flex;
-                align-items: flex-start;
-                gap: 12px;
-                padding: 16px;
-                border: 1px solid var(--border-strong);
-                border-radius: 8px;
-                background: var(--surface-2);
-            }
-
-            .export-context-mark {
+            .export-section-group {
                 display: grid;
-                flex: 0 0 32px;
-                width: 32px;
-                height: 32px;
-                place-items: center;
-                border-radius: 8px;
-                background: var(--primary-soft);
-                color: var(--primary);
-                font-weight: 800;
+                gap: 16px;
             }
 
-            .export-context strong {
-                display: block;
-                margin-bottom: 4px;
-                color: var(--text);
+            .export-section-group .section-hd {
+                margin-bottom: 0;
             }
 
             .export-range {
@@ -75,10 +38,28 @@
                 box-shadow: var(--shadow-xs);
             }
 
-            .export-range h2,
-            .export-card h2 {
-                color: var(--text);
+            .export-range fieldset {
+                display: grid;
+                gap: 16px;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }
+
+            .export-range legend {
+                color: var(--secondary);
                 font-size: 1rem;
+                font-weight: 600;
+                letter-spacing: -0.025em;
+                margin-bottom: 4px;
+                padding: 0;
+            }
+
+            .export-range-note {
+                margin: 0;
+                color: var(--text-muted);
+                line-height: 1.55;
+                font-weight: 500;
             }
 
             .export-range-fields {
@@ -92,20 +73,22 @@
                 gap: 8px;
             }
 
-            .export-field label,
-            .export-card-kicker {
-                color: var(--text-muted);
-                font-size: 0.72rem;
-                font-weight: 800;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
+            .export-field label {
+                display: block;
+                margin-bottom: 0;
             }
 
             .export-field input {
                 min-height: 44px;
             }
 
-            .export-grid {
+            .export-grid-3 {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 16px;
+            }
+
+            .export-grid-2 {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 16px;
@@ -113,9 +96,8 @@
 
             .export-card {
                 display: grid;
-                min-height: 224px;
+                grid-template-rows: minmax(0, 1fr) auto;
                 gap: 16px;
-                align-content: space-between;
                 padding: 24px;
                 border: 1px solid var(--border-strong);
                 border-radius: 8px;
@@ -128,9 +110,17 @@
                 gap: 8px;
             }
 
-            .export-card-meta {
-                color: var(--text-soft);
-                font-size: 0.8rem;
+            .export-card h3 {
+                color: var(--text);
+                font-size: 1rem;
+                font-weight: 600;
+                letter-spacing: -0.025em;
+                text-transform: none;
+            }
+
+            .export-card p {
+                color: var(--text-muted);
+                line-height: 1.55;
             }
 
             .export-card .button {
@@ -138,8 +128,27 @@
                 min-height: 44px;
             }
 
+            .export-range-status {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            @media (max-width: 1024px) {
+                .export-grid-3 {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+
             @media (max-width: 720px) {
-                .export-grid,
+                .export-grid-3,
+                .export-grid-2,
                 .export-range-fields {
                     grid-template-columns: 1fr;
                 }
@@ -149,9 +158,6 @@
                     padding: 16px;
                 }
 
-                .export-card {
-                    min-height: 0;
-                }
             }
         </style>
         {{template "app_styles" .}}
@@ -160,77 +166,86 @@
         {{template "header" .}}
         <main class="page-content">
             <div class="export-page">
-                <header class="export-heading">
-                    <h1>Exportar datos</h1>
-                    <p>Descarga archivos CSV listos para análisis o respaldo operativo.</p>
+                <header class="page-heading">
+                    <div class="page-heading-copy">
+                        <h1>Exportar datos</h1>
+                        <p>Descarga archivos CSV listos para análisis o respaldo operativo.</p>
+                    </div>
                 </header>
 
-                <section class="export-context" aria-label="Alcance de exportación">
-                    <span class="export-context-mark" aria-hidden="true">T</span>
-                    <div>
-                        <strong>Datos del tenant actual</strong>
-                        <p>Los archivos incluyen únicamente la información que tu usuario puede consultar. No necesitas enviar un tenant manualmente.</p>
+                <section class="export-section-group" aria-labelledby="inventory-section-title">
+                    <div class="section-hd">
+                        <h2 id="inventory-section-title" class="section-title">Estado actual del inventario</h2>
+                    </div>
+                    <div class="export-grid-3">
+                        <article class="export-card">
+                            <div class="export-card-copy">
+                                <h3>Inventario agregado</h3>
+                                <p>Una fila por producto con su ubicación predeterminada y cantidades desglosadas por estado.</p>
+                            </div>
+                            <a class="button secondary" href="/csv/inventario">Descargar agregado</a>
+                        </article>
+
+                        <article class="export-card">
+                            <div class="export-card-copy">
+                                <h3>Inventario por unidades</h3>
+                                <p>Una fila por unidad con estado, fechas de ingreso y caducidad, y ubicación física actual.</p>
+                            </div>
+                            <a class="button secondary" href="/csv/inventario/unidades">Descargar unidades</a>
+                        </article>
+
+                        <article class="export-card">
+                            <div class="export-card-copy">
+                                <h3>Inventario por ubicación</h3>
+                                <p>Una fila por producto en cada ubicación física real, con cantidades por estado y precio de venta.</p>
+                            </div>
+                            <a class="button secondary" href="/csv/inventario/ubicaciones">Descargar por ubicación</a>
+                        </article>
                     </div>
                 </section>
 
-                <section class="export-range">
-                    <div>
-                        <h2>Rango para movimientos</h2>
-                        <p>Este período se aplica a ventas y cambios. El inventario siempre refleja el estado actual.</p>
+                <section class="export-section-group" aria-labelledby="movements-section-title">
+                    <div class="section-hd">
+                        <h2 id="movements-section-title" class="section-title">Movimientos del período</h2>
                     </div>
-                    <div class="export-range-fields">
-                        <div class="export-field">
-                            <label for="range-start">Fecha inicial</label>
-                            <input id="range-start" type="date" required />
-                        </div>
-                        <div class="export-field">
-                            <label for="range-end">Fecha final</label>
-                            <input id="range-end" type="date" required />
-                        </div>
+
+                    <div class="export-range">
+                        <fieldset>
+                            <legend>Rango de fechas</legend>
+                            <p class="export-range-note">Este período se aplica a ventas y cambios. El inventario siempre refleja el estado actual.</p>
+                            <div class="export-range-fields">
+                                <div class="export-field">
+                                    <label for="range-start">Fecha inicial</label>
+                                    <input id="range-start" type="date" />
+                                </div>
+                                <div class="export-field">
+                                    <label for="range-end">Fecha final</label>
+                                    <input id="range-end" type="date" />
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+
+                    <div class="export-grid-2">
+                        <article class="export-card">
+                            <div class="export-card-copy">
+                                <h3>Ventas</h3>
+                                <p>Ventas registradas durante el período seleccionado, con producto, cantidad y pago.</p>
+                            </div>
+                            <a class="button secondary" id="export-sales" href="/csv/ventas">Descargar ventas</a>
+                        </article>
+
+                        <article class="export-card">
+                            <div class="export-card-copy">
+                                <h3>Cambios</h3>
+                                <p>Cambios auditados durante el período con productos y cantidades entrantes y salientes.</p>
+                            </div>
+                            <a class="button secondary" id="export-changes" href="/csv/cambios">Descargar cambios</a>
+                        </article>
                     </div>
                 </section>
 
-                <section class="export-grid" aria-label="Reportes disponibles">
-                    <article class="export-card">
-                        <div class="export-card-copy">
-                            <span class="export-card-kicker">Estado actual</span>
-                            <h2>Inventario agregado</h2>
-                            <p>Una fila por producto con locación y cantidades por estado.</p>
-                            <span class="export-card-meta">No requiere rango de fechas</span>
-                        </div>
-                        <a class="button primary" href="/csv/inventario">Descargar inventario</a>
-                    </article>
-
-                    <article class="export-card">
-                        <div class="export-card-copy">
-                            <span class="export-card-kicker">Detalle actual</span>
-                            <h2>Inventario por unidades</h2>
-                            <p>Una fila por unidad con producto, estado, ingreso y caducidad.</p>
-                            <span class="export-card-meta">No requiere rango de fechas</span>
-                        </div>
-                        <a class="button secondary" href="/csv/inventario/unidades">Descargar unidades</a>
-                    </article>
-
-                    <article class="export-card">
-                        <div class="export-card-copy">
-                            <span class="export-card-kicker">Histórico</span>
-                            <h2>Ventas</h2>
-                            <p>Ventas registradas durante el período seleccionado, con producto, cantidad y pago.</p>
-                            <span class="export-card-meta">Usa el rango configurado</span>
-                        </div>
-                        <a class="button secondary" id="export-sales" href="/csv/ventas">Descargar ventas</a>
-                    </article>
-
-                    <article class="export-card">
-                        <div class="export-card-copy">
-                            <span class="export-card-kicker">Trazabilidad</span>
-                            <h2>Cambios</h2>
-                            <p>Cambios auditados durante el período con productos y cantidades entrantes y salientes.</p>
-                            <span class="export-card-meta">Usa el rango configurado</span>
-                        </div>
-                        <a class="button secondary" id="export-changes" href="/csv/cambios">Descargar cambios</a>
-                    </article>
-                </section>
+                <div class="export-range-status" aria-live="polite" role="status" id="range-update-status"></div>
             </div>
         </main>
         <script>
@@ -239,6 +254,7 @@
                 const endInput = document.getElementById("range-end");
                 const salesLink = document.getElementById("export-sales");
                 const changesLink = document.getElementById("export-changes");
+                const statusEl = document.getElementById("range-update-status");
 
                 const formatDate = (date) => {
                     const year = date.getFullYear();
@@ -254,6 +270,9 @@
                     });
                     salesLink.href = `/csv/ventas?${params.toString()}`;
                     changesLink.href = `/csv/cambios?${params.toString()}`;
+                    if (statusEl) {
+                        statusEl.textContent = "Rango actualizado: " + startInput.value + " a " + endInput.value;
+                    }
                 };
 
                 const today = new Date();
