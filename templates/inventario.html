@@ -373,6 +373,31 @@
                 gap: 0;
             }
 
+            .inventory-pagination {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 16px;
+                padding: 16px 8px 0;
+            }
+
+            .inventory-pagination[hidden] {
+                display: none;
+            }
+
+            .inventory-pagination button {
+                min-width: 112px;
+                min-height: 44px;
+            }
+
+            .inventory-pagination-status {
+                min-width: 120px;
+                color: var(--text-muted);
+                font-size: 13px;
+                font-weight: 700;
+                text-align: center;
+            }
+
             .table-wrap {
                 margin: 0;
                 overflow: visible;
@@ -2197,6 +2222,20 @@
                         </table>
                     </div>
                 </div>
+                <nav
+                    id="inventory-pagination"
+                    class="inventory-pagination"
+                    aria-label="Paginación de inventario"
+                    hidden
+                >
+                    <button id="inventory-page-prev" class="button secondary" type="button">
+                        Anterior
+                    </button>
+                    <span id="inventory-pagination-status" class="inventory-pagination-status" aria-live="polite"></span>
+                    <button id="inventory-page-next" class="button secondary" type="button">
+                        Siguiente
+                    </button>
+                </nav>
             </main>
 
             <div id="history-modal" class="modal-backdrop history-drawer" aria-hidden="true">
@@ -4407,22 +4446,18 @@
                 retomaPrice: {{if .HasRetomaPrice}}{{printf "%.0f" .RetomaPrice}}{{else}}0{{end}},
                 hasOwner: {{if .HasOwner}}true{{else}}false{{end}},
                 ownerUserId: {{if .HasOwner}}{{.OwnerUserID}}{{else}}0{{end}},
-                statusClass: "{{js .EstadoClass}}",
-                statusLabel: "{{js .EstadoLabel}}",
-                available: {{.Disponible}},
-                units: [
-                  {{- range .Unidades }}
-                  {
-                    id: "{{js .ID}}",
-                    created: "{{js .CreadoEn}}",
-                    expires: "{{js .Caducidad}}",
-                    statusClass: "{{js .EstadoClass}}",
-                    statusLabel: "{{js .Estado}}",
-                    fifo: "{{js .FIFO}}"
-                  },
-                  {{- end }}
-                ]
-              },
+                 statusClass: "{{js .EstadoClass}}",
+                 statusLabel: "{{js .EstadoLabel}}",
+                 available: {{.Disponible}},
+                 totalUnits: {{.TotalUnits}},
+                 loanedUnits: {{.LoanedUnits}},
+                 reservedUnits: {{.ReservedUnits}},
+                 changedUnits: {{.ChangedUnits}},
+                 damagedUnits: {{.DamagedUnits}},
+                 soldUnits: {{.SoldUnits}},
+                 expiringSoon: {{if .ExpiringSoon}}true{{else}}false{{end}},
+                 units: []
+               },
               {{- end }}
             ];
             const editableLines = [
@@ -4457,9 +4492,13 @@
             const inventoryFilterPanel = document.getElementById("inventory-filter-panel");
             const inventoryFilterClear = document.getElementById("inventory-filter-clear");
             const inventoryActiveFilters = document.getElementById("inventory-active-filters");
-            const inventoryFilterCount = document.getElementById("inventory-filter-count");
-            const productTable = document.getElementById("productTable");
-            const summary = document.getElementById("summary");
+             const inventoryFilterCount = document.getElementById("inventory-filter-count");
+             const productTable = document.getElementById("productTable");
+             const inventoryPagination = document.getElementById("inventory-pagination");
+             const inventoryPagePrev = document.getElementById("inventory-page-prev");
+             const inventoryPageNext = document.getElementById("inventory-page-next");
+             const inventoryPaginationStatus = document.getElementById("inventory-pagination-status");
+             const summary = document.getElementById("summary");
             const downloadTemplateButton = document.getElementById("download-template");
             const uploadInput = document.getElementById("csv-upload");
             const processButton = document.getElementById("process-csv");
@@ -4470,8 +4509,10 @@
             const rangeEnd = document.getElementById("range-end");
             const exportInventoryAggregateButton = document.getElementById("export-inventory-aggregate");
             const exportInventoryUnitsButton = document.getElementById("export-inventory-units");
-            const exportSalesButton = document.getElementById("export-sales");
-            const exportChangesButton = document.getElementById("export-changes");
+             const exportSalesButton = document.getElementById("export-sales");
+             const exportChangesButton = document.getElementById("export-changes");
+             const inventoryPageSize = 50;
+             let inventoryPage = 1;
 
             const normalizeLine = (value) => {
               const line = String(value || "").trim();
@@ -4632,11 +4673,11 @@
                 console.warn("Resumen no disponible: falta el contenedor #summary.");
                 return;
               }
-              const totalProducts = visibleProducts.length;
-              const totalUnits = visibleProducts.reduce((acc, product) => acc + product.available, 0);
-              const expiringProducts = visibleProducts.filter(
-                (product) => product.ageAlert || product.units.some((unit) => isExpiringSoon(unit.expires))
-              ).length;
+               const totalProducts = visibleProducts.length;
+               const totalUnits = visibleProducts.reduce((acc, product) => acc + product.available, 0);
+               const expiringProducts = visibleProducts.filter(
+                 (product) => product.ageAlert || product.expiringSoon || product.units.some((unit) => isExpiringSoon(unit.expires))
+               ).length;
 
               const productsCard = document.createElement("div");
               productsCard.className = "summary-card";
@@ -4670,7 +4711,7 @@
               return diffDays >= 0 && diffDays <= 45;
             };
 
-            const productMatchesStatusFilter = (product, statusValue) => {
+             const productMatchesStatusFilter = (product, statusValue) => {
               if (statusValue === "all") return true;
               if (!product || typeof product !== "object") return false;
 
@@ -4678,33 +4719,18 @@
                 product.statusClass || "",
               ).toLowerCase();
 
-              if (productStatusClass === statusValue) {
-                return true;
-              }
-
-              if (!Array.isArray(product.units) || product.units.length === 0) {
-                return false;
-              }
-
-              return product.units.some((unit) => {
-                const unitClassValue = String(
-                  unit?.statusClass || "",
-                ).toLowerCase();
-                switch (statusValue) {
-                  case "damaged":
-                    return unitClassValue === "damaged";
-                  case "loaned":
-                    return unitClassValue === "loaned";
-                  case "reserved":
-                    return unitClassValue === "reserved";
-                  case "swapped":
-                    return unitClassValue === "swapped";
-                  case "sold":
-                    return unitClassValue === "sold";
-                  default:
-                    return false;
-                }
-              });
+               if (productStatusClass === statusValue) {
+                 return true;
+               }
+               const statusCounts = {
+                 available: Number(product.available || 0),
+                 loaned: Number(product.loanedUnits || 0),
+                 reserved: Number(product.reservedUnits || 0),
+                 swapped: Number(product.changedUnits || 0),
+                 damaged: Number(product.damagedUnits || 0),
+                 sold: Number(product.soldUnits || 0),
+               };
+               return Number(statusCounts[statusValue] || 0) > 0;
             };
 
             const getFilteredProducts = () => {
@@ -4724,10 +4750,11 @@
                 const matchesLine = lineValue === "all" || normalizeLine(product.line) === lineValue;
                 const matchesLocation =
                   locationValue === "all" || normalizeLocation(product.location) === locationValue;
-                const matchesExpiry =
-                  !expiryOnly ||
-                  product.ageAlert ||
-                  product.units.some((unit) => isExpiringSoon(unit.expires));
+                 const matchesExpiry =
+                   !expiryOnly ||
+                   product.ageAlert ||
+                   product.expiringSoon ||
+                   product.units.some((unit) => isExpiringSoon(unit.expires));
 
                 return matchesStatus && matchesLine && matchesLocation && matchesSearch && matchesExpiry;
               });
@@ -4735,13 +4762,34 @@
               return filtered;
             };
 
-            const applyFilters = () => {
-              const filtered = getFilteredProducts();
-              renderTable(filtered);
-              updateSummary(filtered);
-              renderActiveInventoryFilters();
-              return filtered;
-            };
+             const renderInventoryPagination = (totalItems) => {
+               const totalPages = Math.max(1, Math.ceil(totalItems / inventoryPageSize));
+               inventoryPage = Math.min(Math.max(1, inventoryPage), totalPages);
+               const hasPagination = totalItems > inventoryPageSize;
+               if (inventoryPagination) inventoryPagination.hidden = !hasPagination;
+               if (inventoryPaginationStatus) {
+                 inventoryPaginationStatus.textContent = hasPagination
+                   ? `Página ${inventoryPage} de ${totalPages}`
+                   : "";
+               }
+               if (inventoryPagePrev) inventoryPagePrev.disabled = inventoryPage <= 1;
+               if (inventoryPageNext) inventoryPageNext.disabled = inventoryPage >= totalPages;
+               return totalPages;
+             };
+
+             const applyFilters = (resetPage = false) => {
+               if (resetPage) inventoryPage = 1;
+               const filtered = getFilteredProducts();
+               const totalPages = renderInventoryPagination(filtered.length);
+               const start = (inventoryPage - 1) * inventoryPageSize;
+               renderTable(filtered.slice(start, start + inventoryPageSize));
+               updateSummary(filtered);
+               renderActiveInventoryFilters();
+               if (inventoryPaginationStatus && filtered.length > 0 && totalPages > 1) {
+                 inventoryPaginationStatus.textContent = `Página ${inventoryPage} de ${totalPages} · ${filtered.length} resultados`;
+               }
+               return filtered;
+             };
 
             const renderActiveInventoryFilters = () => {
               if (!inventoryActiveFilters) return;
@@ -4753,10 +4801,10 @@
                 chip.className = "filter-chip";
                 chip.textContent = label;
                 chip.setAttribute("aria-label", `Quitar ${label}`);
-                chip.addEventListener("click", () => {
-                  clear();
-                  applyFilters();
-                });
+                 chip.addEventListener("click", () => {
+                   clear();
+                   applyFilters(true);
+                 });
                 inventoryActiveFilters.appendChild(chip);
                 active.push(label);
               };
@@ -4795,11 +4843,11 @@
             const clearInventoryFilters = () => {
               if (statusFilter) statusFilter.value = "all";
               if (lineFilter) lineFilter.value = "all";
-              if (locationFilter) locationFilter.value = "all";
-              if (searchFilter) searchFilter.value = "";
-              if (expiryToggle) expiryToggle.checked = false;
-              applyFilters();
-            };
+               if (locationFilter) locationFilter.value = "all";
+               if (searchFilter) searchFilter.value = "";
+               if (expiryToggle) expiryToggle.checked = false;
+               applyFilters(true);
+             };
 
             const setInventoryFilterPanelOpen = (open, restoreFocus = false) => {
               if (!inventoryFilterPanel || !inventoryFilterToggle) return;
@@ -4867,7 +4915,7 @@
               return updatedProduct;
             };
 
-            const addProductInMemory = (productUpdate, afterId = "") => {
+             const addProductInMemory = (productUpdate, afterId = "") => {
               if (!productUpdate?.id) return null;
               const updatedProduct = {
                 ...productUpdate,
@@ -4879,19 +4927,138 @@
               const insertAt = sourceIndex >= 0 ? sourceIndex + 1 : products.length;
               products.splice(insertAt, 0, updatedProduct);
               productsById.set(String(updatedProduct.id), updatedProduct);
-              return updatedProduct;
-            };
+               return updatedProduct;
+             };
 
-            const toggleUnitsRow = (productId, trigger = null) => {
-              const panelRow = document.getElementById(`units-row-${productId}`);
-              if (!panelRow) return;
-              const isOpen = !panelRow.hidden;
-              panelRow.hidden = isOpen;
-              panelRow.style.display = isOpen ? "none" : "table-row";
-              if (trigger) {
-                trigger.setAttribute("aria-expanded", isOpen ? "false" : "true");
-              }
-            };
+             const renderLoadedInventoryUnits = (product, panelRow) => {
+               const panel = panelRow?.querySelector(".units-panel");
+               if (!panel) return;
+               const units = Array.isArray(product?.units) ? product.units : [];
+               const productIngreso = esc(product?.ingreso || "-");
+               const productLocation = esc(product?.location || "-");
+               const productDebtorName = esc(product?.debtorName || "Sin definir");
+               const productDebtorDocumentNumber = esc(product?.debtorDocumentNumber || "Sin registro");
+               const productDebtorPhone = esc(product?.debtorPhone || "Sin registro");
+               const productCustomerCity = esc(product?.customerCity || "Sin registro");
+               const productManagedByName = esc(product?.managedByName || "Sin registro");
+               const productNotes = esc(product?.notes || "Sin notas");
+               const unitsEmpty = `<div class="modal-empty">No hay unidades asociadas.</div>`;
+
+               if (product?.entryType === "loan") {
+                 panel.innerHTML = `
+                   <div class="units-header">
+                     <h4>Unidades prestadas</h4>
+                     <span class="fifo-note">Seguimiento operativo del préstamo</span>
+                   </div>
+                   <div class="credit-meta" style="margin-bottom: 12px;">
+                     <span class="credit-meta-item"><strong>Cliente:</strong><span>${productDebtorName}</span></span>
+                     <span class="credit-meta-item"><strong>Documento:</strong><span>${productDebtorDocumentNumber}</span></span>
+                     <span class="credit-meta-item"><strong>Teléfono:</strong><span>${productDebtorPhone}</span></span>
+                     <span class="credit-meta-item"><strong>Ciudad:</strong><span>${productCustomerCity}</span></span>
+                     <span class="credit-meta-item"><strong>Gestionado por:</strong><span>${productManagedByName}</span></span>
+                     <span class="credit-meta-item"><strong>Prestado desde:</strong><span>${productIngreso}</span></span>
+                     <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${esc(formatOptionalDate(product?.dueAt))}</span></span>
+                     <span class="credit-meta-item"><strong>Observaciones:</strong><span>${productNotes}</span></span>
+                   </div>
+                   ${units.length ? `<ul class="units-list" aria-label="Unidades prestadas">
+                     ${units.map((unit) => `
+                       <li class="unit-card">
+                         <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Prestado desde</span><span class="unit-field-value">${productIngreso}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Retorno esperado</span><span class="unit-field-value">${esc(formatOptionalDate(product?.dueAt))}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Gestionado por</span><span class="unit-field-value">${productManagedByName}</span></span>
+                       </li>
+                     `).join("")}
+                   </ul>` : unitsEmpty}
+                 `;
+                 return;
+               }
+
+               panel.innerHTML = `
+                 <div class="units-header">
+                   <h4>Unidades</h4>
+                   <span class="fifo-note">Selección FIFO</span>
+                 </div>
+                 ${units.length ? `<ul class="units-list" aria-label="Unidades del producto">
+                   ${units.map((unit, index) => {
+                     const fifoOrder = unit.fifo || (unit.statusClass === "available" ? index + 1 : "-");
+                     return `
+                       <li class="unit-card">
+                         <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Ingreso</span><span class="unit-field-value">${esc(formatOptionalDate(unit.created))}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Caduca</span><span class="unit-field-value">${esc(formatOptionalDate(unit.expires))}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Ubicación</span><span class="unit-field-value">${productLocation}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
+                         <span class="unit-field"><span class="unit-field-label">FIFO</span><span class="unit-field-value"><span class="unit-tag">${esc(fifoOrder)}</span></span></span>
+                       </li>
+                     `;
+                   }).join("")}
+                 </ul>` : unitsEmpty}
+               `;
+             };
+
+             const loadInventoryUnits = async (product, panelRow) => {
+               if (!product || product.entryType === "credit") return;
+               if (product.unitsLoaded) {
+                 renderLoadedInventoryUnits(product, panelRow);
+                 return;
+               }
+               if (product.unitsLoading) return;
+               product.unitsLoading = true;
+               const state = panelRow?.querySelector("[data-units-state]");
+               if (state) {
+                 state.className = "modal-loading";
+                 state.textContent = "Cargando unidades...";
+               }
+
+               try {
+                 const params = new URLSearchParams({
+                   producto_id: product.entryType === "loan" ? product.baseProductId : product.id,
+                 });
+                 if (product.entryType === "loan" && product.productLoanId) {
+                   params.set("product_loan_id", String(product.productLoanId));
+                 }
+                 const response = await fetch(`/inventario/producto/unidades?${params.toString()}`, {
+                   headers: { Accept: "application/json" },
+                   credentials: "same-origin",
+                 });
+                 const data = await response.json().catch(() => ({}));
+                 if (!response.ok || !data.ok || !Array.isArray(data.units)) {
+                   throw new Error(data.error || "No se pudieron cargar las unidades.");
+                 }
+                 product.units = data.units;
+                 product.unitsLoaded = true;
+                 product.totalUnits = product.units.length;
+                 if (product.entryType === "loan") {
+                   product.loanedUnits = product.units.length;
+                 } else {
+                   refreshProductStatus(product);
+                 }
+                 renderLoadedInventoryUnits(product, panelRow);
+               } catch (error) {
+                 if (state) {
+                   state.className = "modal-empty";
+                   state.textContent = error?.message || "No se pudieron cargar las unidades.";
+                 }
+               } finally {
+                 product.unitsLoading = false;
+               }
+             };
+
+             const toggleUnitsRow = (productId, trigger = null) => {
+               const panelRow = document.getElementById(`units-row-${productId}`);
+               if (!panelRow) return;
+               const isOpen = !panelRow.hidden;
+               panelRow.hidden = isOpen;
+               panelRow.style.display = isOpen ? "none" : "table-row";
+               if (trigger) {
+                 trigger.setAttribute("aria-expanded", isOpen ? "false" : "true");
+               }
+               if (!isOpen) {
+                 loadInventoryUnits(productsById.get(String(productId)), panelRow);
+               }
+             };
 
             const inventoryFiltersActive = () =>
               Boolean(
@@ -4948,13 +5115,15 @@
               if (!productTable) {
                 console.warn("Tabla de productos no disponible: falta #productTable.");
                 return;
-              }
-              productTable.innerHTML = "";
+               }
+               productTable.innerHTML = "";
 
-              if (!items.length) {
-                renderInventoryEmptyState();
-                return;
-              }
+               if (!items.length) {
+                 renderInventoryEmptyState();
+                 return;
+               }
+
+               const fragment = document.createDocumentFragment();
 
               items.forEach((product) => {
                 const productId = esc(product.id);
@@ -5047,7 +5216,7 @@
                         : isPhysicalLoan
                           ? `<div class="value-line sale">
                               <span class="value-label">Cantidad prestada</span>
-                              <span class="value-amount">${esc(product.units.length || 0)}</span>
+                              <span class="value-amount">${esc(product.totalUnits || 0)}</span>
                             </div>
                             <div class="value-line sale">
                               <span class="value-label">Retorno</span>
@@ -5070,7 +5239,7 @@
                   </td>
                   <td data-label="Estado"><span class="status ${esc(visibleStatusClass)}">${esc(visibleStatusLabel)}</span></td>
                   <td data-label="Stock">
-                    <strong class="stock-indicator ${availableUnits > 0 ? "" : "empty"}">${esc(isPhysicalLoan ? product.units.length : availableUnits)}</strong>
+                    <strong class="stock-indicator ${isPhysicalLoan ? (product.totalUnits > 0 ? "" : "empty") : (availableUnits > 0 ? "" : "empty")}">${esc(isPhysicalLoan ? (product.totalUnits || 0) : availableUnits)}</strong>
                     ${isPhysicalLoan ? `<div class="fifo-note">Prestadas</div>` : ``}
                   </td>
                   <td data-label="Acciones">
@@ -5108,7 +5277,7 @@
                   </td>
                 `;
 
-                productTable.appendChild(row);
+                fragment.appendChild(row);
 
                 const unitsRow = document.createElement("tr");
                 unitsRow.className = "units-row";
@@ -5133,7 +5302,7 @@
                       </div>
                     </td>
                   `;
-                  productTable.appendChild(unitsRow);
+                  fragment.appendChild(unitsRow);
                   return;
                 }
                 if (isPhysicalLoan) {
@@ -5153,71 +5322,60 @@
                         <span class="credit-meta-item"><strong>Retorno esperado:</strong><span>${esc(formatOptionalDate(product.dueAt))}</span></span>
                         <span class="credit-meta-item"><strong>Observaciones:</strong><span>${productNotes}</span></span>
                       </div>
-                      <ul class="units-list" aria-label="Unidades prestadas">
-                          ${product.units
-                            .map((unit) => `
-                              <li class="unit-card">
-                                <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Prestado desde</span><span class="unit-field-value">${productIngreso}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Retorno esperado</span><span class="unit-field-value">${esc(formatOptionalDate(product.dueAt))}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Gestionado por</span><span class="unit-field-value">${productManagedByName}</span></span>
-                              </li>
-                            `)
-                          .join("")}
-                      </ul>
+                       <div class="modal-loading" data-units-state>
+                         Selecciona el préstamo para cargar sus unidades.
+                       </div>
                     </td>
                   `;
-                  productTable.appendChild(unitsRow);
-                  return;
-                }
-                unitsRow.innerHTML = `
-                  <td colspan="7" class="units-panel">
-                    <div class="units-header">
-                      <h4>Unidades</h4>
-                      <span class="fifo-note">Selección FIFO</span>
-                    </div>
-                    <ul class="units-list" aria-label="Unidades del producto">
-                        ${product.units
-                          .map((unit, index) => {
-                            const fifoOrder = unit.fifo || (unit.statusClass === "available" ? index + 1 : "-");
-                            return `
-                              <li class="unit-card">
-                                <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Ingreso</span><span class="unit-field-value">${esc(formatOptionalDate(unit.created))}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Caduca</span><span class="unit-field-value">${esc(formatOptionalDate(unit.expires))}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Ubicación</span><span class="unit-field-value">${productLocation || "-"}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
-                                <span class="unit-field"><span class="unit-field-label">FIFO</span><span class="unit-field-value"><span class="unit-tag">${esc(fifoOrder)}</span></span></span>
-                              </li>
-                            `;
-                        })
-                          .join("")}
-                    </ul>
-                    </td>
-                  `;
+                   fragment.appendChild(unitsRow);
+                   return;
+                 }
+                 unitsRow.innerHTML = `
+                   <td colspan="7" class="units-panel">
+                     <div class="units-header">
+                       <h4>Unidades</h4>
+                       <span class="fifo-note">Selección FIFO</span>
+                     </div>
+                     <div class="modal-loading" data-units-state>
+                       Selecciona el producto para cargar sus unidades.
+                     </div>
+                     </td>
+                   `;
 
-                productTable.appendChild(unitsRow);
-              });
-              window.StockiSaleCart?.refresh?.();
-            };
+                 fragment.appendChild(unitsRow);
+               });
+               productTable.replaceChildren(fragment);
+               window.StockiSaleCart?.refresh?.();
+             };
 
-            populateLineFilter();
-            populateLocationFilter();
-            applyFilters();
-            if (statusFilter && lineFilter && locationFilter && searchFilter && expiryToggle) {
-              [statusFilter, lineFilter, locationFilter, expiryToggle].forEach((input) =>
-                input.addEventListener("change", applyFilters)
-              );
-              let filterInputTimer = null;
-              searchFilter.addEventListener("input", () => {
-                window.clearTimeout(filterInputTimer);
-                filterInputTimer = window.setTimeout(applyFilters, 180);
-              });
-            } else {
-              console.warn("Listeners de filtros no registrados por controles faltantes.");
-            }
-        </script>
+             populateLineFilter();
+             populateLocationFilter();
+             applyFilters(true);
+             if (statusFilter && lineFilter && locationFilter && searchFilter && expiryToggle) {
+               [statusFilter, lineFilter, locationFilter, expiryToggle].forEach((input) =>
+                 input.addEventListener("change", () => applyFilters(true))
+               );
+               let filterInputTimer = null;
+               searchFilter.addEventListener("input", () => {
+                 window.clearTimeout(filterInputTimer);
+                 filterInputTimer = window.setTimeout(() => applyFilters(true), 180);
+               });
+             } else {
+               console.warn("Listeners de filtros no registrados por controles faltantes.");
+             }
+             inventoryPagePrev?.addEventListener("click", () => {
+               if (inventoryPage <= 1) return;
+               inventoryPage -= 1;
+               applyFilters();
+             });
+             inventoryPageNext?.addEventListener("click", () => {
+               const totalItems = getFilteredProducts().length;
+               const totalPages = Math.max(1, Math.ceil(totalItems / inventoryPageSize));
+               if (inventoryPage >= totalPages) return;
+               inventoryPage += 1;
+               applyFilters();
+             });
+         </script>
 
         <script src="/static/customer_lookup.js"></script>
         <script>
@@ -6335,19 +6493,43 @@
             const unitClass = (unit) =>
                 String(unit?.statusClass || "").toLowerCase();
             const unitLabel = (unit) => String(unit?.statusLabel || "");
-            const isAvailableUnit = (unit) =>
-                unitClass(unit) === "available" ||
-                unitLabel(unit) === "Disponible" ||
-                unitLabel(unit) === "available";
+             const isAvailableUnit = (unit) =>
+                 unitClass(unit) === "available" ||
+                 unitLabel(unit) === "Disponible" ||
+                 unitLabel(unit) === "available";
 
-            const refreshProductStatus = (product) => {
-                if (!product || !Array.isArray(product.units)) return;
-                let availableCount = 0;
-                let loanedCount = 0;
-                let reservedCount = 0;
-                let changeCount = 0;
-                let damagedCount = 0;
-                let fifoIndex = 1;
+             const refreshAggregateProductStatus = (product) => {
+                 if (!product) return;
+                 if (Number(product.available || 0) > 0) {
+                     product.statusClass = "available";
+                     product.statusLabel = "Disponible";
+                 } else if (Number(product.loanedUnits || 0) > 0) {
+                     product.statusClass = "loaned";
+                     product.statusLabel = "Prestado";
+                 } else if (Number(product.reservedUnits || 0) > 0) {
+                     product.statusClass = "reserved";
+                     product.statusLabel = "Reservado";
+                 } else if (Number(product.changedUnits || 0) > 0) {
+                     product.statusClass = "swapped";
+                     product.statusLabel = "Cambio";
+                 } else if (Number(product.damagedUnits || 0) > 0) {
+                     product.statusClass = "damaged";
+                     product.statusLabel = "Dañado";
+                 } else {
+                     product.statusClass = "sold";
+                     product.statusLabel = "Vendido";
+                 }
+             };
+
+             const refreshProductStatus = (product) => {
+                 if (!product || !Array.isArray(product.units)) return;
+                 let availableCount = 0;
+                 let loanedCount = 0;
+                 let reservedCount = 0;
+                 let changeCount = 0;
+                 let damagedCount = 0;
+                 let soldCount = 0;
+                 let fifoIndex = 1;
                 product.units.forEach((unit) => {
                     const cls = unitClass(unit);
                     const label = unitLabel(unit);
@@ -6405,54 +6587,49 @@
                         unit.statusClass = "damaged";
                         unit.statusLabel = "Dañada";
                         return;
-                    }
-                    unit.statusClass = "sold";
-                    unit.statusLabel = "Vendido";
-                });
+                     }
+                     soldCount += 1;
+                     unit.statusClass = "sold";
+                     unit.statusLabel = "Vendido";
+                 });
 
-                product.available = availableCount;
-                if (availableCount > 0) {
-                    product.statusClass = "available";
-                    product.statusLabel = "Disponible";
-                } else if (loanedCount > 0) {
-                    product.statusClass = "loaned";
-                    product.statusLabel = "Prestado";
-                } else if (reservedCount > 0) {
-                    product.statusClass = "reserved";
-                    product.statusLabel = "Reservado";
-                } else if (changeCount > 0) {
-                    product.statusClass = "swapped";
-                    product.statusLabel = "Cambio";
-                } else if (damagedCount > 0) {
-                    product.statusClass = "damaged";
-                    product.statusLabel = "Dañado";
-                } else {
-                    product.statusClass = "sold";
-                    product.statusLabel = "Vendido";
-                }
-            };
+                 product.available = availableCount;
+                 product.totalUnits = product.units.length;
+                 product.loanedUnits = loanedCount;
+                 product.reservedUnits = reservedCount;
+                 product.changedUnits = changeCount;
+                 product.damagedUnits = damagedCount;
+                 product.soldUnits = soldCount;
+                 product.expiringSoon = product.units.some((unit) => isExpiringSoon(unit.expires));
+                 refreshAggregateProductStatus(product);
+             };
 
-            const applySaleLocally = ({ productId, quantity }) => {
-                const product = productsById.get(productId);
-                if (
-                    !product ||
-                    product.entryType !== "product" ||
-                    !Array.isArray(product.units) ||
-                    !Number.isFinite(quantity) ||
-                    quantity <= 0
-                )
-                    return;
-                let remaining = quantity;
-                product.units.forEach((unit) => {
-                    if (remaining < 1 || !isAvailableUnit(unit)) return;
-                    unit.statusClass = "sold";
-                    unit.statusLabel = "Vendido";
-                    unit.fifo = "-";
-                    remaining -= 1;
-                });
-                refreshProductStatus(product);
-                applyFilters();
-            };
+             const applySaleLocally = ({ productId, quantity }) => {
+                 const product = productsById.get(productId);
+                 if (
+                     !product ||
+                     product.entryType !== "product" ||
+                     !Number.isFinite(quantity) ||
+                     quantity <= 0
+                 )
+                     return;
+                 if (product.unitsLoaded && Array.isArray(product.units)) {
+                     let remaining = quantity;
+                     product.units.forEach((unit) => {
+                         if (remaining < 1 || !isAvailableUnit(unit)) return;
+                         unit.statusClass = "sold";
+                         unit.statusLabel = "Vendido";
+                         unit.fifo = "-";
+                         remaining -= 1;
+                     });
+                     refreshProductStatus(product);
+                 } else {
+                     product.available = Math.max(0, Number(product.available || 0) - quantity);
+                     product.soldUnits = Number(product.soldUnits || 0) + quantity;
+                     refreshAggregateProductStatus(product);
+                 }
+                 applyFilters();
+             };
 
             const showSaleSuccess = ({
                 saleMode,
@@ -6628,7 +6805,7 @@
                     const schedule = document.createElement("p");
                     schedule.textContent = `Prestado desde: ${product.ingreso || "Sin registro"} · Retorno esperado: ${formatOptionalDate(product.dueAt)}`;
                     const meta = document.createElement("p");
-                    meta.textContent = `Gestionado por: ${product.managedByName || "Sin registro"} · Unidades: ${product.units.length || 0}`;
+                     meta.textContent = `Gestionado por: ${product.managedByName || "Sin registro"} · Unidades: ${product.totalUnits || 0}`;
                     productLoanCloseSummary.replaceChildren(title, customer, schedule, meta);
                 }
                 openModal(

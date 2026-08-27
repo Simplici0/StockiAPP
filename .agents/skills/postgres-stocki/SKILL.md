@@ -129,6 +129,15 @@ When inspecting history tables, expect internal `sku` values in persistence colu
 
 Do not recommend `sku = ? OR id = ?` lookups for runtime behavior. If legacy repair is needed, isolate it to migration or bootstrap paths and document it explicitly.
 
+For inventory unit reads, the canonical Postgres bootstrap creates:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_unidades_tenant_producto_created_id
+ON unidades (tenant_id, producto_id, creado_en, id);
+```
+
+This index supports both the aggregate inventory query and the ordered lazy unit-detail query. Keep the tenant predicate first in any replacement query; `producto_id` values are internal SKUs, not visible product IDs.
+
 ## Recommended Workflow
 
 1. Confirm Postgres context.

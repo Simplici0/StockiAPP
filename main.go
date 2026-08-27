@@ -1025,6 +1025,13 @@ type inventoryProduct struct {
 	EstadoLabel           string
 	EstadoClass           string
 	Disponible            int
+	TotalUnits            int
+	LoanedUnits           int
+	ReservedUnits         int
+	ChangedUnits          int
+	DamagedUnits          int
+	SoldUnits             int
+	ExpiringSoon          bool
 	Unidades              []inventoryUnit
 	DisabledSale          bool
 	FechaIngreso          string
@@ -4213,12 +4220,110 @@ func listProductLoansReport(db *sql.DB, currentUser *User, tenantID int, filters
 }
 
 type inventoryProductUnitStats struct {
+	TotalCount     int
 	AvailableCount int
 	LoanedCount    int
 	ChangeCount    int
 	ReservedCount  int
 	DamagedCount   int
+	SoldCount      int
+	ExpiringSoon   bool
 	FirstCreatedAt string
+}
+
+func inventoryUnitExpiresSoon(value string, now time.Time) bool {
+	expiry, ok := parseFlexibleTime(value)
+	if !ok {
+		return false
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	expiryDate := time.Date(expiry.In(now.Location()).Year(), expiry.In(now.Location()).Month(), expiry.In(now.Location()).Day(), 0, 0, 0, 0, now.Location())
+	diffDays := int(expiryDate.Sub(today) / (24 * time.Hour))
+	return diffDays >= 0 && diffDays <= 45
+}
+
+func loadInventoryUnitStatsByProductIDs(db sqlQueryRunner, tenantID int, productIDs []string) (map[string]inventoryProductUnitStats, error) {
+	statsByProduct := make(map[string]inventoryProductUnitStats, len(productIDs))
+	if len(productIDs) == 0 {
+		return statsByProduct, nil
+	}
+
+	seen := make(map[string]struct{}, len(productIDs))
+	placeholders := make([]string, 0, len(productIDs))
+	args := make([]any, 0, len(productIDs)+3)
+	now := time.Now().In(appTimeLocation)
+	args = append(args, now.Format("2006-01-02"), now.AddDate(0, 0, 45).Format("2006-01-02"), normalizeTenantID(tenantID))
+	for _, productID := range productIDs {
+		productID = strings.TrimSpace(productID)
+		if productID == "" {
+			continue
+		}
+		if _, ok := seen[productID]; ok {
+			continue
+		}
+		seen[productID] = struct{}{}
+		placeholders = append(placeholders, "?")
+		args = append(args, productID)
+	}
+	if len(placeholders) == 0 {
+		return statsByProduct, nil
+	}
+
+	rows, err := db.Query(`
+		SELECT
+			producto_id,
+			estado,
+			COUNT(*),
+			MIN(creado_en),
+			COALESCE(MAX(CASE WHEN LEFT(COALESCE(caducidad, ''), 10) BETWEEN ? AND ? THEN 1 ELSE 0 END), 0)
+		FROM unidades
+		WHERE tenant_id = ? AND producto_id IN (`+strings.Join(placeholders, ",")+`)
+		GROUP BY producto_id, estado
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			productID    string
+			estado       string
+			count        int
+			firstCreated string
+			expiring     int
+		)
+		if err := rows.Scan(&productID, &estado, &count, &firstCreated, &expiring); err != nil {
+			return nil, err
+		}
+		stats := statsByProduct[productID]
+		stats.TotalCount += count
+		if stats.FirstCreatedAt == "" || (firstCreated != "" && firstCreated < stats.FirstCreatedAt) {
+			stats.FirstCreatedAt = strings.TrimSpace(firstCreated)
+		}
+		if expiring > 0 {
+			stats.ExpiringSoon = true
+		}
+		switch estado {
+		case "Disponible", "available":
+			stats.AvailableCount += count
+		case "Prestada", "Prestado", "loaned":
+			stats.LoanedCount += count
+		case "Reservada", "reserved":
+			stats.ReservedCount += count
+		case "Cambio", "swapped":
+			stats.ChangeCount += count
+		case "Danada", "Dañada", "damaged":
+			stats.DamagedCount += count
+		case "Vendida", "Vendido", "sold":
+			stats.SoldCount += count
+		}
+		statsByProduct[productID] = stats
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return statsByProduct, nil
 }
 
 func loadInventoryUnitsByProductIDs(db sqlQueryRunner, tenantID int, productIDs []string) (map[string][]inventoryUnit, map[string]inventoryProductUnitStats, error) {
@@ -4271,8 +4376,12 @@ func loadInventoryUnitsByProductIDs(db sqlQueryRunner, tenantID int, productIDs 
 			return nil, nil, err
 		}
 		stats := statsByProduct[productID]
+		stats.TotalCount++
 		if stats.FirstCreatedAt == "" {
 			stats.FirstCreatedAt = strings.TrimSpace(creadoEn)
+		}
+		if inventoryUnitExpiresSoon(caducidad.String, time.Now().In(appTimeLocation)) {
+			stats.ExpiringSoon = true
 		}
 		fifo := "-"
 		switch estado {
@@ -4287,6 +4396,8 @@ func loadInventoryUnitsByProductIDs(db sqlQueryRunner, tenantID int, productIDs 
 			stats.ChangeCount++
 		case "Danada", "Dañada", "damaged":
 			stats.DamagedCount++
+		case "Vendida", "Vendido", "sold":
+			stats.SoldCount++
 		}
 		statsByProduct[productID] = stats
 		unitsByProduct[productID] = append(unitsByProduct[productID], inventoryUnit{
@@ -4605,6 +4716,201 @@ func loadProductLoanUnitIDs(db *sql.DB, tenantID int, loanIDs []int) (map[int][]
 		result[loanID] = append(result[loanID], unitID)
 	}
 	return result, rows.Err()
+}
+
+func loadProductLoanUnitCounts(db sqlQueryRunner, tenantID int, loanIDs []int) (map[int]int, error) {
+	result := make(map[int]int, len(loanIDs))
+	if len(loanIDs) == 0 {
+		return result, nil
+	}
+	placeholders := make([]string, 0, len(loanIDs))
+	args := make([]any, 0, len(loanIDs)+1)
+	args = append(args, normalizeTenantID(tenantID))
+	for _, loanID := range loanIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, loanID)
+	}
+	rows, err := db.Query(`
+		SELECT product_loan_id, COUNT(*)
+		FROM product_loan_units
+		WHERE tenant_id = ? AND product_loan_id IN (`+strings.Join(placeholders, ",")+`)
+		GROUP BY product_loan_id
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var loanID, count int
+		if err := rows.Scan(&loanID, &count); err != nil {
+			return nil, err
+		}
+		result[loanID] = count
+	}
+	return result, rows.Err()
+}
+
+func inventoryUnitPayload(units []inventoryUnit) []map[string]any {
+	items := make([]map[string]any, 0, len(units))
+	for _, unit := range units {
+		items = append(items, map[string]any{
+			"id":          unit.ID,
+			"created":     unit.CreadoEn,
+			"expires":     unit.Caducidad,
+			"statusClass": unit.EstadoClass,
+			"statusLabel": unit.Estado,
+			"fifo":        unit.FIFO,
+		})
+	}
+	return items
+}
+
+func handleInventoryProductUnits(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		tenantID, err := tenantIDFromUserStrict(currentUser)
+		if err != nil {
+			writeAPIError(w, http.StatusForbidden, "No autorizado.", nil)
+			return
+		}
+		productID := strings.TrimSpace(r.URL.Query().Get("producto_id"))
+		if productID == "" {
+			writeAPIError(w, http.StatusBadRequest, "Producto inválido.", map[string]string{"producto_id": "Selecciona un producto válido."})
+			return
+		}
+
+		loanID := 0
+		loanIDRaw := strings.TrimSpace(r.URL.Query().Get("product_loan_id"))
+		if loanIDRaw != "" {
+			loanID, err = strconv.Atoi(loanIDRaw)
+			if err != nil || loanID <= 0 {
+				writeAPIError(w, http.StatusBadRequest, "Préstamo inválido.", map[string]string{"product_loan_id": "Préstamo inválido."})
+				return
+			}
+		}
+
+		var units []inventoryUnit
+		if loanID > 0 {
+			var productSKU string
+			if err := db.QueryRow(`
+				SELECT product_id
+				FROM product_loans
+				WHERE tenant_id = ? AND id = ?
+				LIMIT 1
+			`, tenantID, loanID).Scan(&productSKU); err != nil {
+				if err == sql.ErrNoRows {
+					writeAPIError(w, http.StatusNotFound, "Préstamo no encontrado.", nil)
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el préstamo.", nil)
+				return
+			}
+			productRecord, err := loadProductIdentityBySKU(db, tenantID, productSKU)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					writeAPIError(w, http.StatusNotFound, "Préstamo no encontrado.", nil)
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el producto del préstamo.", nil)
+				return
+			}
+			if productRecord.VisibleID != productID {
+				writeAPIError(w, http.StatusNotFound, "Préstamo no encontrado.", nil)
+				return
+			}
+			allowed, err := productAccessibleBySKU(db, currentUser, productSKU)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar el acceso al préstamo.", nil)
+				return
+			}
+			if !allowed {
+				writeAPIError(w, http.StatusForbidden, "No tienes acceso a este préstamo.", nil)
+				return
+			}
+			rows, err := db.Query(`
+				SELECT u.id, u.estado, u.creado_en, u.caducidad
+				FROM product_loan_units plu
+				JOIN unidades u
+				  ON u.tenant_id = plu.tenant_id AND u.id = plu.unit_id
+				WHERE plu.tenant_id = ? AND plu.product_loan_id = ?
+				ORDER BY u.creado_en ASC, u.id ASC
+			`, tenantID, loanID)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron consultar las unidades del préstamo.", nil)
+				return
+			}
+			units, err = scanInventoryUnits(rows)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron leer las unidades del préstamo.", nil)
+				return
+			}
+		} else {
+			record, err := loadProductIdentityByVisibleID(db, tenantID, productID)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					writeAPIError(w, http.StatusNotFound, "Producto no encontrado.", nil)
+					return
+				}
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el producto.", nil)
+				return
+			}
+			allowed, err := productAccessibleByID(db, currentUser, productID)
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudo validar el acceso al producto.", nil)
+				return
+			}
+			if !allowed {
+				writeAPIError(w, http.StatusForbidden, "No tienes acceso a este producto.", nil)
+				return
+			}
+			unitsByProduct, _, err := loadInventoryUnitsByProductIDs(db, tenantID, []string{record.SKU})
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, "No se pudieron consultar las unidades del producto.", nil)
+				return
+			}
+			units = unitsByProduct[record.SKU]
+		}
+
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":         true,
+			"product_id": productID,
+			"loan_id":    loanID,
+			"units":      inventoryUnitPayload(units),
+			"count":      len(units),
+		})
+	}
+}
+
+func scanInventoryUnits(rows *sql.Rows) ([]inventoryUnit, error) {
+	defer rows.Close()
+	units := make([]inventoryUnit, 0)
+	for rows.Next() {
+		var (
+			unitID    string
+			estado    string
+			creadoEn  string
+			caducidad sql.NullString
+		)
+		if err := rows.Scan(&unitID, &estado, &creadoEn, &caducidad); err != nil {
+			return nil, err
+		}
+		units = append(units, inventoryUnit{
+			ID:          unitID,
+			Estado:      estado,
+			EstadoClass: estadoClass(estado),
+			CreadoEn:    formatDateWithSettings(creadoEn),
+			Caducidad:   formatDateWithSettings(caducidad.String),
+			FIFO:        "-",
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return units, nil
 }
 
 func productLoanDetailForUser(db *sql.DB, currentUser *User, tenantID, productLoanID int) (productLoanReportItem, []productLoanTimelineItem, error) {
@@ -18243,6 +18549,9 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 			return err
 		}
 	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_unidades_tenant_producto_created_id ON unidades(tenant_id, producto_id, creado_en, id)"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -18649,6 +18958,7 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		caducidad TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_unidades_tenant_estado ON unidades (tenant_id, estado);
+	CREATE INDEX IF NOT EXISTS idx_unidades_tenant_producto_created_id ON unidades (tenant_id, producto_id, creado_en, id);
 
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -22702,6 +23012,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/csv/ventas", handleCSVSales(db))
+	mux.HandleFunc("/inventario/producto/unidades", handleInventoryProductUnits(db))
 
 	mux.HandleFunc("/inventario", func(w http.ResponseWriter, r *http.Request) {
 		currentUser := userFromContext(r)
@@ -22756,14 +23067,13 @@ func main() {
 			allowedProducts[product.ID] = product
 			productRefs = append(productRefs, product.refID())
 		}
-		unitsByProduct, unitStatsByProduct, err := loadInventoryUnitsByProductIDs(db, tenantID, productRefs)
+		unitStatsByProduct, err := loadInventoryUnitStatsByProductIDs(db, tenantID, productRefs)
 		if err != nil {
-			http.Error(w, "Error al consultar unidades", http.StatusInternalServerError)
+			http.Error(w, "Error al consultar existencias", http.StatusInternalServerError)
 			return
 		}
 
 		for _, product := range productsSnapshot {
-			units := unitsByProduct[product.refID()]
 			stats := unitStatsByProduct[product.refID()]
 			availableCount := stats.AvailableCount
 			estadoLabel, estadoClass := inventoryStatusForStats(stats)
@@ -22802,7 +23112,14 @@ func main() {
 				EstadoLabel:       estadoLabel,
 				EstadoClass:       estadoClass,
 				Disponible:        availableCount,
-				Unidades:          units,
+				TotalUnits:        stats.TotalCount,
+				LoanedUnits:       stats.LoanedCount,
+				ReservedUnits:     stats.ReservedCount,
+				ChangedUnits:      stats.ChangeCount,
+				DamagedUnits:      stats.DamagedCount,
+				SoldUnits:         stats.SoldCount,
+				ExpiringSoon:      stats.ExpiringSoon,
+				Unidades:          []inventoryUnit{},
 				DisabledSale:      availableCount == 0,
 				FechaIngreso:      formatDateWithSettings(fechaIngresoISO),
 				MesesEnStock:      mesesEnStock,
@@ -23210,7 +23527,7 @@ func main() {
 				EntryType:            "loan",
 				ProductLoanID:        productLoanID,
 				CustomerID:           customerID,
-				BaseProductID:        productID,
+				BaseProductID:        product.ID,
 				ID:                   fmt.Sprintf("PR-%d", productLoanID),
 				Name:                 loanName,
 				Line:                 "Préstamo",
@@ -23239,26 +23556,15 @@ func main() {
 			http.Error(w, "Error al procesar préstamos de producto", http.StatusInternalServerError)
 			return
 		}
-		loanUnitMap, err := loadProductLoanUnitIDs(db, tenantID, loanIDs)
+		loanUnitCounts, err := loadProductLoanUnitCounts(db, tenantID, loanIDs)
 		if err != nil {
-			http.Error(w, "Error al consultar unidades del préstamo", http.StatusInternalServerError)
+			http.Error(w, "Error al consultar cantidad de unidades del préstamo", http.StatusInternalServerError)
 			return
 		}
 		for productLoanID, index := range loanIndexByID {
 			item := &inventoryProducts[index]
-			unitIDs := loanUnitMap[productLoanID]
-			loanUnits := make([]inventoryUnit, 0, len(unitIDs))
-			for _, unitID := range unitIDs {
-				loanUnits = append(loanUnits, inventoryUnit{
-					ID:          unitID,
-					Estado:      "Prestada",
-					EstadoClass: "loaned",
-					CreadoEn:    item.FechaIngreso,
-					Caducidad:   "",
-					FIFO:        "-",
-				})
-			}
-			item.Unidades = loanUnits
+			item.TotalUnits = loanUnitCounts[productLoanID]
+			item.LoanedUnits = item.TotalUnits
 		}
 		_, movementEnabledMap, err := loadMovementSettingsForTenant(db, tenantID)
 		if err != nil {
@@ -25081,35 +25387,18 @@ func main() {
 			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar el inventario.", nil)
 			return
 		}
-		productsSnapshot = filterProductsForUser(productsSnapshot, userFromContext(r))
+		productIDs := make([]string, 0, len(productsSnapshot))
+		for _, product := range productsSnapshot {
+			productIDs = append(productIDs, product.ID)
+		}
+		countsByProduct, err := loadInventoryCountsForProducts(db, tenantIDFromRequest(r), productIDs)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
+			return
+		}
 		items := make([]map[string]any, 0, len(productsSnapshot))
 		for _, product := range productsSnapshot {
-			var available, reserved, swapped, damaged int
-			rows, err := db.Query(`SELECT estado, COUNT(*) FROM unidades WHERE tenant_id = ? AND producto_id = ? GROUP BY estado`, tenantIDFromRequest(r), product.refID())
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "No se pudo consultar el inventario.", nil)
-				return
-			}
-			for rows.Next() {
-				var estado string
-				var count int
-				if err := rows.Scan(&estado, &count); err != nil {
-					rows.Close()
-					writeAPIError(w, http.StatusInternalServerError, "No se pudo leer el inventario.", nil)
-					return
-				}
-				switch estado {
-				case "Disponible", "available":
-					available = count
-				case "Reservada", "reserved":
-					reserved = count
-				case "Cambio", "swapped":
-					swapped = count
-				case "Danada", "Dañada", "damaged":
-					damaged = count
-				}
-			}
-			rows.Close()
+			counts := countsByProduct[product.ID]
 			var owner any = nil
 			if product.HasOwner {
 				owner = product.OwnerUserID
@@ -25123,10 +25412,10 @@ func main() {
 				"name":           product.Name,
 				"line":           product.Line,
 				"location":       product.Location,
-				"available":      available,
-				"reserved":       reserved,
-				"swapped":        swapped,
-				"damaged":        damaged,
+				"available":      counts.Available,
+				"reserved":       counts.Reserved,
+				"swapped":        counts.Swapped,
+				"damaged":        counts.Damaged,
 				"sale_price":     product.SalePrice,
 				"retoma_enabled": product.RetomaEnabled,
 				"retoma_price":   retomaPrice,

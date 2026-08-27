@@ -497,6 +497,34 @@ Respuesta:
 
 Devuelve el inventario agregado del tenant autenticado.
 
+La pantalla SSR `/inventario` carga las unidades individuales bajo demanda mediante la ruta interna `GET /inventario/producto/unidades`. Esta ruta requiere la sesión web autenticada, no acepta `tenant_id` y no debe usarse como contrato de integración externa.
+
+Parámetros:
+
+- `producto_id`: `id` visible del producto.
+- `product_loan_id`: opcional; devuelve únicamente las unidades asociadas a ese préstamo físico y debe corresponder al `producto_id` enviado.
+
+Respuesta interna:
+
+```json
+{
+  "ok": true,
+  "product_id": "P-001",
+  "loan_id": 0,
+  "count": 1,
+  "units": [
+    {
+      "id": "P-001-U-1",
+      "created": "2026-08-27",
+      "expires": "",
+      "statusClass": "available",
+      "statusLabel": "Disponible",
+      "fifo": "1"
+    }
+  ]
+}
+```
+
 Respuesta:
 
 ```json
