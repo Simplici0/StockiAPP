@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{.Title}}</title>
   {{template "app_styles" .}}
+  <style>
+    .location-allocation { display: grid; gap: 8px; margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card-muted); }
+    .location-allocation-title, .location-allocation-help, .location-allocation-total { margin: 0; }
+    .location-allocation-title { font-size: 15px; }
+    .location-allocation-help, .location-allocation-total { color: var(--text-muted); font-size: 13px; }
+    .location-allocation-total[data-invalid="true"] { color: var(--danger, #b42318); font-weight: 700; }
+    .location-allocation-rows { display: grid; gap: 8px; }
+    .location-allocation-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 12px; align-items: center; }
+    .location-allocation-row label { display: grid; gap: 2px; font-weight: 700; }
+    .location-allocation-row small { color: var(--text-muted); font-size: 11px; font-weight: 500; }
+    .location-allocation-row input { min-height: 44px; }
+    .location-allocation-error { color: var(--danger, #b42318); font-size: 13px; }
+    @media (max-width: 560px) { .location-allocation-row { grid-template-columns: 1fr 80px; } }
+  </style>
 </head>
 <body class="swap-page">
   {{template "header" .}}
@@ -42,6 +56,17 @@
       <div class="swap-page__section">
         <h2>Unidades que salen</h2>
         <div class="swap-page__hint">{{len .Unidades}} disponibles</div>
+        <input id="allocations_json" name="allocations_json" type="hidden" value="{{.AllocationsJSON}}" />
+        <input id="source_location" name="source_location" type="hidden" value="{{.SourceLocation}}" />
+        <div id="location-allocation" class="location-allocation">
+          <h3 class="location-allocation-title">Distribución por ubicación</h3>
+          <p class="location-allocation-help">La cantidad se calcula con las unidades seleccionadas. Puedes distribuirla entre varias ubicaciones.</p>
+          <div id="location-allocation-rows" class="location-allocation-rows"></div>
+          <p id="location-allocation-total" class="location-allocation-total" aria-live="polite"></p>
+          {{with index .Errors "allocations"}}
+            <div class="location-allocation-error">{{.}}</div>
+          {{end}}
+        </div>
         {{if .Unidades}}
           <details class="swap-page__multi-select" data-multi-select>
             <summary>
@@ -147,6 +172,134 @@
     </div>
   </main>
   <script>
+    const productSelect = document.querySelector('#producto_id');
+    const allocationsInput = document.querySelector('#allocations_json');
+    const sourceLocationInput = document.querySelector('#source_location');
+    const allocationRows = document.querySelector('#location-allocation-rows');
+    const allocationTotal = document.querySelector('#location-allocation-total');
+    const locationCache = new Map();
+
+    const locationKey = (value) => String(value || '').trim().toLowerCase();
+    const locationInputValue = (value) => String(value || '').trim() || '__unassigned__';
+    const locationValue = (value) => value === '__unassigned__' ? '' : String(value || '').trim();
+    const checkedQuantity = () => document.querySelectorAll('input[name="salientes"]:checked').length;
+
+    const renderAllocations = async () => {
+      if (!productSelect || !allocationRows || !allocationsInput) return;
+      const productID = String(productSelect.value || '').trim();
+      const quantity = checkedQuantity();
+      allocationRows.replaceChildren();
+      if (!productID || quantity < 1) {
+        allocationTotal.textContent = 'Selecciona al menos una unidad saliente.';
+        allocationTotal.dataset.invalid = 'true';
+        allocationsInput.value = '[]';
+        return;
+      }
+      const loading = document.createElement('span');
+      loading.textContent = 'Cargando stock por ubicación...';
+      allocationRows.appendChild(loading);
+      try {
+        let locations = locationCache.get(productID);
+        if (!locations) {
+          const response = await fetch(`/api/inventory/locations?product_id=${encodeURIComponent(productID)}`, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok || !Array.isArray(data.locations)) throw new Error(data.error || 'No se pudieron cargar las ubicaciones.');
+          locations = data.locations;
+          locationCache.set(productID, locations);
+        }
+        const entries = locations.filter((location) => Number(location.available || 0) > 0);
+        allocationRows.replaceChildren();
+        if (!entries.length) throw new Error('No hay unidades disponibles por ubicación.');
+        let parsed = [];
+        try {
+          parsed = JSON.parse(allocationsInput.value || '[]');
+        } catch (_) {}
+        const initial = new Map();
+        let initialTotal = 0;
+        (Array.isArray(parsed) ? parsed : []).forEach((allocation) => {
+          const amount = Number(allocation?.quantity || 0);
+          const entry = entries.find((location) => locationKey(location.location) === locationKey(allocation?.location));
+          if (!(amount > 0) || !entry || amount > Number(entry.available || 0) || initial.has(locationKey(entry.location))) return;
+          initial.set(locationKey(entry.location), amount);
+          initialTotal += amount;
+        });
+        if (initialTotal !== quantity) {
+          initial.clear();
+          let remaining = quantity;
+          entries.forEach((entry) => {
+            if (remaining <= 0) return;
+            const amount = Math.min(Number(entry.available || 0), remaining);
+            if (amount > 0) {
+              initial.set(locationKey(entry.location), amount);
+              remaining -= amount;
+            }
+          });
+        }
+        entries.forEach((entry) => {
+          const row = document.createElement('div');
+          row.className = 'location-allocation-row';
+          const label = document.createElement('label');
+          label.textContent = entry.label || 'Sin ubicación';
+          const available = document.createElement('small');
+          available.textContent = `${Number(entry.available || 0)} disponibles`;
+          label.appendChild(available);
+          const input = document.createElement('input');
+          input.type = 'number';
+          input.min = '0';
+          input.max = String(Number(entry.available || 0));
+          input.step = '1';
+          input.value = String(initial.get(locationKey(entry.location)) || 0);
+          input.dataset.locationValue = locationInputValue(entry.location);
+          input.addEventListener('input', updatePayload);
+          row.append(label, input);
+          allocationRows.appendChild(row);
+        });
+        updatePayload();
+      } catch (error) {
+        allocationRows.replaceChildren();
+        const failure = document.createElement('span');
+        failure.className = 'location-allocation-error';
+        failure.textContent = error?.message || 'No se pudieron cargar las ubicaciones.';
+        allocationRows.appendChild(failure);
+        allocationsInput.value = '[]';
+        allocationTotal.textContent = error?.message || 'No se pudieron cargar las ubicaciones.';
+        allocationTotal.dataset.invalid = 'true';
+      }
+    };
+
+    function updatePayload() {
+      if (!allocationsInput || !allocationRows) return;
+      const allocations = [];
+      let total = 0;
+      allocationRows.querySelectorAll('input[data-location-value]').forEach((input) => {
+        const quantity = Math.max(0, Number(input.value) || 0);
+        if (quantity <= 0) return;
+        allocations.push({ location: locationValue(input.dataset.locationValue), quantity });
+        total += quantity;
+      });
+      allocationsInput.value = JSON.stringify(allocations);
+      if (sourceLocationInput) sourceLocationInput.value = allocations[0]?.location || '';
+      const target = checkedQuantity();
+      allocationTotal.textContent = `Asignado: ${total} de ${target}`;
+      allocationTotal.dataset.invalid = total === target && target > 0 ? 'false' : 'true';
+    }
+
+    if (productSelect) {
+      productSelect.addEventListener('change', () => {
+        const quantity = Math.max(1, checkedQuantity());
+        window.location.href = `/cambio/new?producto_id=${encodeURIComponent(productSelect.value)}&cantidad=${quantity}`;
+      });
+    }
+    document.querySelectorAll('input[name="salientes"]').forEach((input) => input.addEventListener('change', renderAllocations));
+    document.querySelector('form.swap-page__form')?.addEventListener('submit', (event) => {
+      updatePayload();
+      if (allocationTotal.dataset.invalid === 'true') {
+        event.preventDefault();
+        allocationTotal.focus();
+      }
+    });
+    renderAllocations();
+
     const incomingModeSelect = document.querySelector('#incoming_mode');
     const existingFields = document.querySelectorAll('#incoming_existing_id, #incoming_existing_qty');
     const newFields = document.querySelectorAll('#incoming_new_sku, #incoming_new_name, #incoming_new_line, #incoming_new_qty');

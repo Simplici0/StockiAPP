@@ -1112,6 +1112,83 @@
                 gap: 12px;
             }
 
+            .location-allocation {
+                display: grid;
+                gap: 8px;
+                padding: 12px;
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                background: var(--bg-card-muted);
+            }
+
+            .location-allocation[hidden] {
+                display: none;
+            }
+
+            .location-allocation-title {
+                margin: 0;
+                color: var(--text);
+                font-size: 13px;
+                font-weight: 800;
+            }
+
+            .location-allocation-help,
+            .location-allocation-total {
+                margin: 0;
+                color: var(--text-muted);
+                font-size: 12px;
+                line-height: 1.45;
+            }
+
+            .location-allocation-total[data-invalid="true"] {
+                color: var(--danger-ink);
+                font-weight: 700;
+            }
+
+            .location-allocation-rows {
+                display: grid;
+                gap: 8px;
+            }
+
+            .location-allocation-row {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 96px;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .location-allocation-label {
+                min-width: 0;
+                color: var(--text);
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            .location-allocation-label small {
+                display: block;
+                margin-top: 2px;
+                color: var(--text-muted);
+                font-size: 11px;
+                font-weight: 500;
+            }
+
+            .location-allocation-input {
+                min-height: 44px;
+                text-align: center;
+            }
+
+            .location-allocation-loading,
+            .location-allocation-error {
+                margin: 0;
+                color: var(--text-muted);
+                font-size: 12px;
+            }
+
+            .location-allocation-error {
+                color: var(--danger-ink);
+                font-weight: 700;
+            }
+
             .edit-advanced-section {
                 display: grid;
                 gap: 12px;
@@ -2349,6 +2426,12 @@
                                     />
                                 </div>
                             </div>
+                            <div id="action-location-allocation" class="location-allocation" hidden>
+                                <h4 class="location-allocation-title">Distribución por ubicación</h4>
+                                <p class="location-allocation-help">Indica de qué ubicaciones saldrán las unidades. La suma debe coincidir con la cantidad.</p>
+                                <div id="action-location-allocation-rows" class="location-allocation-rows"></div>
+                                <p id="action-location-allocation-total" class="location-allocation-total" aria-live="polite"></p>
+                            </div>
                             <div>
                                 <label id="action-note-label" for="action-note"
                                     >Nota</label
@@ -2432,6 +2515,53 @@
                 </div>
             </div>
 
+            <div id="transfer-modal" class="modal-backdrop" aria-hidden="true">
+                <div class="modal" role="dialog" aria-modal="true" aria-labelledby="transfer-title">
+                    <div class="modal-header">
+                        <div>
+                            <h3 id="transfer-title">Trasladar inventario</h3>
+                            <div id="transfer-subtitle" class="modal-subtitle"></div>
+                        </div>
+                        <button type="button" class="modal-close" data-modal-close aria-label="Cerrar">✕</button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="transfer-form" class="modal-grid">
+                            <div id="transfer-error" class="modal-error" hidden></div>
+                            <div class="modal-row">
+                                <div>
+                                    <label for="transfer-quantity">Cantidad</label>
+                                    <input id="transfer-quantity" type="number" min="1" step="1" value="1" />
+                                </div>
+                                <div>
+                                    <label for="transfer-available">Disponible en origen</label>
+                                    <input id="transfer-available" type="text" value="-" disabled />
+                                </div>
+                            </div>
+                            <div class="modal-row">
+                                <div>
+                                    <label for="transfer-source-location">Ubicación origen</label>
+                                    <select id="transfer-source-location"></select>
+                                </div>
+                                <div>
+                                    <label for="transfer-target-location">Ubicación destino</label>
+                                    <select id="transfer-target-location">
+                                        <option value="">Cargando ubicaciones...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label for="transfer-notes">Nota (opcional)</label>
+                                <textarea id="transfer-notes" placeholder="Motivo del traslado"></textarea>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="button" class="secondary" data-modal-close>Cancelar</button>
+                                <button id="transfer-submit" type="submit" class="primary">Trasladar unidades</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             <div id="sale-modal" class="modal-backdrop" aria-hidden="true">
                 <div
                     class="modal"
@@ -2486,6 +2616,13 @@
                                             disabled
                                         />
                                     </div>
+                                </div>
+
+                                <div id="sale-location-allocation" class="location-allocation" hidden>
+                                    <h4 class="location-allocation-title">Distribución por ubicación</h4>
+                                    <p class="location-allocation-help">La sugerencia sigue el stock disponible. Puedes ajustar la cantidad por ubicación.</p>
+                                    <div id="sale-location-allocation-rows" class="location-allocation-rows"></div>
+                                    <p id="sale-location-allocation-total" class="location-allocation-total" aria-live="polite"></p>
                                 </div>
 
                                 <div id="sale-normal-fields" class="modal-grid">
@@ -3367,6 +3504,13 @@
                                 </div>
                             </div>
 
+                            <div id="product-loan-location-allocation" class="location-allocation" hidden>
+                                <h4 class="location-allocation-title">Distribución por ubicación</h4>
+                                <p class="location-allocation-help">Indica de qué ubicaciones se prestarán las unidades.</p>
+                                <div id="product-loan-location-allocation-rows" class="location-allocation-rows"></div>
+                                <p id="product-loan-location-allocation-total" class="location-allocation-total" aria-live="polite"></p>
+                            </div>
+
                             <div class="modal-row">
                                 <div>
                                     <label for="product-loan-borrower-name"
@@ -3696,6 +3840,13 @@
                                             </div>
                                         </div>
                                     </section>
+
+                                    <div id="loan-location-allocation" class="location-allocation" hidden>
+                                        <h4 class="location-allocation-title">Distribución por ubicación</h4>
+                                        <p class="location-allocation-help">Indica de qué ubicaciones saldrán las unidades del crédito.</p>
+                                        <div id="loan-location-allocation-rows" class="location-allocation-rows"></div>
+                                        <p id="loan-location-allocation-total" class="location-allocation-total" aria-live="polite"></p>
+                                    </div>
 
                                     <div class="modal-row">
                                         <div>
@@ -4935,7 +5086,6 @@
                if (!panel) return;
                const units = Array.isArray(product?.units) ? product.units : [];
                const productIngreso = esc(product?.ingreso || "-");
-               const productLocation = esc(product?.location || "-");
                const productDebtorName = esc(product?.debtorName || "Sin definir");
                const productDebtorDocumentNumber = esc(product?.debtorDocumentNumber || "Sin registro");
                const productDebtorPhone = esc(product?.debtorPhone || "Sin registro");
@@ -4964,9 +5114,10 @@
                      ${units.map((unit) => `
                        <li class="unit-card">
                          <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
-                         <span class="unit-field"><span class="unit-field-label">Prestado desde</span><span class="unit-field-value">${productIngreso}</span></span>
-                         <span class="unit-field"><span class="unit-field-label">Retorno esperado</span><span class="unit-field-value">${esc(formatOptionalDate(product?.dueAt))}</span></span>
-                         <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
+                          <span class="unit-field"><span class="unit-field-label">Prestado desde</span><span class="unit-field-value">${productIngreso}</span></span>
+                          <span class="unit-field"><span class="unit-field-label">Retorno esperado</span><span class="unit-field-value">${esc(formatOptionalDate(product?.dueAt))}</span></span>
+                          <span class="unit-field"><span class="unit-field-label">Ubicación</span><span class="unit-field-value">${esc(String(unit?.location || "").trim() || "Sin ubicación")}</span></span>
+                          <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
                          <span class="unit-field"><span class="unit-field-label">Gestionado por</span><span class="unit-field-value">${productManagedByName}</span></span>
                        </li>
                      `).join("")}
@@ -4988,7 +5139,7 @@
                          <span class="unit-field"><span class="unit-field-label">ID</span><span class="unit-field-value">${esc(unit.id)}</span></span>
                          <span class="unit-field"><span class="unit-field-label">Ingreso</span><span class="unit-field-value">${esc(formatOptionalDate(unit.created))}</span></span>
                          <span class="unit-field"><span class="unit-field-label">Caduca</span><span class="unit-field-value">${esc(formatOptionalDate(unit.expires))}</span></span>
-                         <span class="unit-field"><span class="unit-field-label">Ubicación</span><span class="unit-field-value">${productLocation}</span></span>
+                          <span class="unit-field"><span class="unit-field-label">Ubicación</span><span class="unit-field-value">${esc(String(unit?.location || "").trim() || "Sin ubicación")}</span></span>
                          <span class="unit-field"><span class="unit-field-label">Estado</span><span class="unit-field-value">${esc(statusLabel(unit.statusLabel))}</span></span>
                          <span class="unit-field"><span class="unit-field-label">FIFO</span><span class="unit-field-value"><span class="unit-tag">${esc(fifoOrder)}</span></span></span>
                        </li>
@@ -5258,6 +5409,7 @@
                             ? ``
                             : `
                               ${canSwap ? `<button type="button" data-menu-action="swap" data-product="${productId}">Registrar cambio</button>` : ``}
+                              <button type="button" data-menu-action="transfer" data-product="${productId}">Trasladar unidades</button>
                               <button type="button" data-menu-action="reserve" data-product="${productId}">Reservar unidades</button>
                               <button type="button" data-menu-action="damage" data-product="${productId}">Registrar daño</button>
                               ${canLoan ? `<button type="button" data-menu-action="loan-product" data-product="${productId}">Prestar producto</button>` : ``}
@@ -5427,6 +5579,26 @@
             const actionDeleteProduct = document.getElementById(
                 "action-delete-product",
             );
+            const actionLocationAllocation = document.getElementById(
+                "action-location-allocation",
+            );
+            const actionLocationAllocationRows = document.getElementById(
+                "action-location-allocation-rows",
+            );
+            const actionLocationAllocationTotal = document.getElementById(
+                "action-location-allocation-total",
+            );
+
+            const transferModal = document.getElementById("transfer-modal");
+            const transferSubtitle = document.getElementById("transfer-subtitle");
+            const transferForm = document.getElementById("transfer-form");
+            const transferError = document.getElementById("transfer-error");
+            const transferQuantity = document.getElementById("transfer-quantity");
+            const transferAvailable = document.getElementById("transfer-available");
+            const transferSourceLocation = document.getElementById("transfer-source-location");
+            const transferTargetLocation = document.getElementById("transfer-target-location");
+            const transferNotes = document.getElementById("transfer-notes");
+            const transferSubmit = document.getElementById("transfer-submit");
 
             const saleModal = document.getElementById("sale-modal");
             const saleTitle = document.getElementById("sale-title");
@@ -5478,6 +5650,15 @@
             const saleNotes = document.getElementById("sale-notes");
             const saleError = document.getElementById("sale-error");
             const saleSubmit = document.getElementById("sale-submit");
+            const saleLocationAllocation = document.getElementById(
+                "sale-location-allocation",
+            );
+            const saleLocationAllocationRows = document.getElementById(
+                "sale-location-allocation-rows",
+            );
+            const saleLocationAllocationTotal = document.getElementById(
+                "sale-location-allocation-total",
+            );
             const saleSuccessView =
                 document.getElementById("sale-success-view");
             const saleResultKicker =
@@ -5542,6 +5723,15 @@
             const loanQty = document.getElementById("loan-qty");
             const loanProductStock =
                 document.getElementById("loan-product-stock");
+            const loanLocationAllocation = document.getElementById(
+                "loan-location-allocation",
+            );
+            const loanLocationAllocationRows = document.getElementById(
+                "loan-location-allocation-rows",
+            );
+            const loanLocationAllocationTotal = document.getElementById(
+                "loan-location-allocation-total",
+            );
             const loanCustomerId = document.getElementById("loan-customer-id");
             const loanCustomerSearch = document.getElementById(
                 "loan-customer-search",
@@ -5710,6 +5900,15 @@
                 document.getElementById("product-loan-notes");
             const productLoanSubmit = document.getElementById(
                 "product-loan-submit",
+            );
+            const productLoanLocationAllocation = document.getElementById(
+                "product-loan-location-allocation",
+            );
+            const productLoanLocationAllocationRows = document.getElementById(
+                "product-loan-location-allocation-rows",
+            );
+            const productLoanLocationAllocationTotal = document.getElementById(
+                "product-loan-location-allocation-total",
             );
             const productLoanCloseModal = document.getElementById(
                 "product-loan-close-modal",
@@ -6020,6 +6219,9 @@
                 if (backdrop === productLoanModal) {
                     productLoanContext = null;
                 }
+                if (backdrop === transferModal) {
+                    transferContext = null;
+                }
                 if (backdrop === productLoanCloseModal) {
                     productLoanCloseContext = null;
                 }
@@ -6109,6 +6311,7 @@
             }
 
             let actionContext = null;
+            let transferContext = null;
             let saleContext = null;
             let saleReceiptContext = null;
             let loanContext = null;
@@ -6169,6 +6372,320 @@
                 openMenuContext = null;
             };
 
+            const locationSummaryCache = new Map();
+            const locationSummaryRequests = new Map();
+            const locationKey = (value) => String(value || "").trim().toLowerCase();
+            const locationInputValue = (value) => String(value || "").trim() || "__unassigned__";
+            const locationValue = (value) => value === "__unassigned__" ? "" : String(value || "").trim();
+
+            const fetchLocationSummaries = async (productId) => {
+                const key = String(productId || "").trim();
+                if (!key) return [];
+                if (locationSummaryCache.has(key)) return locationSummaryCache.get(key);
+                if (locationSummaryRequests.has(key)) return locationSummaryRequests.get(key);
+                const request = fetch(`/api/inventory/locations?product_id=${encodeURIComponent(key)}`, {
+                    headers: { Accept: "application/json" },
+                    credentials: "same-origin",
+                })
+                    .then(async (response) => {
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok || !data.ok || !Array.isArray(data.locations)) {
+                            throw new Error(data.error || "No se pudieron cargar las ubicaciones.");
+                        }
+                        locationSummaryCache.set(key, data.locations);
+                        return data.locations;
+                    })
+                    .finally(() => locationSummaryRequests.delete(key));
+                locationSummaryRequests.set(key, request);
+                return request;
+            };
+
+            const availableLocationSummaries = (locations) => (Array.isArray(locations) ? locations : [])
+                .filter((location) => Number(location?.available || 0) > 0);
+
+            const suggestedAllocations = (locations, quantity, initial) => {
+                const target = Math.max(0, Number(quantity) || 0);
+                const entries = availableLocationSummaries(locations);
+                const initialByLocation = new Map();
+                let initialTotal = 0;
+                (Array.isArray(initial) ? initial : []).forEach((allocation) => {
+                    const amount = Number(allocation?.quantity || 0);
+                    if (!(amount > 0)) return;
+                    const key = locationKey(allocation.location);
+                    if (initialByLocation.has(key)) return;
+                    const entry = entries.find((item) => locationKey(item.location) === key);
+                    if (!entry || amount > Number(entry.available || 0)) return;
+                    initialByLocation.set(key, amount);
+                    initialTotal += amount;
+                });
+                if (initialTotal === target && initialByLocation.size > 0) {
+                    return entries
+                        .map((entry) => ({
+                            location: String(entry.location || "").trim(),
+                            quantity: Number(initialByLocation.get(locationKey(entry.location)) || 0),
+                        }))
+                        .filter((allocation) => allocation.quantity > 0);
+                }
+                let remaining = target;
+                return entries.reduce((result, entry) => {
+                    if (remaining <= 0) return result;
+                    const quantityForLocation = Math.min(Number(entry.available || 0), remaining);
+                    if (quantityForLocation > 0) {
+                        result.push({
+                            location: String(entry.location || "").trim(),
+                            quantity: quantityForLocation,
+                        });
+                        remaining -= quantityForLocation;
+                    }
+                    return result;
+                }, []);
+            };
+
+            const allocationTotal = (container) => Array.from(
+                container?.querySelectorAll("[data-allocation-input]") || [],
+            ).reduce((total, input) => total + Math.max(0, Number(input.value) || 0), 0);
+
+            const updateAllocationTotal = (container, totalNode, quantity) => {
+                if (!totalNode) return;
+                const assigned = allocationTotal(container);
+                const target = Math.max(0, Number(quantity) || 0);
+                totalNode.textContent = `Asignado: ${assigned} de ${target}`;
+                totalNode.dataset.invalid = assigned === target ? "false" : "true";
+            };
+
+            const collectLocationAllocations = (container, quantity) => {
+                if (container?.dataset.ready !== "true") {
+                    throw new Error("Espera a que cargue el stock por ubicación.");
+                }
+                const target = Math.max(0, Number(quantity) || 0);
+                const allocations = [];
+                let total = 0;
+                container?.querySelectorAll("[data-allocation-input]").forEach((input) => {
+                    const amount = Math.max(0, Number(input.value) || 0);
+                    if (amount <= 0) return;
+                    const location = locationValue(input.dataset.locationValue);
+                    allocations.push({ location, quantity: amount });
+                    total += amount;
+                });
+                if (total !== target) {
+                    throw new Error(`Distribuye exactamente ${target} unidades entre las ubicaciones.`);
+                }
+                if (target > 0 && allocations.length === 0) {
+                    throw new Error("Selecciona al menos una ubicación de origen.");
+                }
+                return allocations;
+            };
+
+            const renderAllocationEditor = async ({
+                container,
+                rows,
+                totalNode,
+                productId,
+                quantity,
+                initialAllocations,
+            }) => {
+                if (!container || !rows) return;
+                const renderToken = String(Number(container.dataset.renderToken || 0) + 1);
+                container.dataset.renderToken = renderToken;
+                container.dataset.productId = String(productId || "");
+                container.dataset.quantity = String(quantity || 0);
+                container.dataset.ready = "false";
+                container.hidden = false;
+                rows.replaceChildren();
+                const loading = document.createElement("p");
+                loading.className = "location-allocation-loading";
+                loading.textContent = "Cargando stock por ubicación...";
+                rows.appendChild(loading);
+                try {
+                    const locations = await fetchLocationSummaries(productId);
+                    if (container.dataset.renderToken !== renderToken) return;
+                    const entries = availableLocationSummaries(locations);
+                    rows.replaceChildren();
+                    if (!entries.length) {
+                        const empty = document.createElement("p");
+                        empty.className = "location-allocation-error";
+                        empty.textContent = "No hay unidades disponibles en ninguna ubicación.";
+                        rows.appendChild(empty);
+                        container.dataset.ready = "false";
+                        updateAllocationTotal(container, totalNode, quantity);
+                        return;
+                    }
+                    const suggested = suggestedAllocations(locations, quantity, initialAllocations);
+                    const suggestedByLocation = new Map(
+                        suggested.map((allocation) => [locationKey(allocation.location), allocation.quantity]),
+                    );
+                    entries.forEach((entry) => {
+                        const row = document.createElement("div");
+                        row.className = "location-allocation-row";
+                        const label = document.createElement("label");
+                        label.className = "location-allocation-label";
+                        label.textContent = entry.label || "Sin ubicación";
+                        const available = document.createElement("small");
+                        available.textContent = `${Number(entry.available || 0)} disponibles`;
+                        label.appendChild(available);
+                        const input = document.createElement("input");
+                        input.className = "location-allocation-input";
+                        input.type = "number";
+                        input.min = "0";
+                        input.max = String(Number(entry.available || 0));
+                        input.step = "1";
+                        input.value = String(suggestedByLocation.get(locationKey(entry.location)) || 0);
+                        input.dataset.allocationInput = "true";
+                        input.dataset.locationValue = locationInputValue(entry.location);
+                        input.setAttribute("aria-label", `${entry.label || "Sin ubicación"} para ${productId}`);
+                        input.addEventListener("input", () => updateAllocationTotal(container, totalNode, quantity));
+                        row.append(label, input);
+                        rows.appendChild(row);
+                    });
+                    container.dataset.ready = "true";
+                    updateAllocationTotal(container, totalNode, quantity);
+                } catch (error) {
+                    if (container.dataset.renderToken !== renderToken) return;
+                    rows.replaceChildren();
+                    const failure = document.createElement("p");
+                    failure.className = "location-allocation-error";
+                    failure.textContent = error?.message || "No se pudieron cargar las ubicaciones.";
+                    rows.appendChild(failure);
+                    container.dataset.ready = "false";
+                    updateAllocationTotal(container, totalNode, quantity);
+                }
+            };
+
+            const clearAllocationEditor = (container, rows, totalNode) => {
+                if (container) {
+                    container.hidden = true;
+                    container.dataset.renderToken = String(Number(container.dataset.renderToken || 0) + 1);
+                    container.dataset.ready = "false";
+                }
+                rows?.replaceChildren();
+                if (totalNode) {
+                    totalNode.textContent = "";
+                    totalNode.dataset.invalid = "false";
+                }
+            };
+
+            const setTransferError = (msg) => {
+                if (!transferError) return;
+                if (!msg) {
+                    transferError.hidden = true;
+                    transferError.textContent = "";
+                    return;
+                }
+                transferError.hidden = false;
+                transferError.textContent = msg;
+            };
+
+            const transferLocationOptionValue = (location) =>
+                locationInputValue(location);
+
+            const renderTransferTargets = (locations, sourceValue) => {
+                if (!transferTargetLocation) return;
+                const source = locationKey(locationValue(sourceValue));
+                const targets = (Array.isArray(locations) ? locations : [])
+                    .filter((location) => location?.can_receive !== false && location?.active !== false)
+                    .filter((location) => locationKey(location.location) !== source);
+                transferTargetLocation.replaceChildren();
+                if (!targets.length) {
+                    const empty = document.createElement("option");
+                    empty.value = "";
+                    empty.textContent = "No hay destinos disponibles";
+                    transferTargetLocation.appendChild(empty);
+                    transferTargetLocation.disabled = true;
+                    return;
+                }
+                targets.forEach((location, index) => {
+                    const option = document.createElement("option");
+                    option.value = transferLocationOptionValue(location.location);
+                    option.textContent = location.label || "Sin ubicación";
+                    if (index === 0) option.selected = true;
+                    transferTargetLocation.appendChild(option);
+                });
+                transferTargetLocation.disabled = false;
+            };
+
+            const syncTransferSource = () => {
+                if (!transferContext) return;
+                const sourceValue = locationValue(transferSourceLocation?.value || "");
+                const source = (transferContext.locations || []).find(
+                    (location) => locationKey(location.location) === locationKey(sourceValue),
+                );
+                const available = Math.max(0, Number(source?.available || 0));
+                if (transferAvailable) transferAvailable.value = String(available);
+                if (transferQuantity) {
+                    transferQuantity.max = String(Math.max(1, available));
+                    transferQuantity.value = String(
+                        Math.min(Math.max(1, Number(transferQuantity.value || 1)), Math.max(1, available)),
+                    );
+                }
+                renderTransferTargets(transferContext.locations, transferSourceLocation?.value || "");
+                if (transferSubmit) transferSubmit.disabled = available < 1 || !transferTargetLocation?.value;
+            };
+
+            const openTransferModal = async (product) => {
+                if (!product || product.entryType !== "product") return;
+                transferContext = {
+                    productId: product.id,
+                    productName: product.name || "",
+                    locations: [],
+                };
+                setTransferError("");
+                if (transferSubtitle) {
+                    transferSubtitle.textContent = `${product.name} · ID ${product.id}`;
+                }
+                if (transferQuantity) {
+                    transferQuantity.value = "1";
+                    transferQuantity.removeAttribute("max");
+                }
+                if (transferAvailable) transferAvailable.value = "-";
+                if (transferSourceLocation) {
+                    transferSourceLocation.replaceChildren();
+                    const loading = document.createElement("option");
+                    loading.value = "";
+                    loading.textContent = "Cargando ubicaciones...";
+                    transferSourceLocation.appendChild(loading);
+                    transferSourceLocation.disabled = true;
+                }
+                if (transferTargetLocation) {
+                    transferTargetLocation.replaceChildren();
+                    const loading = document.createElement("option");
+                    loading.value = "";
+                    loading.textContent = "Cargando ubicaciones...";
+                    transferTargetLocation.appendChild(loading);
+                    transferTargetLocation.disabled = true;
+                }
+                if (transferNotes) transferNotes.value = "";
+                if (transferSubmit) transferSubmit.disabled = true;
+                openModal(transferModal, `${product.name} · ID ${product.id}`);
+                try {
+                    const locations = await fetchLocationSummaries(product.id);
+                    if (!transferContext || transferContext.productId !== product.id) return;
+                    transferContext.locations = locations;
+                    const sources = availableLocationSummaries(locations);
+                    if (!transferSourceLocation) return;
+                    transferSourceLocation.replaceChildren();
+                    if (!sources.length) {
+                        const empty = document.createElement("option");
+                        empty.value = "";
+                        empty.textContent = "No hay stock disponible";
+                        transferSourceLocation.appendChild(empty);
+                        transferSourceLocation.disabled = true;
+                        setTransferError("No hay unidades disponibles para trasladar.");
+                        return;
+                    }
+                    sources.forEach((location, index) => {
+                        const option = document.createElement("option");
+                        option.value = transferLocationOptionValue(location.location);
+                        option.textContent = `${location.label || "Sin ubicación"} · ${Number(location.available || 0)} disponibles`;
+                        if (index === 0) option.selected = true;
+                        transferSourceLocation.appendChild(option);
+                    });
+                    transferSourceLocation.disabled = false;
+                    syncTransferSource();
+                } catch (error) {
+                    setTransferError(error?.message || "No se pudieron cargar las ubicaciones.");
+                }
+            };
+
             const openActionModal = ({
                 title,
                 subtitle,
@@ -6187,6 +6704,7 @@
                 defaultPrice,
                 retomaEnabled,
                 retomaPrice,
+                useLocationAllocations,
             }) => {
                 actionContext = {
                     endpoint,
@@ -6200,6 +6718,7 @@
                     allowPriceEdit: !!allowPriceEdit,
                     retomaEnabled: !!retomaEnabled,
                     retomaPrice: Number(retomaPrice || 0),
+                    useLocationAllocations: !!useLocationAllocations,
                 };
                 if (actionTitle) actionTitle.textContent = title;
                 if (actionNoteLabel)
@@ -6249,6 +6768,21 @@
                         );
                     }
                 }
+                if (actionContext.useLocationAllocations) {
+                    renderAllocationEditor({
+                        container: actionLocationAllocation,
+                        rows: actionLocationAllocationRows,
+                        totalNode: actionLocationAllocationTotal,
+                        productId,
+                        quantity: Number(actionQty?.value || defaultQty || 1),
+                    });
+                } else {
+                    clearAllocationEditor(
+                        actionLocationAllocation,
+                        actionLocationAllocationRows,
+                        actionLocationAllocationTotal,
+                    );
+                }
                 if (actionDeleteProduct) {
                     actionDeleteProduct.hidden =
                         actionContext.mode !== "adjust_stock";
@@ -6257,7 +6791,7 @@
                 if (actionSubmit) actionSubmit.disabled = false;
                 setActionError("");
                 openModal(actionModal, subtitle);
-                if (actionSubtitle) {
+             if (actionSubtitle) {
                     actionSubtitle.title =
                         actionContext.mode === "adjust_stock"
                             ? actionSubtitleHint
@@ -6293,10 +6827,22 @@
                     if (actionSubtitle) {
                         actionSubtitle.textContent = `${updated} · ID ${actionContext.productId}`;
                     }
-                });
-            }
+                 });
+             }
+             if (actionQty) {
+                 actionQty.addEventListener("change", () => {
+                     if (!actionContext?.useLocationAllocations) return;
+                     renderAllocationEditor({
+                         container: actionLocationAllocation,
+                         rows: actionLocationAllocationRows,
+                         totalNode: actionLocationAllocationTotal,
+                         productId: actionContext.productId,
+                         quantity: Number(actionQty.value || 1),
+                     });
+                 });
+             }
 
-            const setSaleError = (msg) => {
+             const setSaleError = (msg) => {
                 if (!saleError) return;
                 if (!msg) {
                     saleError.hidden = true;
@@ -6411,8 +6957,15 @@
                             Math.max(1, defaultQty || 1),
                             Math.max(1, maxQty),
                         ),
-                    );
+                        );
                 }
+                renderAllocationEditor({
+                    container: saleLocationAllocation,
+                    rows: saleLocationAllocationRows,
+                    totalNode: saleLocationAllocationTotal,
+                    productId,
+                    quantity: Number(saleQty?.value || defaultQty || 1),
+                });
                 if (saleCreditToggle) saleCreditToggle.checked = false;
                 if (salePrice) salePrice.value = "";
                 if (saleFinal) saleFinal.value = "";
@@ -6604,32 +7157,61 @@
                  refreshAggregateProductStatus(product);
              };
 
-             const applySaleLocally = ({ productId, quantity }) => {
-                 const product = productsById.get(productId);
-                 if (
-                     !product ||
+              const applySaleLocally = ({ productId, quantity, allocations }) => {
+                  const product = productsById.get(productId);
+                  if (
+                      !product ||
                      product.entryType !== "product" ||
                      !Number.isFinite(quantity) ||
                      quantity <= 0
                  )
-                     return;
-                 if (product.unitsLoaded && Array.isArray(product.units)) {
-                     let remaining = quantity;
-                     product.units.forEach((unit) => {
-                         if (remaining < 1 || !isAvailableUnit(unit)) return;
-                         unit.statusClass = "sold";
-                         unit.statusLabel = "Vendido";
-                         unit.fifo = "-";
-                         remaining -= 1;
-                     });
-                     refreshProductStatus(product);
-                 } else {
-                     product.available = Math.max(0, Number(product.available || 0) - quantity);
-                     product.soldUnits = Number(product.soldUnits || 0) + quantity;
-                     refreshAggregateProductStatus(product);
-                 }
-                 applyFilters();
-             };
+                      return;
+                  if (product.unitsLoaded && Array.isArray(product.units)) {
+                      const byLocation = new Map();
+                      let allocationTotal = 0;
+                      (Array.isArray(allocations) ? allocations : []).forEach((allocation) => {
+                          const amount = Math.max(0, Number(allocation?.quantity) || 0);
+                          if (amount <= 0) return;
+                          const key = locationKey(allocation?.location);
+                          byLocation.set(key, (byLocation.get(key) || 0) + amount);
+                          allocationTotal += amount;
+                      });
+                      const useAllocations = allocationTotal === quantity && byLocation.size > 0;
+                      let remaining = quantity;
+                      const markSold = (unit) => {
+                          unit.statusClass = "sold";
+                          unit.statusLabel = "Vendido";
+                          unit.fifo = "-";
+                          remaining -= 1;
+                      };
+                      product.units.forEach((unit) => {
+                          if (remaining < 1 || !isAvailableUnit(unit)) return;
+                          if (!useAllocations) {
+                              markSold(unit);
+                              return;
+                          }
+                          const key = locationKey(unit.location);
+                          const availableForLocation = Number(byLocation.get(key) || 0);
+                          if (availableForLocation < 1) return;
+                          byLocation.set(key, availableForLocation - 1);
+                          markSold(unit);
+                      });
+                      // Keep aggregate counts correct if the loaded unit list became stale concurrently.
+                      if (remaining > 0) {
+                          product.units.forEach((unit) => {
+                              if (remaining < 1 || !isAvailableUnit(unit)) return;
+                              markSold(unit);
+                          });
+                      }
+                      refreshProductStatus(product);
+                  } else {
+                      product.available = Math.max(0, Number(product.available || 0) - quantity);
+                      product.soldUnits = Number(product.soldUnits || 0) + quantity;
+                      refreshAggregateProductStatus(product);
+                  }
+                  locationSummaryCache.delete(String(productId));
+                  applyFilters();
+              };
 
             const showSaleSuccess = ({
                 saleMode,
@@ -6766,6 +7348,13 @@
                 if (productLoanDueAt) productLoanDueAt.value = "";
                 if (productLoanNotes) productLoanNotes.value = "";
                 if (productLoanSubmit) productLoanSubmit.disabled = maxQty < 1;
+                renderAllocationEditor({
+                    container: productLoanLocationAllocation,
+                    rows: productLoanLocationAllocationRows,
+                    totalNode: productLoanLocationAllocationTotal,
+                    productId: product.id,
+                    quantity: 1,
+                });
                 openModal(
                     productLoanModal,
                     `${product.name} · ID ${product.id}`,
@@ -7128,6 +7717,41 @@
                 loanProductId.disabled = entries.length === 0;
             };
 
+            const refreshProductCreditAllocations = () => {
+                if (loanContext?.kind !== "product_credit") {
+                    clearAllocationEditor(
+                        loanLocationAllocation,
+                        loanLocationAllocationRows,
+                        loanLocationAllocationTotal,
+                    );
+                    return;
+                }
+                const product = selectedLoanProduct();
+                if (!product) {
+                    clearAllocationEditor(
+                        loanLocationAllocation,
+                        loanLocationAllocationRows,
+                        loanLocationAllocationTotal,
+                    );
+                    return;
+                }
+                let initialAllocations = [];
+                try {
+                    initialAllocations = collectLocationAllocations(
+                        loanLocationAllocation,
+                        Number(loanQty?.value || 1),
+                    );
+                } catch (_) {}
+                renderAllocationEditor({
+                    container: loanLocationAllocation,
+                    rows: loanLocationAllocationRows,
+                    totalNode: loanLocationAllocationTotal,
+                    productId: product.id,
+                    quantity: Number(loanQty?.value || 1),
+                    initialAllocations,
+                });
+            };
+
             const syncLoanProductSummary = () => {
                 const product = selectedLoanProduct();
                 const available = Math.max(0, Number(product?.available || 0));
@@ -7247,6 +7871,11 @@
                 if (loanNotes) loanNotes.value = "";
                 if (loanSubmit) loanSubmit.disabled = false;
                 if (loanTotalValue) loanTotalValue.dataset.manual = "0";
+                clearAllocationEditor(
+                    loanLocationAllocation,
+                    loanLocationAllocationRows,
+                    loanLocationAllocationTotal,
+                );
                 if (loanSubtitle) {
                     loanSubtitle.textContent = "Crédito o préstamo.";
                 }
@@ -7261,6 +7890,7 @@
                 resetLoanModalState();
                 loanContext.kind = kind;
                 syncLoanKindUI();
+                refreshProductCreditAllocations();
                 openModal(
                     loanModal,
                     "Crédito o préstamo.",
@@ -7401,12 +8031,23 @@
                     "input",
                     syncCreditTotalFromSalePrice,
                 );
-            if (saleFinal)
-                saleFinal.addEventListener(
-                    "input",
-                    syncCreditTotalFromSalePrice,
-                );
-            if (loanOpen) {
+             if (saleFinal)
+                 saleFinal.addEventListener(
+                     "input",
+                     syncCreditTotalFromSalePrice,
+                 );
+             if (saleQty) {
+                 saleQty.addEventListener("change", () => {
+                     renderAllocationEditor({
+                         container: saleLocationAllocation,
+                         rows: saleLocationAllocationRows,
+                         totalNode: saleLocationAllocationTotal,
+                         productId: saleContext?.productId,
+                         quantity: Number(saleQty.value || 1),
+                     });
+                 });
+             }
+             if (loanOpen) {
                 loanOpen.addEventListener("click", (event) => {
                     if (
                         event.button !== 0 ||
@@ -7478,15 +8119,17 @@
                     if (!loanContext) loanContext = { kind: "cash_loan" };
                     loanContext.kind =
                         button.dataset.creditKind || "cash_loan";
-                    if (loanTotalValue) loanTotalValue.dataset.manual = "0";
-                    syncLoanKindUI();
-                });
+                     if (loanTotalValue) loanTotalValue.dataset.manual = "0";
+                     syncLoanKindUI();
+                     refreshProductCreditAllocations();
+                 });
             });
             if (loanProductId) {
                 loanProductId.addEventListener("change", () => {
                     if (loanTotalValue) loanTotalValue.dataset.manual = "0";
                     syncLoanProductSummary();
                     syncLoanTotalFromProduct();
+                    refreshProductCreditAllocations();
                 });
             }
             if (loanQty) {
@@ -7495,6 +8138,7 @@
                     syncLoanProductSummary();
                     syncLoanTotalFromProduct();
                 });
+                loanQty.addEventListener("change", refreshProductCreditAllocations);
             }
             if (loanInstallmentsTotal) {
                 loanInstallmentsTotal.addEventListener(
@@ -7831,7 +8475,7 @@
                 );
             }
 
-            if (productLoanForm) {
+             if (productLoanForm) {
                 productLoanForm.addEventListener("submit", async (event) => {
                     event.preventDefault();
                     if (!productLoanContext) return;
@@ -7869,13 +8513,25 @@
                         return;
                     }
 
+                    let allocations;
+                    try {
+                        allocations = collectLocationAllocations(
+                            productLoanLocationAllocation,
+                            qty,
+                        );
+                    } catch (error) {
+                        setProductLoanError(error?.message || "Distribuye las unidades por ubicación.");
+                        return;
+                    }
+
                     if (productLoanSubmit) productLoanSubmit.disabled = true;
                     setProductLoanError("");
                     try {
                         const body = new URLSearchParams({
-                            producto_id: String(productLoanContext.productId),
-                            cantidad: String(qty),
-                            customer_id: String(
+                             producto_id: String(productLoanContext.productId),
+                             cantidad: String(qty),
+                             allocations_json: JSON.stringify(allocations),
+                             customer_id: String(
                                 productLoanCustomerId?.value || "",
                             ).trim(),
                             customer_name: String(
@@ -7929,10 +8585,22 @@
                         if (productLoanSubmit)
                             productLoanSubmit.disabled = false;
                     }
-                });
-            }
+                 });
+             }
+             if (productLoanQty) {
+                 productLoanQty.addEventListener("change", () => {
+                     if (!productLoanContext) return;
+                     renderAllocationEditor({
+                         container: productLoanLocationAllocation,
+                         rows: productLoanLocationAllocationRows,
+                         totalNode: productLoanLocationAllocationTotal,
+                         productId: productLoanContext.productId,
+                         quantity: Number(productLoanQty.value || 1),
+                     });
+                 });
+             }
 
-            if (productLoanCloseForm) {
+             if (productLoanCloseForm) {
                 productLoanCloseForm.addEventListener(
                     "submit",
                     async (event) => {
@@ -8159,7 +8827,79 @@
                 }
             };
 
-            if (actionForm) {
+             if (transferSourceLocation) {
+                 transferSourceLocation.addEventListener("change", syncTransferSource);
+             }
+             if (transferTargetLocation) {
+                 transferTargetLocation.addEventListener("change", () => {
+                     if (transferSubmit) {
+                         transferSubmit.disabled =
+                             !transferTargetLocation.value ||
+                             Number(transferAvailable?.value || 0) < 1;
+                     }
+                 });
+             }
+             if (transferQuantity) {
+                 transferQuantity.addEventListener("input", () => {
+                     const max = Number(transferQuantity.max || 0);
+                     if (max > 0 && Number(transferQuantity.value || 0) > max) {
+                         transferQuantity.value = String(max);
+                     }
+                 });
+             }
+             if (transferForm) {
+                 transferForm.addEventListener("submit", async (event) => {
+                     event.preventDefault();
+                     if (!transferContext) return;
+                     const quantity = parseInt(transferQuantity?.value || "0", 10);
+                     const sourceLocation = locationValue(transferSourceLocation?.value || "");
+                     const targetLocation = locationValue(transferTargetLocation?.value || "");
+                     if (!Number.isInteger(quantity) || quantity < 1) {
+                         setTransferError("Ingresa una cantidad válida.");
+                         return;
+                     }
+                     if (!targetLocation || locationKey(sourceLocation) === locationKey(targetLocation)) {
+                         setTransferError("Selecciona una ubicación destino diferente al origen.");
+                         return;
+                     }
+                     const available = Number(transferAvailable?.value || 0);
+                     if (quantity > available) {
+                         setTransferError("La cantidad supera el stock disponible en el origen.");
+                         return;
+                     }
+                     if (transferSubmit) transferSubmit.disabled = true;
+                     setTransferError("");
+                     try {
+                         const response = await fetch("/api/inventory/transfer", {
+                             method: "POST",
+                             headers: {
+                                 "Content-Type": "application/json",
+                                 Accept: "application/json",
+                             },
+                             credentials: "same-origin",
+                             body: JSON.stringify({
+                                 product_id: transferContext.productId,
+                                 source_location: sourceLocation,
+                                 target_location: targetLocation,
+                                 quantity,
+                                 notes: String(transferNotes?.value || "").trim(),
+                             }),
+                         });
+                         const data = await response.json().catch(() => ({}));
+                         if (!response.ok || !data.ok) {
+                             throw new Error(data.error || "No se pudo trasladar el inventario.");
+                         }
+                         locationSummaryCache.delete(String(transferContext.productId));
+                         closeModal(transferModal);
+                         window.location.href = `/inventario?mensaje=${encodeURIComponent(data.message || "Inventario trasladado correctamente.")}`;
+                     } catch (error) {
+                         setTransferError(error?.message || "No se pudo trasladar el inventario.");
+                         if (transferSubmit) transferSubmit.disabled = false;
+                     }
+                 });
+             }
+
+             if (actionForm) {
                 actionForm.addEventListener("submit", async (event) => {
                     event.preventDefault();
                     if (!actionContext) return;
@@ -8199,25 +8939,44 @@
                         setActionError("Cantidad inválida.");
                         return;
                     }
-                    if (
-                        !isAdjustMode &&
-                        (!Number.isFinite(actionContext.maxQty) ||
+                     if (
+                         !isAdjustMode &&
+                         (!Number.isFinite(actionContext.maxQty) ||
                             qty > actionContext.maxQty)
                     ) {
                         setActionError("Cantidad inválida.");
-                        return;
-                    }
+                         return;
+                     }
 
-                    const note = (actionNote?.value || "").trim();
+                     let allocations = [];
+                     if (actionContext.useLocationAllocations) {
+                         try {
+                             allocations = collectLocationAllocations(
+                                 actionLocationAllocation,
+                                 qty,
+                             );
+                         } catch (error) {
+                             setActionError(
+                                 error?.message ||
+                                     "Distribuye las unidades por ubicación.",
+                             );
+                             return;
+                         }
+                     }
+
+                     const note = (actionNote?.value || "").trim();
                     if (actionSubmit) actionSubmit.disabled = true;
                     setActionError("");
 
                     try {
-                        const body = new URLSearchParams({
-                            producto_id: actionContext.productId,
-                            cantidad: String(qty),
-                            nota: note || "",
-                        });
+                         const body = new URLSearchParams({
+                             producto_id: actionContext.productId,
+                             cantidad: String(qty),
+                             nota: note || "",
+                         });
+                         if (actionContext.useLocationAllocations) {
+                             body.set("allocations_json", JSON.stringify(allocations));
+                         }
                         if (
                             isAdjustMode &&
                             String(actionContext.editedProductName || "").trim()
@@ -8504,8 +9263,8 @@
                             setSaleError("Ingresa un valor por cuota válido.");
                             return;
                         }
-                    } else {
-                        if (
+                     } else {
+                         if (
                             !hasFinal &&
                             (!price ||
                                 !Number.isFinite(parsedPrice) ||
@@ -8517,10 +9276,24 @@
                         if (!method) {
                             setSaleError("Selecciona un método de pago.");
                             return;
-                        }
-                    }
+                         }
+                     }
 
-                    if (saleSubmit) saleSubmit.disabled = true;
+                     let allocations;
+                     try {
+                         allocations = collectLocationAllocations(
+                             saleLocationAllocation,
+                             qty,
+                         );
+                     } catch (error) {
+                         setSaleError(
+                             error?.message ||
+                                 "Distribuye las unidades por ubicación.",
+                         );
+                         return;
+                     }
+
+                     if (saleSubmit) saleSubmit.disabled = true;
                     setSaleError("");
 
                     try {
@@ -8535,9 +9308,10 @@
                             valor_venta_final: hasFinal
                                 ? String(parsedFinalValue)
                                 : "",
-                            metodo_pago: method,
-                            notas: notes,
-                        });
+                             metodo_pago: method,
+                             notas: notes,
+                         });
+                         body.set("allocations_json", JSON.stringify(allocations));
                         if (saleMode === "credit") {
                             body.set(
                                 "customer_id",
@@ -8588,10 +9362,11 @@
                             );
                         }
 
-                        applySaleLocally({
-                            productId: saleContext.productId,
-                            quantity: qty,
-                        });
+                         applySaleLocally({
+                             productId: saleContext.productId,
+                             quantity: qty,
+                             allocations,
+                         });
                         showSaleSuccess({
                             saleMode,
                             message:
@@ -8634,6 +9409,7 @@
                         1,
                         parseInt(loanQty?.value || "1", 10) || 1,
                     );
+                    let allocations = [];
 
                     const customerName = String(
                         loanCustomerName?.value || "",
@@ -8674,13 +9450,25 @@
                             setLoanError("Selecciona un producto válido.");
                             return;
                         }
-                        if (
-                            !Number.isFinite(quantity) ||
+                         if (
+                             !Number.isFinite(quantity) ||
                             quantity < 1 ||
                             quantity > Number(selectedProduct.available || 0)
                         ) {
                             setLoanError(
                                 "Ingresa una cantidad válida para el producto seleccionado.",
+                             );
+                             return;
+                         }
+                        try {
+                            allocations = collectLocationAllocations(
+                                loanLocationAllocation,
+                                quantity,
+                            );
+                        } catch (error) {
+                            setLoanError(
+                                error?.message ||
+                                    "Distribuye las unidades por ubicación.",
                             );
                             return;
                         }
@@ -8765,9 +9553,11 @@
                                     kind === "product_credit"
                                         ? selectedProduct?.id || ""
                                         : "",
-                                quantity:
-                                    kind === "product_credit" ? quantity : 1,
-                                customer_name: customerName,
+                                 quantity:
+                                     kind === "product_credit" ? quantity : 1,
+                                allocations:
+                                    kind === "product_credit" ? allocations : [],
+                                 customer_name: customerName,
                                 customer_phone: customerPhone,
                                 customer_document_type: customerDocumentType,
                                 customer_document_number:
@@ -9378,10 +10168,15 @@
                     const defaultQty =
                         parseInt(qtyInput?.value || "1", 10) || 1;
 
-                    // Close any open menu before running the action.
-                    closeOpenMenuPanels();
+                     // Close any open menu before running the action.
+                     closeOpenMenuPanels();
 
-                    if (action === "reserve") {
+                     if (action === "transfer") {
+                         openTransferModal(product);
+                         return;
+                     }
+
+                     if (action === "reserve") {
                         if (
                             !product ||
                             !Number.isFinite(maxQty) ||
@@ -9397,9 +10192,10 @@
                                 maxQty: 0,
                                 defaultQty: 1,
                                 noteLabel: "Nota (opcional)",
-                                notePlaceholder:
-                                    "Ej: apartadas para cliente Juan.",
-                            });
+                                 notePlaceholder:
+                                     "Ej: apartadas para cliente Juan.",
+                                 useLocationAllocations: true,
+                             });
                             setActionError(
                                 "No hay unidades disponibles para reservar.",
                             );
@@ -9414,9 +10210,10 @@
                             productName: product.name,
                             maxQty,
                             defaultQty,
-                            noteLabel: "Nota (opcional)",
-                            notePlaceholder: "Ej: apartadas para cliente Juan.",
-                        });
+                             noteLabel: "Nota (opcional)",
+                             notePlaceholder: "Ej: apartadas para cliente Juan.",
+                             useLocationAllocations: true,
+                         });
                         return;
                     }
                     if (action === "damage") {
@@ -9435,9 +10232,10 @@
                                 maxQty: 0,
                                 defaultQty: 1,
                                 noteLabel: "Descripción del daño (opcional)",
-                                notePlaceholder:
-                                    "Ej: empaque roto, derrame, vencido, etc.",
-                            });
+                                 notePlaceholder:
+                                     "Ej: empaque roto, derrame, vencido, etc.",
+                                 useLocationAllocations: true,
+                             });
                             setActionError(
                                 "No hay unidades disponibles para marcar como dañadas.",
                             );
@@ -9453,9 +10251,10 @@
                             maxQty,
                             defaultQty,
                             noteLabel: "Descripción del daño (opcional)",
-                            notePlaceholder:
-                                "Ej: empaque roto, derrame, vencido, etc.",
-                        });
+                             notePlaceholder:
+                                 "Ej: empaque roto, derrame, vencido, etc.",
+                             useLocationAllocations: true,
+                         });
                         return;
                     }
                     if (action === "retoma") {

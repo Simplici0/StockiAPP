@@ -404,15 +404,22 @@ type invoiceSourceSnapshot struct {
 }
 
 type saleItemPayload struct {
-	ProductID string   `json:"product_id"`
-	Quantity  int      `json:"quantity"`
-	UnitPrice *float64 `json:"unit_price"`
+	ProductID   string                     `json:"product_id"`
+	Quantity    int                        `json:"quantity"`
+	UnitPrice   *float64                   `json:"unit_price"`
+	Allocations []inventoryAllocationInput `json:"allocations"`
 }
 
 type saleItemInput struct {
-	ProductID string
-	Quantity  int
-	UnitPrice *float64
+	ProductID   string
+	Quantity    int
+	UnitPrice   *float64
+	Allocations []inventoryAllocationInput
+}
+
+type inventoryAllocationInput struct {
+	Location string `json:"location"`
+	Quantity int    `json:"quantity"`
 }
 
 type saleItemRecord struct {
@@ -433,7 +440,8 @@ type saleCreateResult struct {
 }
 
 type unitOption struct {
-	ID string
+	ID       string
+	Location string
 }
 
 type productOption struct {
@@ -977,6 +985,7 @@ func sanitizeCustomerCSVText(value string) string {
 
 type inventoryUnit struct {
 	ID          string
+	Location    string
 	Estado      string
 	EstadoClass string
 	CreadoEn    string
@@ -1325,11 +1334,13 @@ const (
 )
 
 type productLoanCreateInput struct {
-	ProductID string
-	Quantity  int
-	Customer  customerInput
-	DueAt     string
-	Notes     string
+	ProductID      string
+	Quantity       int
+	SourceLocation string
+	Allocations    []inventoryAllocationInput
+	Customer       customerInput
+	DueAt          string
+	Notes          string
 }
 
 type productLoanCloseInput struct {
@@ -1549,9 +1560,10 @@ type databaseConfig struct {
 }
 
 var (
-	errInsufficientStock    = fmt.Errorf("stock insuficiente")
-	errMissingTenantContext = fmt.Errorf("tenant context required")
-	errProductSKUConflict   = fmt.Errorf("product sku conflict")
+	errInsufficientStock          = fmt.Errorf("stock insuficiente")
+	errAmbiguousInventoryLocation = fmt.Errorf("ubicación de inventario ambigua")
+	errMissingTenantContext       = fmt.Errorf("tenant context required")
+	errProductSKUConflict         = fmt.Errorf("product sku conflict")
 
 	businessSettingsMu sync.RWMutex
 	businessSettings   = defaultBusinessSettings()
@@ -1965,7 +1977,11 @@ func apiKeyRequestAllowed(r *http.Request) bool {
 		return true
 	case r.Method == http.MethodGet && path == "/api/inventory":
 		return true
+	case r.Method == http.MethodGet && path == "/api/inventory/locations":
+		return true
 	case r.Method == http.MethodPost && path == "/api/inventory/adjust":
+		return true
+	case r.Method == http.MethodPost && path == "/api/inventory/transfer":
 		return true
 	case r.Method == http.MethodGet && path == "/api/sales/recent":
 		return true
@@ -2417,6 +2433,19 @@ func resolveProductRefForTenant(db *sql.DB, tenantID int, productID string) (str
 		return "", "", err
 	}
 	return record.SKU, record.VisibleID, nil
+}
+
+func loadProductDefaultLocation(exec sqlQueryExecer, tenantID int, productSKU string) (string, error) {
+	var location string
+	if err := exec.QueryRow(`
+		SELECT COALESCE(location, '')
+		FROM productos
+		WHERE tenant_id = ? AND sku = ?
+		LIMIT 1
+	`, normalizeTenantID(tenantID), strings.TrimSpace(productSKU)).Scan(&location); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(location), nil
 }
 
 func resolveVisibleProductIDBySKUForTenant(db *sql.DB, tenantID int, sku string) (string, error) {
@@ -2875,9 +2904,9 @@ func duplicateProductForUser(db *sql.DB, currentUser *User, sourceID string, inp
 	for index := 0; index < input.Quantity; index++ {
 		unitID := fmt.Sprintf("U-%s-%d", internalSKU, baseID+int64(index))
 		if _, err := tx.Exec(`
-			INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad)
-			VALUES (?, ?, ?, 'Disponible', ?, NULL)
-		`, unitID, tenantID, internalSKU, now); err != nil {
+			INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location)
+			VALUES (?, ?, ?, 'Disponible', ?, NULL, ?)
+		`, unitID, tenantID, internalSKU, now, locationName); err != nil {
 			return duplicateProductResult{}, err
 		}
 		createdUnitIDs = append(createdUnitIDs, unitID)
@@ -4354,7 +4383,7 @@ func loadInventoryUnitsByProductIDs(db sqlQueryRunner, tenantID int, productIDs 
 	}
 
 	rows, err := db.Query(`
-		SELECT producto_id, id, estado, creado_en, caducidad
+		SELECT producto_id, id, COALESCE(location, ''), estado, creado_en, caducidad
 		FROM unidades
 		WHERE tenant_id = ? AND producto_id IN (`+strings.Join(placeholders, ",")+`)
 		ORDER BY producto_id ASC, creado_en ASC, id ASC
@@ -4368,11 +4397,12 @@ func loadInventoryUnitsByProductIDs(db sqlQueryRunner, tenantID int, productIDs 
 		var (
 			productID string
 			id        string
+			location  string
 			estado    string
 			creadoEn  string
 			caducidad sql.NullString
 		)
-		if err := rows.Scan(&productID, &id, &estado, &creadoEn, &caducidad); err != nil {
+		if err := rows.Scan(&productID, &id, &location, &estado, &creadoEn, &caducidad); err != nil {
 			return nil, nil, err
 		}
 		stats := statsByProduct[productID]
@@ -4402,6 +4432,7 @@ func loadInventoryUnitsByProductIDs(db sqlQueryRunner, tenantID int, productIDs 
 		statsByProduct[productID] = stats
 		unitsByProduct[productID] = append(unitsByProduct[productID], inventoryUnit{
 			ID:          id,
+			Location:    strings.TrimSpace(location),
 			Estado:      estado,
 			EstadoClass: estadoClass(estado),
 			CreadoEn:    formatDateWithSettings(creadoEn),
@@ -4447,7 +4478,14 @@ func loadEditedProductInventoryState(exec sqlQueryRunner, tenantID int, productS
 	units := make([]map[string]any, 0, len(unitsByProduct[productSKU]))
 	for _, unit := range unitsByProduct[productSKU] {
 		units = append(units, map[string]any{
-			"id":          unit.ID,
+			"id":       unit.ID,
+			"location": unit.Location,
+			"locationLabel": func() string {
+				if unit.Location == "" {
+					return "Sin ubicación"
+				}
+				return unit.Location
+			}(),
 			"created":     unit.CreadoEn,
 			"expires":     unit.Caducidad,
 			"statusClass": unit.EstadoClass,
@@ -4754,7 +4792,14 @@ func inventoryUnitPayload(units []inventoryUnit) []map[string]any {
 	items := make([]map[string]any, 0, len(units))
 	for _, unit := range units {
 		items = append(items, map[string]any{
-			"id":          unit.ID,
+			"id":       unit.ID,
+			"location": unit.Location,
+			"locationLabel": func() string {
+				if unit.Location == "" {
+					return "Sin ubicación"
+				}
+				return unit.Location
+			}(),
 			"created":     unit.CreadoEn,
 			"expires":     unit.Caducidad,
 			"statusClass": unit.EstadoClass,
@@ -4832,7 +4877,7 @@ func handleInventoryProductUnits(db *sql.DB) http.HandlerFunc {
 				return
 			}
 			rows, err := db.Query(`
-				SELECT u.id, u.estado, u.creado_en, u.caducidad
+				SELECT u.id, COALESCE(u.location, ''), u.estado, u.creado_en, u.caducidad
 				FROM product_loan_units plu
 				JOIN unidades u
 				  ON u.tenant_id = plu.tenant_id AND u.id = plu.unit_id
@@ -4885,21 +4930,208 @@ func handleInventoryProductUnits(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+type inventoryLocationSummary struct {
+	Location   string `json:"location"`
+	Label      string `json:"label"`
+	Active     bool   `json:"active"`
+	CanReceive bool   `json:"can_receive"`
+	Total      int    `json:"total"`
+	Available  int    `json:"available"`
+	Reserved   int    `json:"reserved"`
+	Loaned     int    `json:"loaned"`
+	Swapped    int    `json:"swapped"`
+	Damaged    int    `json:"damaged"`
+	Sold       int    `json:"sold"`
+}
+
+func loadInventoryLocationSummaries(db *sql.DB, tenantID int, productSKU string) ([]inventoryLocationSummary, error) {
+	tenantID = normalizeTenantID(tenantID)
+	productSKU = strings.TrimSpace(productSKU)
+	type locationAccumulator struct {
+		inventoryLocationSummary
+	}
+	byKey := map[string]*locationAccumulator{}
+	ensure := func(rawLocation string) *locationAccumulator {
+		location := normalizeInventoryLocation(rawLocation)
+		key := strings.ToLower(location)
+		if item, ok := byKey[key]; ok {
+			return item
+		}
+		label := location
+		if label == "" {
+			label = "Sin ubicación"
+		}
+		item := &locationAccumulator{
+			inventoryLocationSummary: inventoryLocationSummary{
+				Location:   location,
+				Label:      label,
+				Active:     false,
+				CanReceive: false,
+			},
+		}
+		byKey[key] = item
+		return item
+	}
+
+	// Keep unassigned units visible even when the tenant has no catalog entry for them.
+	ensure("")
+	rows, err := db.Query(`
+		SELECT COALESCE(location, ''), estado, COUNT(*)
+		FROM unidades
+		WHERE tenant_id = ? AND producto_id = ?
+		GROUP BY COALESCE(location, ''), estado
+	`, tenantID, productSKU)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var rawLocation, status string
+		var count int
+		if err := rows.Scan(&rawLocation, &status, &count); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		item := ensure(rawLocation)
+		item.Total += count
+		switch status {
+		case "Disponible", "available":
+			item.Available += count
+		case "Reservada", "reserved":
+			item.Reserved += count
+		case "Prestada", "Prestado", "loaned":
+			item.Loaned += count
+		case "Cambio", "swapped":
+			item.Swapped += count
+		case "Danada", "Dañada", "damaged":
+			item.Damaged += count
+		case "Vendida", "Vendido", "sold":
+			item.Sold += count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	locationRows, err := db.Query(`
+		SELECT name, active
+		FROM business_locations
+		WHERE tenant_id = ?
+		ORDER BY LOWER(name) ASC, id ASC
+	`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for locationRows.Next() {
+		var name string
+		var active int
+		if err := locationRows.Scan(&name, &active); err != nil {
+			locationRows.Close()
+			return nil, err
+		}
+		location := normalizeInventoryLocation(name)
+		item := ensure(location)
+		item.Location = location
+		item.Label = location
+		if item.Label == "" {
+			item.Label = "Sin ubicación"
+		}
+		item.Active = active == 1 && item.Location != ""
+		item.CanReceive = item.Active && item.Location != ""
+	}
+	if err := locationRows.Err(); err != nil {
+		locationRows.Close()
+		return nil, err
+	}
+	locationRows.Close()
+
+	items := make([]inventoryLocationSummary, 0, len(byKey))
+	for _, item := range byKey {
+		items = append(items, item.inventoryLocationSummary)
+	}
+	sort.SliceStable(items, func(left, right int) bool {
+		if items[left].Location == "" {
+			return true
+		}
+		if items[right].Location == "" {
+			return false
+		}
+		return strings.ToLower(items[left].Label) < strings.ToLower(items[right].Label)
+	})
+	return items, nil
+}
+
+func handleAPIInventoryLocations(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		currentUser := userFromContext(r)
+		tenantID, err := tenantIDFromUserStrict(currentUser)
+		if err != nil {
+			writeAPIError(w, http.StatusForbidden, "No autorizado.", nil)
+			return
+		}
+		productID := strings.TrimSpace(r.URL.Query().Get("product_id"))
+		if productID == "" {
+			productID = strings.TrimSpace(r.URL.Query().Get("producto_id"))
+		}
+		if productID == "" {
+			writeAPIError(w, http.StatusBadRequest, "Producto inválido.", map[string]string{"product_id": "Selecciona un producto válido."})
+			return
+		}
+		productSKU, visibleID, err := resolveProductRefForTenant(db, tenantID, productID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				writeAPIError(w, http.StatusNotFound, "Producto no encontrado.", nil)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo resolver el producto.", nil)
+			return
+		}
+		allowed, err := productAccessibleByID(db, currentUser, visibleID)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo validar el acceso al producto.", nil)
+			return
+		}
+		if !allowed {
+			writeAPIError(w, http.StatusForbidden, "No tienes acceso a este producto.", nil)
+			return
+		}
+		locations, err := loadInventoryLocationSummaries(db, tenantID, productSKU)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudieron consultar las ubicaciones del producto.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok":          true,
+			"product_id":  visibleID,
+			"product_sku": productSKU,
+			"locations":   locations,
+			"count":       len(locations),
+		})
+	}
+}
+
 func scanInventoryUnits(rows *sql.Rows) ([]inventoryUnit, error) {
 	defer rows.Close()
 	units := make([]inventoryUnit, 0)
 	for rows.Next() {
 		var (
 			unitID    string
+			location  string
 			estado    string
 			creadoEn  string
 			caducidad sql.NullString
 		)
-		if err := rows.Scan(&unitID, &estado, &creadoEn, &caducidad); err != nil {
+		if err := rows.Scan(&unitID, &location, &estado, &creadoEn, &caducidad); err != nil {
 			return nil, err
 		}
 		units = append(units, inventoryUnit{
 			ID:          unitID,
+			Location:    strings.TrimSpace(location),
 			Estado:      estado,
 			EstadoClass: estadoClass(estado),
 			CreadoEn:    formatDateWithSettings(creadoEn),
@@ -5373,6 +5605,8 @@ type cambioFormData struct {
 	Title               string
 	Subtitle            string
 	ProductoID          string
+	SourceLocation      string
+	AllocationsJSON     string
 	Productos           []productOption
 	Unidades            []unitOption
 	PersonaCambio       string
@@ -6834,6 +7068,7 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 	}
 
 	input.ProductID = strings.TrimSpace(input.ProductID)
+	input.SourceLocation = strings.TrimSpace(input.SourceLocation)
 	input.Quantity = max(input.Quantity, 1)
 	input.Notes = strings.TrimSpace(input.Notes)
 	input.DueAt = strings.TrimSpace(input.DueAt)
@@ -6873,10 +7108,17 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 	if err != nil {
 		return productLoanOperationResult{}, err
 	}
-	unitIDs, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), visibleID, input.Quantity, "Prestada")
+	allocations := input.Allocations
+	if len(allocations) == 0 {
+		allocations = singleInventoryAllocation(input.SourceLocation, input.Quantity)
+	}
+	unitIDs, err := selectAndMarkUnitsByStatusWithAllocations(tx, tenantIDFromUser(currentUser), visibleID, input.Quantity, "Prestada", allocations)
 	if err != nil {
 		if err == errInsufficientStock {
 			return productLoanOperationResult{}, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente para registrar el préstamo.", Fields: map[string]string{"quantity": "No hay stock disponible suficiente para registrar el préstamo."}}
+		}
+		if reqErr, ok := requestErrorDetails(err); ok {
+			return productLoanOperationResult{}, reqErr
 		}
 		return productLoanOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo apartar el producto para préstamo."}
 	}
@@ -6918,6 +7160,8 @@ func createProductLoan(db *sql.DB, currentUser *User, input productLoanCreateInp
 		"quantity":                 input.Quantity,
 		"due_at":                   input.DueAt,
 		"unit_ids":                 unitIDs,
+		"source_location":          input.SourceLocation,
+		"allocations":              allocations,
 		"notes":                    input.Notes,
 	}
 	if decoratePayload != nil {
@@ -8119,7 +8363,202 @@ type inventoryAdjustResult struct {
 	Message          string
 }
 
+type inventoryTransferInput struct {
+	ProductID      string
+	SourceLocation string
+	TargetLocation string
+	Quantity       int
+	Notes          string
+}
+
+type inventoryTransferResult struct {
+	ProductID      string
+	ProductSKU     string
+	SourceLocation string
+	TargetLocation string
+	Quantity       int
+	UnitIDs        []string
+	Message        string
+}
+
+func normalizeInventoryLocation(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, "sin ubicación") || strings.EqualFold(value, "sin ubicacion") {
+		return ""
+	}
+	return value
+}
+
+func transferInventoryUnits(db *sql.DB, currentUser *User, input inventoryTransferInput, source string, decoratePayload func(map[string]any) map[string]any) (inventoryTransferResult, error) {
+	if currentUser == nil || !isStaffRole(currentUser.Role) {
+		return inventoryTransferResult{}, requestError{Status: http.StatusForbidden, Message: "Solo personal autorizado puede trasladar inventario."}
+	}
+	tenantID, err := tenantIDFromUserStrict(currentUser)
+	if err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusForbidden, Message: "No autorizado."}
+	}
+
+	input.ProductID = strings.TrimSpace(input.ProductID)
+	input.SourceLocation = normalizeInventoryLocation(input.SourceLocation)
+	input.TargetLocation = strings.TrimSpace(input.TargetLocation)
+	input.Notes = strings.TrimSpace(input.Notes)
+	fields := map[string]string{}
+	if input.ProductID == "" {
+		fields["product_id"] = "Selecciona un producto válido."
+	}
+	if input.Quantity <= 0 {
+		fields["quantity"] = "La cantidad debe ser mayor a 0."
+	}
+	if input.TargetLocation == "" || normalizeInventoryLocation(input.TargetLocation) == "" {
+		fields["target_location"] = "Selecciona una ubicación destino activa."
+	}
+	if strings.EqualFold(input.SourceLocation, input.TargetLocation) {
+		fields["target_location"] = "La ubicación destino debe ser diferente al origen."
+	}
+	if len(fields) > 0 {
+		return inventoryTransferResult{}, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: fields}
+	}
+
+	productSKU, visibleID, err := resolveProductRefForTenant(db, tenantID, input.ProductID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return inventoryTransferResult{}, requestError{Status: http.StatusNotFound, Message: "Producto no encontrado."}
+		}
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo resolver el producto."}
+	}
+	allowed, err := productAccessibleByID(db, currentUser, visibleID)
+	if err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar el acceso al producto."}
+	}
+	if !allowed {
+		return inventoryTransferResult{}, requestError{Status: http.StatusForbidden, Message: "No tienes acceso a este producto."}
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo iniciar el traslado."}
+	}
+	defer tx.Rollback()
+
+	var targetLocation string
+	if err := tx.QueryRow(`
+		SELECT name
+		FROM business_locations
+		WHERE tenant_id = ? AND active = 1 AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+		FOR UPDATE
+	`, tenantID, input.TargetLocation).Scan(&targetLocation); err != nil {
+		if err == sql.ErrNoRows {
+			return inventoryTransferResult{}, requestError{Status: http.StatusBadRequest, Message: "La ubicación destino no existe o está inactiva.", Fields: map[string]string{"target_location": "Selecciona una ubicación destino activa."}}
+		}
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo validar la ubicación destino."}
+	}
+	if strings.EqualFold(input.SourceLocation, targetLocation) {
+		return inventoryTransferResult{}, requestError{Status: http.StatusBadRequest, Message: "La ubicación destino debe ser diferente al origen.", Fields: map[string]string{"target_location": "La ubicación destino debe ser diferente al origen."}}
+	}
+
+	rows, err := tx.Query(`
+		SELECT id
+		FROM unidades
+		WHERE tenant_id = ? AND producto_id = ?
+		  AND estado IN ('Disponible', 'available')
+		  AND LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))
+		ORDER BY creado_en ASC, id ASC
+		LIMIT ?
+		FOR UPDATE
+	`, tenantID, productSKU, input.SourceLocation, input.Quantity)
+	if err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo consultar las unidades disponibles."}
+	}
+	unitIDs := make([]string, 0, input.Quantity)
+	for rows.Next() {
+		var unitID string
+		if err := rows.Scan(&unitID); err != nil {
+			rows.Close()
+			return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron leer las unidades disponibles."}
+		}
+		unitIDs = append(unitIDs, unitID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudieron procesar las unidades disponibles."}
+	}
+	rows.Close()
+	if len(unitIDs) < input.Quantity {
+		return inventoryTransferResult{}, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente en la ubicación origen.", Fields: map[string]string{"quantity": "No hay stock disponible suficiente en la ubicación origen."}}
+	}
+
+	placeholders := make([]string, len(unitIDs))
+	updateArgs := make([]any, 0, len(unitIDs)+4)
+	updateArgs = append(updateArgs, targetLocation, tenantID, productSKU)
+	for index, unitID := range unitIDs {
+		placeholders[index] = "?"
+		updateArgs = append(updateArgs, unitID)
+	}
+	updateArgs = append(updateArgs, input.SourceLocation)
+	updateQuery := fmt.Sprintf(`
+		UPDATE unidades
+		SET location = ?
+		WHERE tenant_id = ? AND producto_id = ? AND id IN (%s)
+		  AND estado IN ('Disponible', 'available')
+		  AND LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))
+	`, strings.Join(placeholders, ","))
+	updated, err := tx.Exec(updateQuery, updateArgs...)
+	if err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo actualizar la ubicación de las unidades."}
+	}
+	affected, err := updated.RowsAffected()
+	if err != nil || int(affected) != input.Quantity {
+		return inventoryTransferResult{}, requestError{Status: http.StatusConflict, Message: "El stock cambió mientras se realizaba el traslado. Intenta de nuevo."}
+	}
+
+	sourceLabel := input.SourceLocation
+	if sourceLabel == "" {
+		sourceLabel = "Sin ubicación"
+	}
+	movementNote := fmt.Sprintf("Traslado: %s -> %s", sourceLabel, targetLocation)
+	if input.Notes != "" {
+		movementNote += " | " + input.Notes
+	}
+	now := time.Now().Format(time.RFC3339)
+	if err := logMovimientos(tx, productSKU, unitIDs, "traslado", movementNote, currentUser, now); err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar el movimiento del traslado."}
+	}
+	auditPayload := map[string]any{
+		"product_id":      visibleID,
+		"product_sku":     productSKU,
+		"source_location": input.SourceLocation,
+		"source_label":    sourceLabel,
+		"target_location": targetLocation,
+		"quantity":        input.Quantity,
+		"unit_ids":        unitIDs,
+		"notes":           input.Notes,
+	}
+	if decoratePayload != nil {
+		auditPayload = decoratePayload(auditPayload)
+	}
+	if err := logAuditEvent(tx, currentUser, "inventory_transferred", "product", productSKU, source, auditPayload); err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo registrar la auditoría del traslado."}
+	}
+	if err := tx.Commit(); err != nil {
+		return inventoryTransferResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo confirmar el traslado."}
+	}
+
+	return inventoryTransferResult{
+		ProductID:      visibleID,
+		ProductSKU:     productSKU,
+		SourceLocation: input.SourceLocation,
+		TargetLocation: targetLocation,
+		Quantity:       input.Quantity,
+		UnitIDs:        unitIDs,
+		Message:        "Inventario trasladado correctamente.",
+	}, nil
+}
+
 func adjustInventoryTargetQuantity(tx *sql.Tx, tenantID int, productSKU, visibleID string, targetQuantity *int, notes string, currentUser *User) (inventoryAdjustResult, error) {
+	productLocation, err := loadProductDefaultLocation(tx, tenantID, productSKU)
+	if err != nil {
+		return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo consultar la ubicación predeterminada del producto."}
+	}
 	rows, err := tx.Query(`
 		SELECT id
 		FROM unidades
@@ -8157,8 +8596,8 @@ func adjustInventoryTargetQuantity(tx *sql.Tx, tenantID int, productSKU, visible
 		for i := 0; i < delta; i++ {
 			unitID := fmt.Sprintf("U-%s-AJ-%d-%d", productSKU, baseID, i)
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, tenantID, productSKU, "Disponible", now, nil,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				unitID, tenantID, productSKU, "Disponible", now, nil, productLocation,
 			); err != nil {
 				return inventoryAdjustResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo incrementar el stock."}
 			}
@@ -8216,6 +8655,7 @@ type creditSaleCreateInput struct {
 	ProductID         string
 	ProductName       string
 	Quantity          int
+	Allocations       []inventoryAllocationInput
 	Items             []creditSaleItemInput
 	Customer          *Customer
 	InstallmentsTotal int
@@ -8245,21 +8685,24 @@ type creditSaleItemInput struct {
 	ProductName string
 	Quantity    int
 	UnitValue   float64
+	Allocations []inventoryAllocationInput
 }
 
 type creditSaleItem struct {
-	ProductID   string  `json:"product_id"`
-	ProductSKU  string  `json:"-"`
-	ProductName string  `json:"product_name"`
-	Quantity    int     `json:"quantity"`
-	UnitValue   float64 `json:"unit_value"`
-	LineTotal   float64 `json:"line_total"`
+	ProductID   string                     `json:"product_id"`
+	ProductSKU  string                     `json:"-"`
+	ProductName string                     `json:"product_name"`
+	Quantity    int                        `json:"quantity"`
+	UnitValue   float64                    `json:"unit_value"`
+	LineTotal   float64                    `json:"line_total"`
+	Allocations []inventoryAllocationInput `json:"allocations,omitempty"`
 }
 
 type apiCreditItemPayload struct {
-	ProductID string  `json:"product_id"`
-	Quantity  int     `json:"quantity"`
-	UnitValue float64 `json:"unit_value"`
+	ProductID   string                     `json:"product_id"`
+	Quantity    int                        `json:"quantity"`
+	UnitValue   float64                    `json:"unit_value"`
+	Allocations []inventoryAllocationInput `json:"allocations"`
 }
 
 type creditSaleUpdateInput struct {
@@ -8301,27 +8744,28 @@ type creditSaleDeleteResult struct {
 }
 
 type apiCreditPayload struct {
-	Kind                   string                 `json:"kind"`
-	ProductID              string                 `json:"product_id"`
-	Quantity               int                    `json:"quantity"`
-	Items                  []apiCreditItemPayload `json:"items"`
-	CustomerID             int                    `json:"customer_id"`
-	CustomerName           string                 `json:"customer_name"`
-	CustomerPhone          string                 `json:"customer_phone"`
-	CustomerDocumentType   string                 `json:"customer_document_type"`
-	CustomerDocumentNumber string                 `json:"customer_document_number"`
-	CustomerAddress        string                 `json:"customer_address"`
-	CustomerCity           string                 `json:"customer_city"`
-	CustomerNotes          string                 `json:"customer_notes"`
-	DebtorName             string                 `json:"debtor_name"`
-	DebtorDocumentType     string                 `json:"debtor_document_type"`
-	DebtorDocumentNumber   string                 `json:"debtor_document_number"`
-	DebtorPhone            string                 `json:"debtor_phone"`
-	InstallmentsTotal      int                    `json:"installments_total"`
-	TotalValue             float64                `json:"total_value"`
-	InterestPercent        float64                `json:"interest_percent"`
-	InstallmentValue       *float64               `json:"installment_value"`
-	Notes                  string                 `json:"notes"`
+	Kind                   string                     `json:"kind"`
+	ProductID              string                     `json:"product_id"`
+	Quantity               int                        `json:"quantity"`
+	Allocations            []inventoryAllocationInput `json:"allocations"`
+	Items                  []apiCreditItemPayload     `json:"items"`
+	CustomerID             int                        `json:"customer_id"`
+	CustomerName           string                     `json:"customer_name"`
+	CustomerPhone          string                     `json:"customer_phone"`
+	CustomerDocumentType   string                     `json:"customer_document_type"`
+	CustomerDocumentNumber string                     `json:"customer_document_number"`
+	CustomerAddress        string                     `json:"customer_address"`
+	CustomerCity           string                     `json:"customer_city"`
+	CustomerNotes          string                     `json:"customer_notes"`
+	DebtorName             string                     `json:"debtor_name"`
+	DebtorDocumentType     string                     `json:"debtor_document_type"`
+	DebtorDocumentNumber   string                     `json:"debtor_document_number"`
+	DebtorPhone            string                     `json:"debtor_phone"`
+	InstallmentsTotal      int                        `json:"installments_total"`
+	TotalValue             float64                    `json:"total_value"`
+	InterestPercent        float64                    `json:"interest_percent"`
+	InstallmentValue       *float64                   `json:"installment_value"`
+	Notes                  string                     `json:"notes"`
 }
 
 func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, source string, decoratePayload func(map[string]any) map[string]any) (retomaOperationResult, error) {
@@ -8413,6 +8857,10 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo iniciar la transacción."}
 	}
 	defer tx.Rollback()
+	productLocation, err := loadProductDefaultLocation(tx, tenantID, productSKU)
+	if err != nil {
+		return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo cargar la ubicación predeterminada del producto."}
+	}
 
 	var customer *Customer
 	if hasCustomerInput(input.Customer) {
@@ -8475,8 +8923,8 @@ func registerRetoma(db *sql.DB, currentUser *User, input retomaOperationInput, s
 		for i := 0; i < input.Quantity; i++ {
 			unitID := fmt.Sprintf("U-%s-RET-%d-%d", productSKU, baseID, i+1)
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, tenantID, productSKU, "Disponible", now, nil,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				unitID, tenantID, productSKU, "Disponible", now, nil, productLocation,
 			); err != nil {
 				return retomaOperationResult{}, requestError{Status: http.StatusInternalServerError, Message: "No se pudo publicar la retoma al stock."}
 			}
@@ -8834,6 +9282,7 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 			item.ProductName = strings.TrimSpace(inputItem.ProductName)
 			item.Quantity = inputItem.Quantity
 			item.UnitValue = inputItem.UnitValue
+			item.Allocations = append([]inventoryAllocationInput(nil), inputItem.Allocations...)
 			if err := tx.QueryRow(`
 				SELECT sku, id, COALESCE(nombre, '')
 				FROM productos
@@ -8949,6 +9398,9 @@ func createCreditSale(tx *sql.Tx, currentUser *User, input creditSaleCreateInput
 		"items":                    items,
 		"item_count":               len(items),
 		"is_multi_product":         len(items) > 1,
+	}
+	if len(input.Allocations) > 0 {
+		auditPayload["allocations"] = input.Allocations
 	}
 	if decoratePayload != nil {
 		auditPayload = decoratePayload(auditPayload)
@@ -9646,6 +10098,7 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 					ProductName: product.Name,
 					Quantity:    item.Quantity,
 					UnitValue:   item.UnitValue,
+					Allocations: item.Allocations,
 				})
 			}
 			itemsTotal = math.Round(itemsTotal*100) / 100
@@ -9708,10 +10161,25 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 			return selectedByID[lockItems[left].ProductID].refID() < selectedByID[lockItems[right].ProductID].refID()
 		})
 		for _, item := range lockItems {
-			units, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), item.ProductID, item.Quantity)
+			units, err := selectAndMarkUnitsSoldWithAllocations(tx, tenantIDFromUser(currentUser), item.ProductID, item.Quantity, item.Allocations)
 			if err != nil {
 				if err == errInsufficientStock {
 					return nil, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente para completar la venta.", Fields: map[string]string{"items": "No hay stock disponible suficiente para completar la venta."}}
+				}
+				if reqErr, ok := requestErrorDetails(err); ok {
+					fields := make(map[string]string, len(reqErr.Fields))
+					itemIndex := 0
+					for index, validatedItem := range validatedItems {
+						if validatedItem.ProductID == item.ProductID {
+							itemIndex = index
+							break
+						}
+					}
+					for field, message := range reqErr.Fields {
+						fields["items["+strconv.Itoa(itemIndex)+"]."+field] = message
+					}
+					reqErr.Fields = fields
+					return nil, reqErr
 				}
 				return nil, requestError{Status: http.StatusInternalServerError, Message: "Error al actualizar inventario."}
 			}
@@ -9725,10 +10193,13 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 			soldUnitIDs = append(soldUnitIDs, units...)
 		}
 	} else if creditKind == creditSaleKindProduct {
-		soldUnitIDs, err = selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity)
+		soldUnitIDs, err = selectAndMarkUnitsSoldWithAllocations(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, payload.Allocations)
 		if err != nil {
 			if err == errInsufficientStock {
 				return nil, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente para completar la venta.", Fields: map[string]string{"quantity": "No hay stock disponible suficiente para completar la venta."}}
+			}
+			if reqErr, ok := requestErrorDetails(err); ok {
+				return nil, reqErr
 			}
 			return nil, requestError{Status: http.StatusInternalServerError, Message: "Error al actualizar inventario."}
 		}
@@ -9755,6 +10226,7 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		ProductID:         payload.ProductID,
 		ProductName:       productName,
 		Quantity:          payload.Quantity,
+		Allocations:       payload.Allocations,
 		Items:             validatedItems,
 		Customer:          customer,
 		InstallmentsTotal: payload.InstallmentsTotal,
@@ -9778,7 +10250,7 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 			Quantity: createdCredit.Quantity, UnitValue: unitValue, LineTotal: payload.TotalValue,
 		}}
 	}
-	return map[string]any{
+	response := map[string]any{
 		"ok":                true,
 		"credit_sale_id":    createdCredit.CreditSaleID,
 		"customer_id":       customer.ID,
@@ -9795,7 +10267,11 @@ func createCreditViaAPI(db *sql.DB, currentUser *User, payload apiCreditPayload,
 		"total_paid":        createdCredit.TotalPaid,
 		"current_debt":      createdCredit.CurrentDebt,
 		"message":           createdCredit.Message,
-	}, nil
+	}
+	if len(payload.Allocations) > 0 {
+		response["allocations"] = payload.Allocations
+	}
+	return response, nil
 }
 
 func loadInventoryCountsForProducts(db *sql.DB, tenantID int, productIDs []string) (map[string]productInventoryCounts, error) {
@@ -9923,16 +10399,46 @@ func selectAndMarkUnitsSold(tx *sql.Tx, tenantID int, productID string, qty int)
 }
 
 func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty int, nextStatus string) ([]string, error) {
+	return selectAndMarkUnitsByStatusWithAllocations(tx, tenantID, productID, qty, nextStatus, nil)
+}
+
+func selectAndMarkUnitsSoldWithAllocations(tx *sql.Tx, tenantID int, productID string, qty int, allocations []inventoryAllocationInput) ([]string, error) {
+	return selectAndMarkUnitsByStatusWithAllocations(tx, tenantID, productID, qty, "Vendida", allocations)
+}
+
+func singleInventoryAllocation(location string, quantity int) []inventoryAllocationInput {
+	if strings.TrimSpace(location) == "" {
+		return nil
+	}
+	return []inventoryAllocationInput{{Location: location, Quantity: quantity}}
+}
+
+func parseInventoryAllocationsJSON(raw string) ([]inventoryAllocationInput, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var allocations []inventoryAllocationInput
+	if err := json.Unmarshal([]byte(raw), &allocations); err != nil || allocations == nil {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "Distribución de ubicaciones inválida.", Fields: map[string]string{
+			"allocations": "Envía un arreglo válido de ubicaciones y cantidades.",
+		}}
+	}
+	return allocations, nil
+}
+
+func selectAndMarkUnitsByStatusWithAllocations(tx *sql.Tx, tenantID int, productID string, qty int, nextStatus string, allocations []inventoryAllocationInput) ([]string, error) {
 	if qty <= 0 {
 		return nil, fmt.Errorf("cantidad inválida")
 	}
+	tenantID = normalizeTenantID(tenantID)
 	productSKU := ""
 	err := tx.QueryRow(`
 		SELECT sku
 		FROM productos
 		WHERE tenant_id = ? AND id = ?
 		LIMIT 1
-	`, normalizeTenantID(tenantID), strings.TrimSpace(productID)).Scan(&productSKU)
+	`, tenantID, strings.TrimSpace(productID)).Scan(&productSKU)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("producto no encontrado")
@@ -9940,32 +10446,112 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty 
 		return nil, fmt.Errorf("resolver producto: %w", err)
 	}
 
-	rows, err := tx.Query(`
-		SELECT id
-		FROM unidades
-		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
-		ORDER BY creado_en, id
-		LIMIT ?
-		FOR UPDATE`, normalizeTenantID(tenantID), productSKU, qty)
-	if err != nil {
-		return nil, fmt.Errorf("query unidades: %w", err)
-	}
-	defer rows.Close()
-
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan unidad: %w", err)
+	requested := make([]inventoryAllocationInput, 0, len(allocations))
+	if len(allocations) == 0 {
+		rows, err := tx.Query(`
+			SELECT COALESCE(location, ''), COUNT(*)
+			FROM unidades
+			WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
+			GROUP BY COALESCE(location, '')
+		`, tenantID, productSKU)
+		if err != nil {
+			return nil, fmt.Errorf("query unidades por ubicación: %w", err)
 		}
-		ids = append(ids, id)
+		availableByLocation := map[string]int{}
+		locationLabels := map[string]string{}
+		for rows.Next() {
+			var rawLocation string
+			var count int
+			if err := rows.Scan(&rawLocation, &count); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan stock por ubicación: %w", err)
+			}
+			location := normalizeInventoryLocation(rawLocation)
+			key := strings.ToLower(location)
+			availableByLocation[key] += count
+			if _, ok := locationLabels[key]; !ok {
+				locationLabels[key] = location
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("rows stock por ubicación: %w", err)
+		}
+		rows.Close()
+		if len(availableByLocation) == 0 {
+			return nil, errInsufficientStock
+		}
+		if len(availableByLocation) > 1 {
+			return nil, requestError{
+				Status:  http.StatusBadRequest,
+				Message: "Debes indicar cómo distribuir la cantidad entre las ubicaciones disponibles.",
+				Fields:  map[string]string{"allocations": "Indica la cantidad por ubicación."},
+			}
+		}
+		for key := range availableByLocation {
+			requested = append(requested, inventoryAllocationInput{Location: locationLabels[key], Quantity: qty})
+		}
+	} else {
+		total := 0
+		seen := map[string]struct{}{}
+		for index, allocation := range allocations {
+			allocation.Location = normalizeInventoryLocation(allocation.Location)
+			if allocation.Quantity <= 0 {
+				return nil, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{
+					fmt.Sprintf("allocations[%d].quantity", index): "La cantidad debe ser mayor a 0.",
+				}}
+			}
+			key := strings.ToLower(allocation.Location)
+			if _, ok := seen[key]; ok {
+				return nil, requestError{Status: http.StatusBadRequest, Message: "Datos inválidos.", Fields: map[string]string{
+					fmt.Sprintf("allocations[%d].location", index): "No repitas una ubicación dentro de allocations.",
+				}}
+			}
+			seen[key] = struct{}{}
+			total += allocation.Quantity
+			requested = append(requested, allocation)
+		}
+		if total != qty {
+			return nil, requestError{Status: http.StatusBadRequest, Message: "La suma de allocations debe coincidir con quantity.", Fields: map[string]string{
+				"allocations": "La suma de cantidades por ubicación no coincide con quantity.",
+			}}
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows unidades: %w", err)
-	}
+	sort.SliceStable(requested, func(left, right int) bool {
+		return strings.ToLower(requested[left].Location) < strings.ToLower(requested[right].Location)
+	})
 
-	if len(ids) < qty {
-		return nil, errInsufficientStock
+	ids := make([]string, 0, qty)
+	for _, allocation := range requested {
+		rows, err := tx.Query(`
+			SELECT id
+			FROM unidades
+			WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
+			  AND LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))
+			ORDER BY creado_en, id
+			LIMIT ?
+			FOR UPDATE`, tenantID, productSKU, allocation.Location, allocation.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("query unidades: %w", err)
+		}
+		allocationIDs := make([]string, 0, allocation.Quantity)
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan unidad: %w", err)
+			}
+			allocationIDs = append(allocationIDs, id)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("rows unidades: %w", err)
+		}
+		rows.Close()
+		if len(allocationIDs) < allocation.Quantity {
+			return nil, errInsufficientStock
+		}
+		ids = append(ids, allocationIDs...)
 	}
 
 	placeholders := make([]string, len(ids))
@@ -9978,7 +10564,7 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty 
 	query := fmt.Sprintf("UPDATE unidades SET estado = ? WHERE tenant_id = ? AND id IN (%s) AND estado IN ('Disponible', 'available')", strings.Join(placeholders, ","))
 	updateArgs := make([]interface{}, 0, len(args)+1)
 	updateArgs = append(updateArgs, nextStatus)
-	updateArgs = append(updateArgs, normalizeTenantID(tenantID))
+	updateArgs = append(updateArgs, tenantID)
 	updateArgs = append(updateArgs, args...)
 	result, err := tx.Exec(query, updateArgs...)
 	if err != nil {
@@ -9995,6 +10581,105 @@ func selectAndMarkUnitsByStatus(tx *sql.Tx, tenantID int, productID string, qty 
 	return ids, nil
 }
 
+func markSpecificUnitsByStatus(tx *sql.Tx, tenantID int, productID string, unitIDs []string, nextStatus, sourceLocation string) ([]string, error) {
+	tenantID = normalizeTenantID(tenantID)
+	productID = strings.TrimSpace(productID)
+	if len(unitIDs) == 0 {
+		return nil, errInsufficientStock
+	}
+	productSKU := ""
+	if err := tx.QueryRow(`
+		SELECT sku
+		FROM productos
+		WHERE tenant_id = ? AND id = ?
+		LIMIT 1
+	`, tenantID, productID).Scan(&productSKU); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("producto no encontrado")
+		}
+		return nil, fmt.Errorf("resolver producto: %w", err)
+	}
+	requested := make([]string, 0, len(unitIDs))
+	seen := map[string]struct{}{}
+	for _, rawID := range unitIDs {
+		unitID := strings.TrimSpace(rawID)
+		if unitID == "" {
+			continue
+		}
+		if _, ok := seen[unitID]; ok {
+			continue
+		}
+		seen[unitID] = struct{}{}
+		requested = append(requested, unitID)
+	}
+	if len(requested) != len(unitIDs) {
+		return nil, requestError{Status: http.StatusBadRequest, Message: "Selecciona unidades válidas."}
+	}
+
+	placeholders := make([]string, len(requested))
+	args := make([]any, 0, len(requested)+3)
+	args = append(args, tenantID, productSKU)
+	for index, unitID := range requested {
+		placeholders[index] = "?"
+		args = append(args, unitID)
+	}
+	query := fmt.Sprintf(`
+		SELECT id
+		FROM unidades
+		WHERE tenant_id = ? AND producto_id = ? AND id IN (%s)
+		  AND estado IN ('Disponible', 'available')`, strings.Join(placeholders, ","))
+	if strings.TrimSpace(sourceLocation) != "" {
+		query += ` AND LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))`
+		args = append(args, normalizeInventoryLocation(sourceLocation))
+	}
+	query += " FOR UPDATE"
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query unidades específicas: %w", err)
+	}
+	available := map[string]struct{}{}
+	for rows.Next() {
+		var unitID string
+		if err := rows.Scan(&unitID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan unidad específica: %w", err)
+		}
+		available[unitID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("rows unidades específicas: %w", err)
+	}
+	rows.Close()
+	if len(available) != len(requested) {
+		return nil, errInsufficientStock
+	}
+
+	updatePlaceholders := make([]string, len(requested))
+	updateArgs := make([]any, 0, len(requested)+2)
+	updateArgs = append(updateArgs, nextStatus, tenantID)
+	for index, unitID := range requested {
+		updatePlaceholders[index] = "?"
+		updateArgs = append(updateArgs, unitID)
+	}
+	updateQuery := fmt.Sprintf(`
+		UPDATE unidades
+		SET estado = ?
+		WHERE tenant_id = ? AND id IN (%s) AND estado IN ('Disponible', 'available')`, strings.Join(updatePlaceholders, ","))
+	updated, err := tx.Exec(updateQuery, updateArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("update unidades específicas: %w", err)
+	}
+	affected, err := updated.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("rows affected unidades específicas: %w", err)
+	}
+	if int(affected) != len(requested) {
+		return nil, fmt.Errorf("unidades específicas actualizadas inesperadas: %d", affected)
+	}
+	return requested, nil
+}
+
 func availableUnitsByProduct(db *sql.DB, tenantID int, productID string) ([]unitOption, error) {
 	productSKU, _, err := resolveProductRefForTenant(db, tenantID, productID)
 	if err != nil {
@@ -10004,7 +10689,7 @@ func availableUnitsByProduct(db *sql.DB, tenantID int, productID string) ([]unit
 		return nil, err
 	}
 	rows, err := db.Query(`
-		SELECT id
+		SELECT id, COALESCE(location, '')
 		FROM unidades
 		WHERE tenant_id = ? AND producto_id = ? AND estado IN ('Disponible', 'available')
 		ORDER BY creado_en, id`, normalizeTenantID(tenantID), productSKU)
@@ -10015,11 +10700,11 @@ func availableUnitsByProduct(db *sql.DB, tenantID int, productID string) ([]unit
 
 	units := []unitOption{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var id, location string
+		if err := rows.Scan(&id, &location); err != nil {
 			return nil, err
 		}
-		units = append(units, unitOption{ID: id})
+		units = append(units, unitOption{ID: id, Location: strings.TrimSpace(location)})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -11164,6 +11849,18 @@ func deleteBusinessLocationWithReassignment(db *sql.DB, currentUser *User, locat
 	if err != nil {
 		return 0, err
 	}
+	unitsResult, err := tx.Exec(`
+		UPDATE unidades
+		SET location = ?
+		WHERE tenant_id = ? AND LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))
+	`, replacementName, tenantID, sourceName)
+	if err != nil {
+		return 0, err
+	}
+	unitsUpdated, err := unitsResult.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	deleted, err := tx.Exec(`
 		DELETE FROM business_locations
 		WHERE id = ? AND tenant_id = ? AND active = 0
@@ -11183,6 +11880,7 @@ func deleteBusinessLocationWithReassignment(db *sql.DB, currentUser *User, locat
 		"replacement_id":      replacementID,
 		"replacement_name":    replacementName,
 		"products_reassigned": productsUpdated,
+		"units_reassigned":    unitsUpdated,
 	}); err != nil {
 		return 0, err
 	}
@@ -15202,6 +15900,7 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 	}
 
 	resolved := make([]saleItemRecord, len(items))
+	resolvedAllocations := make([][]inventoryAllocationInput, len(items))
 	for index, input := range items {
 		item, err := saleProductForTransaction(tx, tenantID, currentUser, input.ProductID)
 		if err != nil {
@@ -15244,6 +15943,7 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 		item.Quantity = input.Quantity
 		item.LineTotal = item.UnitPrice * float64(item.Quantity)
 		resolved[index] = item
+		resolvedAllocations[index] = append([]inventoryAllocationInput(nil), input.Allocations...)
 	}
 
 	// Lock units in a stable order so concurrent multi-product sales do not deadlock.
@@ -15259,7 +15959,7 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 	subtotal := 0.0
 	for _, index := range order {
 		item := resolved[index]
-		soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantID, item.ProductID, item.Quantity)
+		soldUnitIDs, err := selectAndMarkUnitsSoldWithAllocations(tx, tenantID, item.ProductID, item.Quantity, resolvedAllocations[index])
 		if err != nil {
 			if err == errInsufficientStock {
 				field := "quantity"
@@ -15267,6 +15967,17 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 					field = fmt.Sprintf("items[%d].quantity", index)
 				}
 				return saleCreateResult{}, requestError{Status: http.StatusBadRequest, Message: "No hay stock disponible suficiente para completar la venta.", Fields: map[string]string{field: "No hay stock disponible suficiente para completar la venta."}}
+			}
+			if reqErr, ok := requestErrorDetails(err); ok {
+				fields := make(map[string]string, len(reqErr.Fields))
+				for field, message := range reqErr.Fields {
+					if !legacy {
+						field = fmt.Sprintf("items[%d].%s", index, field)
+					}
+					fields[field] = message
+				}
+				reqErr.Fields = fields
+				return saleCreateResult{}, reqErr
 			}
 			return saleCreateResult{}, err
 		}
@@ -15303,6 +16014,22 @@ func registerSale(db *sql.DB, currentUser *User, items []saleItemInput, legacy b
 	auditPayload["subtotal"] = subtotal
 	auditPayload["customer_id"] = customerID
 	auditPayload["items"] = saleItemMaps(resolved)
+	allocations := make([]map[string]any, 0, len(resolved))
+	for index, item := range resolved {
+		if len(resolvedAllocations[index]) == 0 {
+			continue
+		}
+		for _, allocation := range resolvedAllocations[index] {
+			allocations = append(allocations, map[string]any{
+				"product_id": item.ProductID,
+				"location":   allocation.Location,
+				"quantity":   allocation.Quantity,
+			})
+		}
+	}
+	if len(allocations) > 0 {
+		auditPayload["allocations"] = allocations
+	}
 	if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", first.ProductID, source, auditPayload); err != nil {
 		return saleCreateResult{}, err
 	}
@@ -15397,17 +16124,18 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 				return
 			}
 			var payload struct {
-				ProductID     string          `json:"product_id"`
-				Quantity      *int            `json:"quantity"`
-				CustomerID    int             `json:"customer_id"`
-				PaymentMethod string          `json:"payment_method"`
-				UnitPrice     *float64        `json:"unit_price"`
-				Total         *float64        `json:"total"`
-				SalePrice     *float64        `json:"sale_price"`
-				Channel       string          `json:"channel"`
-				SoldBy        string          `json:"sold_by"`
-				Notes         string          `json:"notes"`
-				Items         json.RawMessage `json:"items"`
+				ProductID     string                     `json:"product_id"`
+				Quantity      *int                       `json:"quantity"`
+				Allocations   []inventoryAllocationInput `json:"allocations"`
+				CustomerID    int                        `json:"customer_id"`
+				PaymentMethod string                     `json:"payment_method"`
+				UnitPrice     *float64                   `json:"unit_price"`
+				Total         *float64                   `json:"total"`
+				SalePrice     *float64                   `json:"sale_price"`
+				Channel       string                     `json:"channel"`
+				SoldBy        string                     `json:"sold_by"`
+				Notes         string                     `json:"notes"`
+				Items         json.RawMessage            `json:"items"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
@@ -15467,7 +16195,7 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 				if payload.Quantity != nil {
 					quantity = *payload.Quantity
 				}
-				inputs = append(inputs, saleItemInput{ProductID: payload.ProductID, Quantity: quantity})
+				inputs = append(inputs, saleItemInput{ProductID: payload.ProductID, Quantity: quantity, Allocations: payload.Allocations})
 			} else {
 				seen := map[string]bool{}
 				for index, item := range multiItems {
@@ -15482,7 +16210,7 @@ func handleAPISales(db *sql.DB) http.HandlerFunc {
 					if item.Quantity <= 0 {
 						fields[fmt.Sprintf("items[%d].quantity", index)] = "La cantidad debe ser un número positivo."
 					}
-					inputs = append(inputs, saleItemInput{ProductID: item.ProductID, Quantity: item.Quantity, UnitPrice: item.UnitPrice})
+					inputs = append(inputs, saleItemInput{ProductID: item.ProductID, Quantity: item.Quantity, UnitPrice: item.UnitPrice, Allocations: item.Allocations})
 				}
 			}
 			if len(fields) > 0 {
@@ -15915,6 +16643,120 @@ func handleAPIInventoryAdjust(db *sql.DB, syncProduct func(productID string, sal
 	}
 }
 
+func inventoryTransferPayload(result inventoryTransferResult) map[string]any {
+	sourceLabel := result.SourceLocation
+	if sourceLabel == "" {
+		sourceLabel = "Sin ubicación"
+	}
+	return map[string]any{
+		"ok":              true,
+		"product_id":      result.ProductID,
+		"product_sku":     result.ProductSKU,
+		"source_location": result.SourceLocation,
+		"source_label":    sourceLabel,
+		"target_location": result.TargetLocation,
+		"quantity":        result.Quantity,
+		"unit_ids":        result.UnitIDs,
+		"message":         result.Message,
+	}
+}
+
+func handleAPIInventoryTransfer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		var payload struct {
+			ProductID      string `json:"product_id"`
+			SourceLocation string `json:"source_location"`
+			TargetLocation string `json:"target_location"`
+			Quantity       int    `json:"quantity"`
+			Notes          string `json:"notes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+			return
+		}
+		result, err := transferInventoryUnits(db, userFromContext(r), inventoryTransferInput{
+			ProductID:      payload.ProductID,
+			SourceLocation: payload.SourceLocation,
+			TargetLocation: payload.TargetLocation,
+			Quantity:       payload.Quantity,
+			Notes:          payload.Notes,
+		}, "api", func(data map[string]any) map[string]any {
+			return withAPIAuditMetadata(r, data)
+		})
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo trasladar el inventario.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, inventoryTransferPayload(result))
+	}
+}
+
+func handleInventoryTransfer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAPIError(w, http.StatusMethodNotAllowed, "Método no permitido.", nil)
+			return
+		}
+		input := inventoryTransferInput{}
+		if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+			var payload struct {
+				ProductID      string `json:"product_id"`
+				SourceLocation string `json:"source_location"`
+				TargetLocation string `json:"target_location"`
+				Quantity       int    `json:"quantity"`
+				Notes          string `json:"notes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
+				return
+			}
+			input = inventoryTransferInput{
+				ProductID:      payload.ProductID,
+				SourceLocation: payload.SourceLocation,
+				TargetLocation: payload.TargetLocation,
+				Quantity:       payload.Quantity,
+				Notes:          payload.Notes,
+			}
+		} else {
+			if err := r.ParseForm(); err != nil {
+				writeAPIError(w, http.StatusBadRequest, "No se pudo leer el formulario.", nil)
+				return
+			}
+			quantity, err := strconv.Atoi(strings.TrimSpace(r.FormValue("cantidad")))
+			if err != nil {
+				quantity = 0
+			}
+			input = inventoryTransferInput{
+				ProductID:      r.FormValue("producto_id"),
+				SourceLocation: r.FormValue("source_location"),
+				TargetLocation: r.FormValue("target_location"),
+				Quantity:       quantity,
+				Notes:          r.FormValue("nota"),
+			}
+		}
+		result, err := transferInventoryUnits(db, userFromContext(r), input, "web", nil)
+		if err != nil {
+			var reqErr requestError
+			if errors.As(err, &reqErr) {
+				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo trasladar el inventario.", nil)
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, inventoryTransferPayload(result))
+	}
+}
+
 func handleAPIAgentInvoices(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -15976,23 +16818,26 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		var payload struct {
-			ProductID           string `json:"product_id"`
-			Quantity            int    `json:"quantity"`
-			PersonaCambio       string `json:"persona_del_cambio"`
-			Notes               string `json:"notes"`
-			IncomingMode        string `json:"incoming_mode"`
-			IncomingExistingID  string `json:"incoming_existing_id"`
-			IncomingExistingQty int    `json:"incoming_existing_qty"`
-			IncomingNewSKU      string `json:"incoming_new_sku"`
-			IncomingNewName     string `json:"incoming_new_name"`
-			IncomingNewLine     string `json:"incoming_new_line"`
-			IncomingNewQty      int    `json:"incoming_new_qty"`
+			ProductID           string                     `json:"product_id"`
+			Quantity            int                        `json:"quantity"`
+			SourceLocation      string                     `json:"source_location"`
+			Allocations         []inventoryAllocationInput `json:"allocations"`
+			PersonaCambio       string                     `json:"persona_del_cambio"`
+			Notes               string                     `json:"notes"`
+			IncomingMode        string                     `json:"incoming_mode"`
+			IncomingExistingID  string                     `json:"incoming_existing_id"`
+			IncomingExistingQty int                        `json:"incoming_existing_qty"`
+			IncomingNewSKU      string                     `json:"incoming_new_sku"`
+			IncomingNewName     string                     `json:"incoming_new_name"`
+			IncomingNewLine     string                     `json:"incoming_new_line"`
+			IncomingNewQty      int                        `json:"incoming_new_qty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			writeAPIError(w, http.StatusBadRequest, "JSON inválido.", nil)
 			return
 		}
 		payload.ProductID = strings.TrimSpace(payload.ProductID)
+		payload.SourceLocation = strings.TrimSpace(payload.SourceLocation)
 		payload.PersonaCambio = strings.TrimSpace(payload.PersonaCambio)
 		payload.Notes = strings.TrimSpace(payload.Notes)
 		payload.IncomingMode = strings.TrimSpace(payload.IncomingMode)
@@ -16064,10 +16909,18 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		defer tx.Rollback()
-		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, "Cambio")
+		selectedAllocations := payload.Allocations
+		if len(selectedAllocations) == 0 {
+			selectedAllocations = singleInventoryAllocation(payload.SourceLocation, payload.Quantity)
+		}
+		salientesMarcadas, err := selectAndMarkUnitsByStatusWithAllocations(tx, tenantIDFromUser(currentUser), payload.ProductID, payload.Quantity, "Cambio", selectedAllocations)
 		if err != nil {
 			if err == errInsufficientStock {
 				writeAPIError(w, http.StatusBadRequest, "No hay stock disponible suficiente para completar el cambio.", map[string]string{"quantity": "No hay stock disponible suficiente para completar el cambio."})
+				return
+			}
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeAPIError(w, reqErr.Status, reqErr.Message, reqErr.Fields)
 				return
 			}
 			writeAPIError(w, http.StatusInternalServerError, "Error al actualizar unidades salientes.", nil)
@@ -16104,9 +16957,14 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 			incomingProductID = incomingProduct.ID
 			incomingProductSKU = incomingProduct.refID()
 		}
+		incomingLocation, err := loadProductDefaultLocation(tx, tenantIDFromUser(currentUser), incomingProductSKU)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "No se pudo cargar la ubicación del producto entrante.", nil)
+			return
+		}
 		for i := 0; i < incomingQty; i++ {
 			unitID := fmt.Sprintf("U-%d-%d", time.Now().UnixNano(), i+1)
-			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductSKU, "Disponible", now, nil); err != nil {
+			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location) VALUES (?, ?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductSKU, "Disponible", now, nil, incomingLocation); err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "Error al registrar unidades entrantes.", nil)
 				return
 			}
@@ -16118,6 +16976,8 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 			"producto_entrante_id":  incomingProductID,
 			"producto_entrante_sku": incomingProductSKU,
 			"cantidad_saliente":     payload.Quantity,
+			"ubicacion_saliente":    payload.SourceLocation,
+			"allocations":           selectedAllocations,
 			"cantidad_entrante":     incomingQty,
 			"modo_entrada":          payload.IncomingMode,
 		})); err != nil {
@@ -16128,7 +16988,7 @@ func handleAPISwaps(db *sql.DB) http.HandlerFunc {
 			writeAPIError(w, http.StatusInternalServerError, "Error al confirmar el cambio.", nil)
 			return
 		}
-		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "product_id": payload.ProductID, "product_sku": productSKU, "incoming_product_id": incomingProductID, "incoming_product_sku": incomingProductSKU, "quantity": payload.Quantity, "incoming_quantity": incomingQty, "message": "Cambio registrado correctamente."})
+		writeAPIJSON(w, http.StatusCreated, map[string]any{"ok": true, "product_id": payload.ProductID, "product_sku": productSKU, "incoming_product_id": incomingProductID, "incoming_product_sku": incomingProductSKU, "quantity": payload.Quantity, "incoming_quantity": incomingQty, "allocations": selectedAllocations, "message": "Cambio registrado correctamente."})
 	}
 }
 
@@ -18549,7 +19409,32 @@ func ensureLegacyOperationalColumns(db *sql.DB) error {
 			return err
 		}
 	}
+	locationAdded := false
+	if !unidadesCols["location"] {
+		if _, err := db.Exec("ALTER TABLE unidades ADD COLUMN location TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+		locationAdded = true
+	}
+	if locationAdded {
+		if _, err := db.Exec(`
+			UPDATE unidades u
+			SET location = COALESCE((
+				SELECT NULLIF(TRIM(p.location), '')
+				FROM productos p
+				WHERE p.tenant_id = u.tenant_id AND p.sku = u.producto_id
+			), '')
+		`); err != nil {
+			return err
+		}
+	}
+	if _, err := db.Exec("UPDATE unidades SET location = COALESCE(location, '') WHERE location IS NULL"); err != nil {
+		return err
+	}
 	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_unidades_tenant_producto_created_id ON unidades(tenant_id, producto_id, creado_en, id)"); err != nil {
+		return err
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_unidades_tenant_producto_location_estado_created_id ON unidades(tenant_id, producto_id, location, estado, creado_en, id)"); err != nil {
 		return err
 	}
 	return nil
@@ -18955,7 +19840,8 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 		producto_id TEXT NOT NULL,
 		estado TEXT NOT NULL,
 		creado_en TEXT NOT NULL,
-		caducidad TEXT
+		caducidad TEXT,
+		location TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX IF NOT EXISTS idx_unidades_tenant_estado ON unidades (tenant_id, estado);
 	CREATE INDEX IF NOT EXISTS idx_unidades_tenant_producto_created_id ON unidades (tenant_id, producto_id, creado_en, id);
@@ -19161,6 +20047,7 @@ func initPostgresDB(dsn string, paymentMethods []string) (*sql.DB, error) {
 	CREATE INDEX IF NOT EXISTS idx_credit_sale_items_tenant_product ON credit_sale_items (tenant_id, product_id, credit_sale_id);
 	`
 
+	// Create location-dependent indexes after legacy columns have been migrated.
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -19294,8 +20181,8 @@ func seedUnidades(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad)
-		VALUES (?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			return fmt.Errorf("prepare unidades: %w (rollback: %v)", err, rollbackErr)
@@ -19325,7 +20212,14 @@ func seedUnidades(db *sql.DB) error {
 		estado := statuses[i%len(statuses)]
 		createdAt := now.AddDate(0, 0, -i).Format(time.RFC3339)
 		expiryAt := now.AddDate(0, 0, 20+i).Format("2006-01-02")
-		if _, err := stmt.Exec(id, defaultTenantID, productoID, estado, createdAt, expiryAt); err != nil {
+		location, err := loadProductDefaultLocation(tx, defaultTenantID, productoID)
+		if err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				return fmt.Errorf("resolve unidad location: %w (rollback: %v)", err, rollbackErr)
+			}
+			return fmt.Errorf("resolve unidad location: %w", err)
+		}
+		if _, err := stmt.Exec(id, defaultTenantID, productoID, estado, createdAt, expiryAt, location); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				return fmt.Errorf("insert unidades: %w (rollback: %v)", err, rollbackErr)
 			}
@@ -19635,6 +20529,7 @@ func main() {
 		CustomerNotes          string
 		MetodoPago             string
 		Notas                  string
+		SourceLocation         string
 		Errors                 map[string]string
 		MetodoPagos            []string
 		RoutePrefix            string
@@ -21445,6 +22340,7 @@ func main() {
 		}
 
 		productsUpdated := int64(0)
+		unitsUpdated := int64(0)
 		if previousName != name {
 			result, err := tx.Exec(`
 				UPDATE productos
@@ -21460,12 +22356,27 @@ func main() {
 				redirectWithMessage(w, r, "/configuracion", "", "No se pudo contar la actualización de productos.")
 				return
 			}
+			unitsResult, err := tx.Exec(`
+				UPDATE unidades
+				SET location = ?
+				WHERE tenant_id = ? AND LOWER(TRIM(COALESCE(location, ''))) = LOWER(TRIM(?))
+			`, name, tenantID, previousName)
+			if err != nil {
+				redirectWithMessage(w, r, "/configuracion", "", "No se pudieron actualizar las ubicaciones de las unidades.")
+				return
+			}
+			unitsUpdated, err = unitsResult.RowsAffected()
+			if err != nil {
+				redirectWithMessage(w, r, "/configuracion", "", "No se pudo contar la actualización de unidades.")
+				return
+			}
 		}
 		if err := logAuditEvent(tx, userFromContext(r), "business_location_updated", "business_location", strconv.Itoa(locationID), "manual", map[string]any{
 			"previous_name":    previousName,
 			"name":             name,
 			"active":           active == 1,
 			"products_updated": productsUpdated,
+			"units_updated":    unitsUpdated,
 		}); err != nil {
 			log.Printf("audit business location update: %v", err)
 		}
@@ -22510,8 +23421,8 @@ func main() {
 				cad = caducidad
 			}
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, tenantID, internalSKU, "Disponible", now, cad,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				unitID, tenantID, internalSKU, "Disponible", now, cad, location,
 			); err != nil {
 				http.Error(w, "No se pudieron crear unidades", http.StatusInternalServerError)
 				return
@@ -22798,7 +23709,7 @@ func main() {
 			if payload.AplicaCad && payload.FechaCaducidad != "" {
 				cad = payload.FechaCaducidad
 			}
-			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), sku, "Disponible", now, cad); err != nil {
+			if _, err := tx.Exec(`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location) VALUES (?, ?, ?, ?, ?, ?, ?)`, unitID, normalizeTenantID(tenantIDFromUser(currentUser)), sku, "Disponible", now, cad, payload.Location); err != nil {
 				writeAPIError(w, http.StatusInternalServerError, "No se pudieron crear las unidades.", nil)
 				return
 			}
@@ -24365,9 +25276,21 @@ func main() {
 		}
 		productID := strings.TrimSpace(r.FormValue("producto_id"))
 		qty := parseIntOrZero(r.FormValue("cantidad"))
+		allocations, allocationsErr := parseInventoryAllocationsJSON(r.FormValue("allocations_json"))
+		if allocationsErr != nil {
+			var reqErr requestError
+			if errors.As(allocationsErr, &reqErr) {
+				writeJSONError(reqErr.Status, reqErr.Message)
+				return
+			}
+			writeJSONError(http.StatusBadRequest, "Distribución de ubicaciones inválida.")
+			return
+		}
 		input := productLoanCreateInput{
-			ProductID: productID,
-			Quantity:  qty,
+			ProductID:      productID,
+			Quantity:       qty,
+			SourceLocation: strings.TrimSpace(r.FormValue("source_location")),
+			Allocations:    allocations,
 			Customer: customerInput{
 				CustomerID:     parseIntOrZero(r.FormValue("customer_id")),
 				Name:           strings.TrimSpace(r.FormValue("customer_name")),
@@ -24468,6 +25391,12 @@ func main() {
 		productID := strings.TrimSpace(r.FormValue("producto_id"))
 		qtyValue := strings.TrimSpace(r.FormValue("cantidad"))
 		nota := strings.TrimSpace(r.FormValue("nota"))
+		sourceLocation := strings.TrimSpace(r.FormValue("source_location"))
+		allocations, allocationsErr := parseInventoryAllocationsJSON(r.FormValue("allocations_json"))
+		if allocationsErr != nil {
+			writeJSONError(http.StatusBadRequest, "Distribución de ubicaciones inválida.")
+			return
+		}
 		qty, err := strconv.Atoi(qtyValue)
 		if productID == "" || err != nil || qty <= 0 {
 			writeJSONError(http.StatusBadRequest, "Datos inválidos.")
@@ -24495,10 +25424,17 @@ func main() {
 		}
 		defer tx.Rollback()
 
-		unitIDs, err := selectAndMarkUnitsByStatus(tx, tenantIDFromRequest(r), productID, qty, "Reservada")
+		if len(allocations) == 0 {
+			allocations = singleInventoryAllocation(sourceLocation, qty)
+		}
+		unitIDs, err := selectAndMarkUnitsByStatusWithAllocations(tx, tenantIDFromRequest(r), productID, qty, "Reservada", allocations)
 		if err != nil {
 			if err == errInsufficientStock {
 				writeJSONError(http.StatusBadRequest, "No hay stock disponible suficiente para reservar.")
+				return
+			}
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
 				return
 			}
 			writeJSONError(http.StatusInternalServerError, "No se pudieron reservar unidades.")
@@ -24508,6 +25444,18 @@ func main() {
 		now := time.Now().Format(time.RFC3339)
 		if err := logMovimientos(tx, productSKU, unitIDs, "reservar", nota, userFromContext(r), now); err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo registrar el movimiento.")
+			return
+		}
+		if err := logAuditEvent(tx, userFromContext(r), "inventory_reserved", "product", productSKU, "web", map[string]any{
+			"product_id":      visibleID,
+			"product_sku":     productSKU,
+			"quantity":        qty,
+			"unit_ids":        unitIDs,
+			"source_location": normalizeInventoryLocation(sourceLocation),
+			"allocations":     allocations,
+			"notes":           nota,
+		}); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría de la reserva.")
 			return
 		}
 
@@ -24537,6 +25485,12 @@ func main() {
 		productID := strings.TrimSpace(r.FormValue("producto_id"))
 		qtyValue := strings.TrimSpace(r.FormValue("cantidad"))
 		nota := strings.TrimSpace(r.FormValue("nota"))
+		sourceLocation := strings.TrimSpace(r.FormValue("source_location"))
+		allocations, allocationsErr := parseInventoryAllocationsJSON(r.FormValue("allocations_json"))
+		if allocationsErr != nil {
+			writeJSONError(http.StatusBadRequest, "Distribución de ubicaciones inválida.")
+			return
+		}
 		qty, err := strconv.Atoi(qtyValue)
 		if productID == "" || err != nil || qty <= 0 {
 			writeJSONError(http.StatusBadRequest, "Datos inválidos.")
@@ -24564,10 +25518,17 @@ func main() {
 		}
 		defer tx.Rollback()
 
-		unitIDs, err := selectAndMarkUnitsByStatus(tx, tenantIDFromRequest(r), productID, qty, "Danada")
+		if len(allocations) == 0 {
+			allocations = singleInventoryAllocation(sourceLocation, qty)
+		}
+		unitIDs, err := selectAndMarkUnitsByStatusWithAllocations(tx, tenantIDFromRequest(r), productID, qty, "Danada", allocations)
 		if err != nil {
 			if err == errInsufficientStock {
 				writeJSONError(http.StatusBadRequest, "No hay stock disponible suficiente.")
+				return
+			}
+			if reqErr, ok := requestErrorDetails(err); ok {
+				writeJSONError(reqErr.Status, reqErr.Message)
 				return
 			}
 			writeJSONError(http.StatusInternalServerError, "No se pudo registrar el daño.")
@@ -24577,6 +25538,18 @@ func main() {
 		now := time.Now().Format(time.RFC3339)
 		if err := logMovimientos(tx, productSKU, unitIDs, "dano", nota, userFromContext(r), now); err != nil {
 			writeJSONError(http.StatusInternalServerError, "No se pudo registrar el movimiento.")
+			return
+		}
+		if err := logAuditEvent(tx, userFromContext(r), "inventory_damaged", "product", productSKU, "web", map[string]any{
+			"product_id":      visibleID,
+			"product_sku":     productSKU,
+			"quantity":        qty,
+			"unit_ids":        unitIDs,
+			"source_location": normalizeInventoryLocation(sourceLocation),
+			"allocations":     allocations,
+			"notes":           nota,
+		}); err != nil {
+			writeJSONError(http.StatusInternalServerError, "No se pudo registrar la auditoría del daño.")
 			return
 		}
 
@@ -24806,6 +25779,8 @@ func main() {
 			"mensaje":     result.Message,
 		})
 	})
+
+	mux.HandleFunc("/inventario/trasladar", handleInventoryTransfer(db))
 
 	mux.HandleFunc("/inventario/producto/eliminar", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONError := func(status int, message string) {
@@ -25424,6 +26399,7 @@ func main() {
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"ok": true, "items": items, "count": len(items)})
 	})
+	mux.HandleFunc("/api/inventory/locations", handleAPIInventoryLocations(db))
 
 	mux.HandleFunc("/api/inventory/adjust", handleAPIInventoryAdjust(db, func(productID string, salePrice *float64, name *string, retomaEnabled *bool, retomaPrice *float64) {
 		productsMu.Lock()
@@ -25450,6 +26426,7 @@ func main() {
 			break
 		}
 	}))
+	mux.HandleFunc("/api/inventory/transfer", handleAPIInventoryTransfer(db))
 
 	mux.HandleFunc("/api/sales/recent", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -26176,7 +27153,7 @@ func main() {
 					return
 				}
 				seenProducts[key] = true
-				inputs = append(inputs, saleItemInput{ProductID: item.ProductID, Quantity: item.Quantity, UnitPrice: item.UnitPrice})
+				inputs = append(inputs, saleItemInput{ProductID: item.ProductID, Quantity: item.Quantity, UnitPrice: item.UnitPrice, Allocations: item.Allocations})
 			}
 
 			customerData := &customerInput{
@@ -26193,7 +27170,7 @@ func main() {
 			if mode == "credit" {
 				creditItems := make([]apiCreditItemPayload, 0, len(cartItems))
 				for _, item := range cartItems {
-					creditItems = append(creditItems, apiCreditItemPayload{ProductID: item.ProductID, Quantity: item.Quantity, UnitValue: *item.UnitPrice})
+					creditItems = append(creditItems, apiCreditItemPayload{ProductID: item.ProductID, Quantity: item.Quantity, UnitValue: *item.UnitPrice, Allocations: item.Allocations})
 				}
 				totalValue, parseErr := strconv.ParseFloat(strings.TrimSpace(r.FormValue("total_value")), 64)
 				if parseErr != nil {
@@ -26314,6 +27291,8 @@ func main() {
 		valorVentaFinalValue := r.FormValue("valor_venta_final")
 		metodoPago := r.FormValue("metodo_pago")
 		notas := r.FormValue("notas")
+		sourceLocation := strings.TrimSpace(r.FormValue("source_location"))
+		allocations, allocationsErr := parseInventoryAllocationsJSON(r.FormValue("allocations_json"))
 		debtorName := strings.TrimSpace(r.FormValue("debtor_name"))
 		debtorDocumentType := strings.TrimSpace(r.FormValue("debtor_document_type"))
 		debtorDocumentNumber := strings.TrimSpace(r.FormValue("debtor_document_number"))
@@ -26352,6 +27331,16 @@ func main() {
 		}
 
 		errors := make(map[string]string)
+		if allocationsErr != nil {
+			if reqErr, ok := requestErrorDetails(allocationsErr); ok {
+				for key, message := range reqErr.Fields {
+					errors[key] = message
+				}
+				if len(reqErr.Fields) == 0 {
+					errors["allocations"] = reqErr.Message
+				}
+			}
+		}
 		selectedProduct, ok := findProduct(productsSnapshot, productID)
 		if !ok && len(productsSnapshot) > 0 {
 			selectedProduct = productsSnapshot[0]
@@ -26475,7 +27464,7 @@ func main() {
 			if wantsJSON {
 				message := "Datos inválidos."
 				// Pick the first field error as a message for the modal.
-				for _, key := range []string{"producto_id", "cantidad", "sale_mode", "debtor_name", "debtor_document_type", "debtor_document_number", "debtor_phone", "customer_city", "installments_total", "total_value", "interest_percent", "installment_value", "valor_venta_final", "precio_final_venta", "metodo_pago"} {
+				for _, key := range []string{"producto_id", "cantidad", "allocations", "sale_mode", "debtor_name", "debtor_document_type", "debtor_document_number", "debtor_phone", "customer_city", "installments_total", "total_value", "interest_percent", "installment_value", "valor_venta_final", "precio_final_venta", "metodo_pago"} {
 					if msg, ok := errors[key]; ok && msg != "" {
 						message = msg
 						break
@@ -26504,6 +27493,7 @@ func main() {
 				Notas:                  notas,
 				Errors:                 errors,
 				MetodoPagos:            paymentMethodOptions,
+				SourceLocation:         sourceLocation,
 				CurrentUser:            currentUser,
 			}
 			w.WriteHeader(http.StatusBadRequest)
@@ -26521,7 +27511,11 @@ func main() {
 			return
 		}
 
-		soldUnitIDs, err := selectAndMarkUnitsSold(tx, tenantIDFromUser(currentUser), productID, cantidad)
+		selectedAllocations := allocations
+		if len(selectedAllocations) == 0 {
+			selectedAllocations = singleInventoryAllocation(sourceLocation, cantidad)
+		}
+		soldUnitIDs, err := selectAndMarkUnitsSoldWithAllocations(tx, tenantIDFromUser(currentUser), productID, cantidad, selectedAllocations)
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback venta: %v", rollbackErr)
@@ -26546,6 +27540,39 @@ func main() {
 					MetodoPagos:     paymentMethodOptions,
 				}
 				w.WriteHeader(http.StatusBadRequest)
+				renderTemplate(w, "venta_new.html", data, "Error al renderizar el template")
+				return
+			}
+			if reqErr, ok := requestErrorDetails(err); ok {
+				if wantsJSON {
+					writeJSONError(reqErr.Status, reqErr.Message, reqErr.Fields)
+					return
+				}
+				errors["source_location"] = reqErr.Message
+				data := ventaFormData{
+					Title:                  "Registrar venta",
+					ProductoID:             productID,
+					ProductoNom:            selectedProduct.Name,
+					Productos:              productsSnapshot,
+					StockByProd:            stockByProd,
+					Cantidad:               cantidad,
+					PrecioFinal:            precioValue,
+					ValorVentaFinal:        valorVentaFinalValue,
+					CustomerName:           debtorName,
+					CustomerPhone:          debtorPhone,
+					CustomerDocumentType:   debtorDocumentType,
+					CustomerDocumentNumber: debtorDocumentNumber,
+					CustomerAddress:        customerAddress,
+					CustomerCity:           customerCity,
+					CustomerNotes:          customerNotes,
+					MetodoPago:             metodoPago,
+					Notas:                  notas,
+					Errors:                 errors,
+					MetodoPagos:            paymentMethodOptions,
+					SourceLocation:         sourceLocation,
+					CurrentUser:            currentUser,
+				}
+				w.WriteHeader(reqErr.Status)
 				renderTemplate(w, "venta_new.html", data, "Error al renderizar el template")
 				return
 			}
@@ -26630,6 +27657,8 @@ func main() {
 					"product_id":         productID,
 					"product_sku":        productSKU,
 					"quantity":           cantidad,
+					"source_location":    sourceLocation,
+					"allocations":        allocations,
 					"installments_total": creditInstallmentsTotal,
 					"installment_value":  creditInstallmentValue,
 					"current_debt":       creditDebtTotal(creditInstallmentsTotal, creditInstallmentValue),
@@ -26668,6 +27697,8 @@ func main() {
 				"interest_percent":       creditInterestPercent,
 				"installment_value":      creditInstallmentValue,
 				"quantity":               cantidad,
+				"source_location":        sourceLocation,
+				"allocations":            allocations,
 			}); err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					log.Printf("rollback credit sale audit: %v", rollbackErr)
@@ -26709,13 +27740,15 @@ func main() {
 				precioFinal = valorFinalParsed / float64(cantidad)
 			}
 			if err := logAuditEvent(tx, currentUser, "sale_registered", "sale", productID, "manual", map[string]any{
-				"producto_id": productID,
-				"product_sku": productSKU,
-				"producto":    selectedProduct.Name,
-				"cantidad":    cantidad,
-				"metodo_pago": metodoPago,
-				"total":       precioFinal * float64(cantidad),
-				"sold_by":     soldBy,
+				"producto_id":     productID,
+				"product_sku":     productSKU,
+				"producto":        selectedProduct.Name,
+				"cantidad":        cantidad,
+				"metodo_pago":     metodoPago,
+				"total":           precioFinal * float64(cantidad),
+				"sold_by":         soldBy,
+				"source_location": sourceLocation,
+				"allocations":     allocations,
 			}); err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					log.Printf("rollback sale audit: %v", rollbackErr)
@@ -26758,6 +27791,9 @@ func main() {
 				resp["thermal_ticket_url"] = saleThermalTicketViewURL(saleID)
 				resp["invoice_create_url"] = invoiceNewFromSaleURL(saleID)
 				resp["redirect_url"] = fmt.Sprintf("/inventario?mensaje=%s&receipt_sale_id=%d", url.QueryEscape(message), saleID)
+			}
+			if len(allocations) > 0 {
+				resp["allocations"] = allocations
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
@@ -26873,6 +27909,9 @@ func main() {
 		}
 
 		productID := r.FormValue("producto_id")
+		sourceLocation := strings.TrimSpace(r.FormValue("source_location"))
+		allocationsRaw := strings.TrimSpace(r.FormValue("allocations_json"))
+		allocations, allocationsErr := parseInventoryAllocationsJSON(allocationsRaw)
 		personaCambio := r.FormValue("persona_del_cambio")
 		notas := r.FormValue("notas")
 		salientes := r.Form["salientes"]
@@ -26885,6 +27924,16 @@ func main() {
 		incomingNewQtyValue := r.FormValue("incoming_new_qty")
 
 		errors := make(map[string]string)
+		if allocationsErr != nil {
+			if reqErr, ok := requestErrorDetails(allocationsErr); ok {
+				for key, message := range reqErr.Fields {
+					errors[key] = message
+				}
+				if len(reqErr.Fields) == 0 {
+					errors["allocations"] = reqErr.Message
+				}
+			}
+		}
 		if allowed, accessErr := productAccessibleByID(db, currentUser, productID); accessErr != nil {
 			http.Error(w, "No se pudo validar acceso al producto", http.StatusInternalServerError)
 			return
@@ -26926,10 +27975,37 @@ func main() {
 		}
 		if len(availableUnits) == 0 {
 			errors["salientes"] = "No hay unidades disponibles para el producto seleccionado."
-		} else if len(validSalientes) == 0 {
+		} else if len(allocations) == 0 && len(validSalientes) == 0 {
 			errors["salientes"] = "Selecciona al menos una unidad disponible como saliente."
 		}
 		salientes = validSalientes
+		if len(allocations) > 0 {
+			allocationTotal := 0
+			invalidAllocations := false
+			seenAllocations := map[string]struct{}{}
+			for index, allocation := range allocations {
+				if allocation.Quantity <= 0 {
+					invalidAllocations = true
+					errors[fmt.Sprintf("allocations[%d].quantity", index)] = "La cantidad debe ser mayor a 0."
+				}
+				if allocation.Quantity > 0 {
+					allocationTotal += allocation.Quantity
+				}
+				locationKey := strings.ToLower(normalizeInventoryLocation(allocation.Location))
+				if _, duplicate := seenAllocations[locationKey]; duplicate {
+					invalidAllocations = true
+					errors[fmt.Sprintf("allocations[%d].location", index)] = "No repitas una ubicación dentro de la distribución."
+				}
+				seenAllocations[locationKey] = struct{}{}
+			}
+			if invalidAllocations {
+				errors["allocations"] = "Revisa la distribución por ubicación."
+			} else if allocationTotal <= 0 {
+				errors["allocations"] = "Indica al menos una unidad por ubicación."
+			} else if allocationTotal != len(validSalientes) {
+				errors["allocations"] = "La suma de ubicaciones debe coincidir con las unidades seleccionadas."
+			}
+		}
 
 		incomingExistingQty := 0
 		if incomingExistingQtyValue != "" {
@@ -26973,6 +28049,8 @@ func main() {
 			data := cambioFormData{
 				Title:               "Registrar cambio",
 				ProductoID:          productID,
+				SourceLocation:      sourceLocation,
+				AllocationsJSON:     allocationsRaw,
 				Productos:           productsSnapshot,
 				Unidades:            availableUnits,
 				PersonaCambio:       personaCambio,
@@ -27001,7 +28079,22 @@ func main() {
 		}
 
 		outgoingQty := len(salientes)
-		salientesMarcadas, err := selectAndMarkUnitsByStatus(tx, tenantIDFromUser(currentUser), productID, outgoingQty, "Cambio")
+		selectedAllocations := allocations
+		if len(selectedAllocations) == 0 {
+			selectedAllocations = singleInventoryAllocation(sourceLocation, outgoingQty)
+		}
+		if len(allocations) > 0 {
+			outgoingQty = 0
+			for _, allocation := range allocations {
+				outgoingQty += allocation.Quantity
+			}
+		}
+		var salientesMarcadas []string
+		if len(allocations) > 0 {
+			salientesMarcadas, err = selectAndMarkUnitsByStatusWithAllocations(tx, tenantIDFromUser(currentUser), productID, outgoingQty, "Cambio", allocations)
+		} else {
+			salientesMarcadas, err = markSpecificUnitsByStatus(tx, tenantIDFromUser(currentUser), productID, salientes, "Cambio", sourceLocation)
+		}
 		if err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback cambio: %v", rollbackErr)
@@ -27011,6 +28104,8 @@ func main() {
 				data := cambioFormData{
 					Title:               "Registrar cambio",
 					ProductoID:          productID,
+					SourceLocation:      sourceLocation,
+					AllocationsJSON:     allocationsRaw,
 					Productos:           productsSnapshot,
 					Unidades:            availableUnits,
 					PersonaCambio:       personaCambio,
@@ -27028,6 +28123,10 @@ func main() {
 				}
 				w.WriteHeader(http.StatusBadRequest)
 				renderTemplate(w, "cambio_new.html", data, "Error al renderizar el template")
+				return
+			}
+			if reqErr, ok := requestErrorDetails(err); ok {
+				http.Error(w, reqErr.Message, reqErr.Status)
 				return
 			}
 			http.Error(w, "Error al actualizar unidades salientes", http.StatusInternalServerError)
@@ -27081,13 +28180,21 @@ func main() {
 			incomingProductID = incomingProduct.ID
 			incomingProductSKU = incomingProduct.refID()
 		}
+		incomingLocation, err := loadProductDefaultLocation(tx, tenantIDFromUser(currentUser), incomingProductSKU)
+		if err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				log.Printf("rollback cambio ubicación entrante: %v", rollbackErr)
+			}
+			http.Error(w, "No se pudo cargar la ubicación del producto entrante", http.StatusInternalServerError)
+			return
+		}
 
 		for i := 0; i < incomingQty; i++ {
 			unitID := fmt.Sprintf("U-%d-%d", time.Now().UnixNano(), i+1)
 			if _, err := tx.Exec(
-				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad)
-				VALUES (?, ?, ?, ?, ?, ?)`,
-				unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductSKU, "Disponible", now, nil,
+				`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				unitID, normalizeTenantID(tenantIDFromUser(currentUser)), incomingProductSKU, "Disponible", now, nil, incomingLocation,
 			); err != nil {
 				if rollbackErr := tx.Rollback(); rollbackErr != nil {
 					log.Printf("rollback cambio insert: %v", rollbackErr)
@@ -27105,6 +28212,7 @@ func main() {
 			"cantidad_saliente":     outgoingQty,
 			"cantidad_entrante":     incomingQty,
 			"modo_entrada":          incomingMode,
+			"allocations":           selectedAllocations,
 		}); err != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Printf("rollback change audit: %v", rollbackErr)
@@ -27635,8 +28743,8 @@ func main() {
 					caducidad = fechaCaducidad
 				}
 				if _, err := tx.Exec(
-					`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad) VALUES (?, ?, ?, ?, ?, ?)`,
-					unitID, tenantID, internalSKU, "Disponible", now, caducidad,
+					`INSERT INTO unidades (id, tenant_id, producto_id, estado, creado_en, caducidad, location) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+					unitID, tenantID, internalSKU, "Disponible", now, caducidad, location,
 				); err != nil {
 					_, _ = tx.Exec("ROLLBACK TO csv_row")
 					_, _ = tx.Exec("RELEASE csv_row")

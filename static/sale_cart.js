@@ -33,6 +33,192 @@
     }).format(Math.round(number(value)));
   }
 
+  const locationCache = new Map();
+  const locationRequests = new Map();
+  let renderGeneration = 0;
+
+  function locationKey(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function locationInputValue(value) {
+    return String(value || "").trim() || "__unassigned__";
+  }
+
+  function locationValue(value) {
+    return value === "__unassigned__" ? "" : String(value || "").trim();
+  }
+
+  function persistCart(cart) {
+    memoryCart = cart;
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(cart));
+    } catch (_) {}
+  }
+
+  async function fetchLocations(productID) {
+    const key = String(productID || "").trim();
+    if (!key) return [];
+    if (locationCache.has(key)) return locationCache.get(key);
+    if (locationRequests.has(key)) return locationRequests.get(key);
+    const request = fetch(`/api/inventory/locations?product_id=${encodeURIComponent(key)}`, {
+      headers: { Accept: "application/json" },
+      credentials: "same-origin",
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok || !Array.isArray(data.locations)) {
+          throw new Error(data.error || "No se pudieron cargar las ubicaciones.");
+        }
+        locationCache.set(key, data.locations);
+        return data.locations;
+      })
+      .finally(() => locationRequests.delete(key));
+    locationRequests.set(key, request);
+    return request;
+  }
+
+  function availableLocations(locations) {
+    return (Array.isArray(locations) ? locations : [])
+      .filter((location) => number(location.available) > 0);
+  }
+
+  function suggestedAllocations(locations, item) {
+    const quantity = Math.max(0, Number(item.quantity) || 0);
+    const entries = availableLocations(locations);
+    const initial = new Map();
+    let initialTotal = 0;
+    (Array.isArray(item.allocations) ? item.allocations : []).forEach((allocation) => {
+      const amount = Math.max(0, Number(allocation?.quantity) || 0);
+      if (amount <= 0) return;
+      const key = locationKey(allocation.location);
+      if (initial.has(key)) return;
+      const entry = entries.find((location) => locationKey(location.location) === key);
+      if (!entry || amount > number(entry.available)) return;
+      initial.set(key, amount);
+      initialTotal += amount;
+    });
+    if (initialTotal === quantity && initial.size > 0) {
+      return entries
+        .map((entry) => ({
+          location: String(entry.location || "").trim(),
+          quantity: number(initial.get(locationKey(entry.location))),
+        }))
+        .filter((allocation) => allocation.quantity > 0);
+    }
+
+    let remaining = quantity;
+    return entries.reduce((result, entry) => {
+      if (remaining <= 0) return result;
+      const amount = Math.min(number(entry.available), remaining);
+      if (amount > 0) {
+        result.push({ location: String(entry.location || "").trim(), quantity: amount });
+        remaining -= amount;
+      }
+      return result;
+    }, []);
+  }
+
+  function allocationTotal(container) {
+    return Array.from(container?.querySelectorAll("[data-cart-allocation-input]") || [])
+      .reduce((total, input) => total + Math.max(0, Number(input.value) || 0), 0);
+  }
+
+  function updateAllocationTotal(container, quantity) {
+    const totalNode = container?.querySelector("[data-cart-allocation-total]");
+    if (!totalNode) return;
+    const assigned = allocationTotal(container);
+    const target = Math.max(0, Number(quantity) || 0);
+    totalNode.textContent = `Asignado: ${assigned} de ${target}`;
+    totalNode.dataset.invalid = assigned === target ? "false" : "true";
+  }
+
+  function persistLineAllocations(productID, container) {
+    const allocations = [];
+    container?.querySelectorAll("[data-cart-allocation-input]").forEach((input) => {
+      const quantity = Math.max(0, Number(input.value) || 0);
+      if (quantity <= 0) return;
+      allocations.push({
+        location: locationValue(input.dataset.locationValue),
+        quantity,
+      });
+    });
+    const cart = readCart();
+    const item = cart.find((entry) => String(entry.product_id) === String(productID));
+    if (!item) return;
+    item.allocations = allocations;
+    persistCart(cart);
+    renderCheckoutSummary(cart);
+    updateAllocationTotal(container, item.quantity);
+  }
+
+  async function renderLineAllocations(item, container, generation) {
+    if (!container) return;
+    const token = String(Number(container.dataset.renderToken || 0) + 1);
+    container.dataset.renderToken = token;
+    container.hidden = false;
+    const rows = container.querySelector("[data-cart-allocation-rows]");
+    if (!rows) return;
+    rows.replaceChildren();
+    const loading = document.createElement("span");
+    loading.className = "sale-location-allocation-loading";
+    loading.textContent = "Cargando stock por ubicación...";
+    rows.appendChild(loading);
+    try {
+      const locations = await fetchLocations(item.product_id);
+      if (generation !== renderGeneration || container.dataset.renderToken !== token) return;
+      const entries = availableLocations(locations);
+      rows.replaceChildren();
+      if (!entries.length) {
+        const empty = document.createElement("span");
+        empty.className = "sale-location-allocation-error";
+        empty.textContent = "No hay stock disponible por ubicación.";
+        rows.appendChild(empty);
+        updateAllocationTotal(container, item.quantity);
+        return;
+      }
+      const suggested = new Map(
+        suggestedAllocations(locations, item).map((allocation) => [
+          locationKey(allocation.location),
+          allocation.quantity,
+        ]),
+      );
+      entries.forEach((entry) => {
+        const row = document.createElement("div");
+        row.className = "sale-location-allocation-row";
+        const label = document.createElement("label");
+        label.textContent = entry.label || "Sin ubicación";
+        const available = document.createElement("small");
+        available.textContent = `${number(entry.available)} disponibles`;
+        label.appendChild(available);
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.max = String(number(entry.available));
+        input.step = "1";
+        input.value = String(suggested.get(locationKey(entry.location)) || 0);
+        input.dataset.cartAllocationInput = "true";
+        input.dataset.locationValue = locationInputValue(entry.location);
+        input.setAttribute("aria-label", `${entry.label || "Sin ubicación"} para ${item.product_name || item.product_id}`);
+        input.addEventListener("input", () => {
+          persistLineAllocations(item.product_id, container);
+        });
+        row.append(label, input);
+        rows.appendChild(row);
+      });
+      updateAllocationTotal(container, item.quantity);
+      persistLineAllocations(item.product_id, container);
+    } catch (error) {
+      if (container.dataset.renderToken !== token) return;
+      rows.replaceChildren();
+      const failure = document.createElement("span");
+      failure.className = "sale-location-allocation-error";
+      failure.textContent = error?.message || "No se pudieron cargar las ubicaciones.";
+      rows.appendChild(failure);
+      updateAllocationTotal(container, item.quantity);
+    }
+  }
+
   function totals(cart) {
     return cart.reduce(
       (result, item) => {
@@ -88,7 +274,7 @@
     });
   }
 
-  function renderCartLines(cart) {
+  function renderCartLines(cart, generation) {
     const container = document.querySelector("[data-cart-lines]");
     if (!container) return;
     container.replaceChildren();
@@ -122,7 +308,10 @@
       quantity.addEventListener("change", () => {
         const next = Math.max(1, Math.min(Number(item.stock) || 1, Number(quantity.value) || 1));
         const updated = readCart();
-        if (updated[index]) updated[index].quantity = next;
+        if (updated[index]) {
+          updated[index].quantity = next;
+          updated[index].allocations = [];
+        }
         writeCart(updated);
         render();
       });
@@ -163,8 +352,25 @@
       const controls = document.createElement("div");
       controls.className = "sale-cart-line-controls";
       controls.append(quantity, price, subtotal, remove);
-      line.append(info, controls);
+      const allocation = document.createElement("section");
+      allocation.className = "sale-location-allocation";
+      allocation.dataset.productId = String(item.product_id);
+      const allocationTitle = document.createElement("h3");
+      allocationTitle.className = "sale-location-allocation-title";
+      allocationTitle.textContent = "Distribución por ubicación";
+      const allocationHelp = document.createElement("p");
+      allocationHelp.className = "sale-location-allocation-help";
+      allocationHelp.textContent = "Confirma de qué ubicaciones saldrán las unidades.";
+      const allocationRows = document.createElement("div");
+      allocationRows.className = "sale-location-allocation-rows";
+      allocationRows.dataset.cartAllocationRows = "true";
+      const allocationTotal = document.createElement("p");
+      allocationTotal.className = "sale-location-allocation-total";
+      allocationTotal.dataset.cartAllocationTotal = "true";
+      allocation.append(allocationTitle, allocationHelp, allocationRows, allocationTotal);
+      line.append(info, controls, allocation);
       container.appendChild(line);
+      renderLineAllocations(item, allocation, generation);
     });
   }
 
@@ -177,6 +383,12 @@
       row.className = "checkout-line";
       const label = document.createElement("span");
       label.textContent = `${item.quantity} × ${item.product_name || item.product_id}`;
+      const allocations = Array.isArray(item.allocations)
+        ? item.allocations.filter((allocation) => Number(allocation.quantity) > 0)
+        : [];
+      if (allocations.length) {
+        label.textContent += ` · ${allocations.map((allocation) => `${allocation.quantity} en ${allocation.location || "Sin ubicación"}`).join(", ")}`;
+      }
       const value = document.createElement("strong");
       value.textContent = `$ ${money(item.quantity * item.unit_price)}`;
       row.append(label, value);
@@ -246,14 +458,16 @@
     if (existing) {
       existing.quantity = nextQuantity;
       existing.stock = stock;
+      existing.allocations = [];
     } else {
       updated.push({
         product_id: productID,
         product_name: String(item.product_name || productID),
         quantity,
-        unit_price: Number(item.unit_price) || 0,
-        stock,
-      });
+         unit_price: Number(item.unit_price) || 0,
+         stock,
+         allocations: [],
+       });
     }
     writeCart(updated);
     render();
@@ -349,6 +563,7 @@
         product_id: item.product_id,
         quantity: item.quantity,
         unit_price: item.unit_price,
+        allocations: Array.isArray(item.allocations) ? item.allocations : [],
       })));
       const button = document.querySelector("[data-confirm-sale]");
       if (button) {
@@ -359,11 +574,12 @@
   }
 
   function render() {
+    const generation = ++renderGeneration;
     const cart = readCart();
     updateBadges(cart);
     updateCatalog(cart);
     updateInventory(cart);
-    renderCartLines(cart);
+    renderCartLines(cart, generation);
     updateCheckout(cart);
     updateCheckoutMode();
   }

@@ -16,6 +16,16 @@
             .sale-cart-line-info span { color: var(--text-muted); font-size: 12px; }
             .sale-cart-line-controls { display: grid; grid-template-columns: 86px 120px auto auto; gap: 8px; align-items: center; }
             .sale-cart-line-total { min-width: 100px; text-align: right; }
+            .sale-location-allocation { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card-muted); }
+            .sale-location-allocation[hidden] { display: none; }
+            .sale-location-allocation-title { margin: 0; font-size: 13px; color: var(--secondary); }
+            .sale-location-allocation-help, .sale-location-allocation-total { margin: 0; color: var(--text-muted); font-size: 12px; }
+            .sale-location-allocation-total[data-invalid="true"] { color: var(--danger, #b42318); font-weight: 700; }
+            .sale-location-allocation-rows { display: grid; gap: 8px; }
+            .sale-location-allocation-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 12px; align-items: center; }
+            .sale-location-allocation-row label { display: grid; gap: 2px; color: var(--text); font-size: 13px; font-weight: 700; }
+            .sale-location-allocation-row small { color: var(--text-muted); font-size: 11px; font-weight: 500; }
+            .sale-location-allocation-row input { min-height: 44px; }
             .sale-empty-state { padding: 32px 8px; text-align: center; color: var(--text-muted); }
             .sale-summary { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding-top: 20px; border-top: 1px solid var(--border); }
             .sale-summary strong { font-size: 1.25rem; }

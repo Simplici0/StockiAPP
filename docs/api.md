@@ -519,6 +519,8 @@ Respuesta interna:
       "expires": "",
       "statusClass": "available",
       "statusLabel": "Disponible",
+      "location": "Estante A-03",
+      "locationLabel": "Estante A-03",
       "fifo": "1"
     }
   ]
@@ -579,6 +581,122 @@ Respuesta:
   "current_quantity": 10,
   "delta": 2,
   "message": "Inventario ajustado correctamente."
+}
+```
+
+### `GET /api/inventory/locations?product_id=P-001`
+
+Devuelve la distribución real de unidades del producto por ubicación física.
+Usa el `id` visible del producto. El resultado incluye también las ubicaciones
+del catálogo sin unidades actuales y el grupo especial `Sin ubicación`.
+
+Ejemplo:
+
+```bash
+curl -H "Authorization: Bearer TU_TOKEN" \
+  "https://login.stockiapp.co/api/inventory/locations?product_id=P-001"
+```
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "product_id": "P-001",
+  "product_sku": "SKU-000127",
+  "count": 2,
+  "locations": [
+    {
+      "location": "",
+      "label": "Sin ubicación",
+      "active": false,
+      "can_receive": false,
+      "total": 1,
+      "available": 1,
+      "reserved": 0,
+      "loaned": 0,
+      "swapped": 0,
+      "damaged": 0,
+      "sold": 0
+    },
+    {
+      "location": "Estante A-03",
+      "label": "Estante A-03",
+      "active": true,
+      "can_receive": true,
+      "total": 4,
+      "available": 3,
+      "reserved": 1,
+      "loaned": 0,
+      "swapped": 0,
+      "damaged": 0,
+      "sold": 0
+    }
+  ]
+}
+```
+
+Reglas:
+- respeta tenant, ownership y el `id` visible del producto
+- `available` solo cuenta unidades en estado disponible
+- una ubicación histórica que ya no existe en el catálogo se devuelve con `active: false` y `can_receive: false`, conservando sus conteos
+- `Sin ubicación` siempre se devuelve como no activa y no receptora
+- no envíes `tenant_id`
+
+### `POST /api/inventory/transfer`
+
+Traslada unidades disponibles de un producto entre ubicaciones. La selección
+se realiza dentro de una transacción y respeta FIFO (`creado_en ASC, id ASC`).
+
+Payload:
+
+```json
+{
+  "product_id": "P-001",
+  "source_location": "Estante A-03",
+  "target_location": "Bodega principal",
+  "quantity": 2,
+  "notes": "Reubicación de cierre"
+}
+```
+
+Ejemplo:
+
+```bash
+curl -X POST "https://login.stockiapp.co/api/inventory/transfer" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_id": "P-001",
+    "source_location": "Estante A-03",
+    "target_location": "Bodega principal",
+    "quantity": 2,
+    "notes": "Reubicación de cierre"
+  }'
+```
+
+Reglas:
+- `target_location` debe ser una ubicación activa del mismo tenant
+- `source_location` puede ser vacío para trasladar desde `Sin ubicación`
+- `quantity` debe ser mayor a `0`
+- solo se trasladan unidades disponibles
+- el producto debe ser visible para el principal autenticado
+- si falta stock en la ubicación origen, responde `400` sin cambios parciales
+- la operación registra `inventory_transferred` en `audit_events`
+
+Respuesta:
+
+```json
+{
+  "ok": true,
+  "product_id": "P-001",
+  "source_location": "Estante A-03",
+  "source_label": "Estante A-03",
+  "target_location": "Bodega principal",
+  "quantity": 2,
+  "unit_ids": ["P-001-U-4", "P-001-U-5"],
+  "message": "Inventario trasladado correctamente."
 }
 ```
 
@@ -727,6 +845,9 @@ Payload compatible:
   "product_id": "P-001",
   "customer_id": 25,
   "quantity": 2,
+  "allocations": [
+    {"location": "Estante A-03", "quantity": 2}
+  ],
   "payment_method": "Efectivo",
   "sale_price": 25000,
   "channel": "WhatsApp",
@@ -739,10 +860,13 @@ Notas:
 - `quantity` puede venir como entero o usar el valor por defecto `1`
 - `sale_price`, `unit_price` y `total` tienen lógica de compatibilidad
 - `payment_method` debe existir y estar activo para el tenant
+- `allocations` es opcional en el formato de un solo producto; cada elemento requiere `location` y `quantity > 0`, y la suma debe coincidir con `quantity`
+- cuando no envías `allocations`, el backend infiere la ubicación solo si todo el stock disponible está en una única ubicación; si está distribuido, responde `400`
 - `customer_id` es opcional para ventas normales; si se envía, el cliente debe pertenecer al tenant autenticado
 - en el modo multiproducto, `items` debe tener al menos una línea, cada línea requiere `product_id`, `quantity` positiva y `unit_price` mayor a cero
 - un `product_id` no puede repetirse dentro de `items`
 - cada producto se valida por tenant, ownership y stock dentro de una única transacción
+- en el formato multiproducto, `allocations` pertenece a cada elemento de `items`; la suma por línea debe coincidir con su `quantity`
 - las ventas normales con `customer_id` quedan asociadas al historial comercial del cliente; las ventas sin cliente no generan evento comercial de cliente
 
 Payload multiproducto:
@@ -750,8 +874,8 @@ Payload multiproducto:
 ```json
 {
   "items": [
-    {"product_id": "P-001", "quantity": 1, "unit_price": 25000},
-    {"product_id": "P-002", "quantity": 2, "unit_price": 30000}
+    {"product_id": "P-001", "quantity": 1, "unit_price": 25000, "allocations": [{"location": "Estante A-03", "quantity": 1}]},
+    {"product_id": "P-002", "quantity": 2, "unit_price": 30000, "allocations": [{"location": "Bodega principal", "quantity": 2}]}
   ],
   "payment_method": "Efectivo",
   "channel": "Tienda",
@@ -1016,7 +1140,10 @@ Modo `existing`:
   "notes": "Cambio desde n8n",
   "incoming_mode": "existing",
   "incoming_existing_id": "P-002",
-  "incoming_existing_qty": 1
+  "incoming_existing_qty": 1,
+  "allocations": [
+    {"location": "Estante A-03", "quantity": 1}
+  ]
 }
 ```
 
@@ -1036,8 +1163,31 @@ Modo `new`:
 }
 ```
 
+Ejemplo con distribución de la salida:
+
+```bash
+curl -X POST "https://login.stockiapp.co/api/swaps" \
+  -H "Authorization: Bearer TU_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_id": "P-001",
+    "quantity": 2,
+    "allocations": [
+      {"location": "Estante A-03", "quantity": 1},
+      {"location": "Bodega principal", "quantity": 1}
+    ],
+    "persona_del_cambio": "Cliente final",
+    "incoming_mode": "existing",
+    "incoming_existing_id": "P-002",
+    "incoming_existing_qty": 1
+  }'
+```
+
 Nota:
 - `incoming_new_sku` conserva nombre legado, pero el valor esperado es el `id` visible del producto nuevo; el backend genera su `sku` interno por separado
+- `allocations` es opcional. Si se envía, su suma debe coincidir con `quantity`; una ubicación vacía representa `Sin ubicación`
+- si no se envía `allocations`, el backend solo puede inferir el origen cuando todo el stock disponible está en una única ubicación
+- no envíes `tenant_id`; el tenant se resuelve desde la API key o sesión
 
 Respuesta:
 
@@ -1048,6 +1198,9 @@ Respuesta:
   "incoming_product_id": "P-002",
   "quantity": 1,
   "incoming_quantity": 1,
+  "allocations": [
+    {"location": "Estante A-03", "quantity": 1}
+  ],
   "message": "Cambio registrado correctamente."
 }
 ```
@@ -1594,6 +1747,9 @@ Payload:
   "kind": "product_credit",
   "product_id": "P-001",
   "quantity": 1,
+  "allocations": [
+    {"location": "Estante A-03", "quantity": 1}
+  ],
   "customer_name": "Juan Perez",
   "customer_phone": "3001234567",
   "customer_document_type": "CC",
@@ -1615,6 +1771,9 @@ Payload:
 Notas:
 - `product_credit` mantiene el flujo actual basado en producto.
 - `product_credit` acepta uno de dos modos excluyentes: `product_id` + `quantity`, o `items`.
+- en el modo de un solo producto, `allocations` es opcional; si se envía, la suma debe coincidir con `quantity`
+- en el modo `items`, `allocations` pertenece a cada línea y su suma debe coincidir con la cantidad de esa línea
+- si no envías allocations y el stock está distribuido en varias ubicaciones, la API responde `400` para evitar una selección implícita
 - no envíes `product_id` ni `quantity` en el nivel raíz cuando uses `items`.
 - cada elemento de `items` requiere `product_id`, `quantity > 0` y `unit_value > 0`.
 - un mismo `product_id` no puede repetirse dentro de `items`.
